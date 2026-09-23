@@ -71,4 +71,5 @@ export const MAX_NAME_LENGTH = 16;
 export const ENTITY_TYPE = {
   PLAYER: 'player',
   ITEM: 'item',
+  ARROW: 'arrow',
 };

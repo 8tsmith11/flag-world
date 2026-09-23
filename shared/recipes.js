@@ -22,6 +22,7 @@ export const RECIPES = [
   { id: 'chest', station: 'workbench', output: BLOCK.CHEST, count: 1, inputs: needs([BLOCK.PLANKS, 8]) },
   { id: 'wood_sword', station: 'workbench', output: ITEM.WOOD_SWORD, count: 1, inputs: needs([BLOCK.PLANKS, 2], [BLOCK.WOOD, 1]) },
   { id: 'stone_sword', station: 'workbench', output: ITEM.STONE_SWORD, count: 1, inputs: needs([BLOCK.STONE, 2], [BLOCK.WOOD, 1]) },
+  { id: 'bow', station: 'workbench', output: ITEM.BOW, count: 1, inputs: needs([BLOCK.PLANKS, 3], [BLOCK.WOOD, 2]) },
   { id: 'iron_sword', station: 'workbench', output: ITEM.IRON_SWORD, count: 1, inputs: needs([ITEM.IRON_INGOT, 2], [BLOCK.WOOD, 1]) },
 ];
 

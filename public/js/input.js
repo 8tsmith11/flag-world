@@ -14,8 +14,9 @@ export class Input {
     this.yaw = 0;
     this.pitch = 0;
     this.locked = false;
-    // Left mouse button held (break).
+    // Left mouse button held (break); right held (draw a bow).
     this.primaryDown = false;
+    this.secondaryDown = false;
     // One-shot actions, latched until the next simulation tick consumes them.
     this.attackPressed = false;
     this.placePressed = false;
@@ -42,7 +43,7 @@ export class Input {
     document.addEventListener('mousedown', (e) => {
       if (!this.locked) return;
       if (e.button === 0) this.primaryDown = this.attackPressed = true;
-      if (e.button === 2) this.placePressed = true;
+      if (e.button === 2) this.placePressed = this.secondaryDown = true;
     });
     document.addEventListener('contextmenu', (e) => {
       if (this.locked) e.preventDefault();
@@ -53,6 +54,7 @@ export class Input {
     });
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.primaryDown = false;
+      if (e.button === 2) this.secondaryDown = false;
     });
     // A refused lock request leaves us unlocked; report it like an unlock.
     document.addEventListener('pointerlockerror', () => this.onLockChange?.(false));
@@ -67,6 +69,7 @@ export class Input {
   release() {
     this.keys.clear();
     this.primaryDown = false;
+    this.secondaryDown = false;
     this.attackPressed = false;
     this.placePressed = false;
     this.dropPressed = false;

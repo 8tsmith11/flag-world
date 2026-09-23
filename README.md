@@ -34,10 +34,10 @@ Start.
 
 World sizes:
 
-- **Test**: a small, low world for quick testing. It grows a little with
-  more players.
-- **Small / Medium / Large**: floating islands, 636 / 780 / 944 blocks
-  across. There's a big center island (bigger, and further from the ring, in
+- **Test**: a low, rolling world for quick testing (160 blocks across for one
+  player, 32 more per extra player), with caves like the islands'.
+- **Tiny / Small / Medium / Large**: floating islands, 392 / 648 / 790 / 952
+  blocks across (Tiny has a thinner ring, just one row of islands). There's a big center island (bigger, and further from the ring, in
   larger worlds), a ring of large islands where every player gets their keep
   on their own island, and small islands scattered further out. Some islands are joined by winding land bridges or lines of
   stepping stones; most aren't. Fall off and you're gone.
@@ -79,6 +79,9 @@ Place the workbench and right click it for everything else:
 
 - Hammers (break harder blocks, faster): 3 planks / stone / iron ingots + 2 wood
 - Swords (more damage than fists): 2 planks / stone / iron ingots + 1 wood
+- Bow: 3 planks + 2 wood. Hold right click to draw (up to 1 second), let go to
+  shoot. A fuller draw shoots faster and harder (1 to 5 damage). Arrows are
+  unlimited; you walk at half speed while drawing.
 - 6 planks → door
 - 8 stone → furnace
 - 8 planks → chest (27 slots; anyone can open any chest)
@@ -111,7 +114,8 @@ a ladder is safe.
 The big islands have caves, some with entrances in cliffs, undersides or the
 top.
 
-The islands have small ponds with sandy shores. In the inventory, click to pick up
+The center island has lakes, and some other big islands a small pond, all
+with sandy shores. In the inventory, click to pick up
 or put down a stack, and right click to pick up half or put down one.
 
 ## Capture the flag

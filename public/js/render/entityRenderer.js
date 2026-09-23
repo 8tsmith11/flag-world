@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { ITEM_SIZE } from '/shared/config.js';
 import { ENTITY_TYPE } from '/shared/protocol.js';
-import { createPlayerModel, createItemModel, animatePlayer, swingPlayer } from './models.js';
+import { createPlayerModel, createItemModel, createArrowModel, animatePlayer, swingPlayer } from './models.js';
 
 const INTERP_DELAY_MS = 100;
 const MAX_SNAPSHOTS = 20;
@@ -42,6 +42,12 @@ export function createSpriteModel(texture, width, height) {
 const MODEL_FACTORIES = {
   [ENTITY_TYPE.PLAYER]: createPlayerModel,
   [ENTITY_TYPE.ITEM]: createDroppedItemModel,
+  // Arrows point along their velocity (userData.arrow) instead of a yaw.
+  [ENTITY_TYPE.ARROW]: () => {
+    const arrow = createArrowModel();
+    arrow.userData.arrow = true;
+    return arrow;
+  },
 };
 
 function lerpAngle(a, b, t) {
@@ -92,7 +98,7 @@ export class EntityRenderer {
     if (entity.snapshots.at(-1)?.dead !== dead) entity.snapshots.length = 0;
     entity.snapshots.push({
       time: performance.now(), x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
-      crouching: !!snap.crouching, dead,
+      crouching: !!snap.crouching, draw: snap.draw ?? 0, vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
     if (entity.snapshots.length > MAX_SNAPSHOTS) entity.snapshots.shift();
   }
@@ -144,7 +150,11 @@ export class EntityRenderer {
       const t = b.time === a.time ? 1 : Math.max(0, Math.min(1, (renderTime - a.time) / (b.time - a.time)));
       object.position.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
       const spin = object.userData.spin;
-      if (spin) {
+      if (object.userData.arrow) {
+        // Face along the flight. A stuck arrow keeps the direction it hit with.
+        const vx = a.vx + (b.vx - a.vx) * t, vy = a.vy + (b.vy - a.vy) * t, vz = a.vz + (b.vz - a.vz) * t;
+        if (vx || vy || vz) object.lookAt(object.position.x + vx, object.position.y + vy, object.position.z + vz);
+      } else if (spin) {
         object.rotation.y = now * ITEM_SPIN_SPEED + spin.phase;
         spin.inner.position.y = ITEM_BOB_HEIGHT * (1 + Math.sin(now * ITEM_BOB_SPEED + spin.phase));
       } else {
@@ -153,7 +163,9 @@ export class EntityRenderer {
       if (object.userData.player) {
         const span = (b.time - a.time) / 1000;
         const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
-        animatePlayer(object, { dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, crouching: b.crouching });
+        animatePlayer(object, {
+          dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, crouching: b.crouching, draw: b.draw,
+        });
       }
     }
   }

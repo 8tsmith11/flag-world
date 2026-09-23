@@ -5,15 +5,23 @@
 //
 // Animations: a swing arc on click (repeating while mining), a short push
 // when placing, sway that lags behind mouse look, and bob while walking.
+// Drawing a bow brings the arm level toward the middle of the view, holding
+// the bow upright, and pulls the string back.
 
 import * as THREE from 'three';
-import { createArm, setHandItem } from './models.js';
+import { createArm, setHandItem, setBowDraw, handItem } from './models.js';
 
 // Resting pose: shoulder below and right of the view, arm reaching forward and
 // a little up (pitch past 90° from hanging), so the fist sits in the lower right.
 const REST = new THREE.Vector3(0.45, -0.55, -0.15);
 const REST_PITCH = 1.9;
 const REST_YAW = 0.15;
+
+// Aiming a bow: the arm level (pitch 90° from hanging) and nearer the middle.
+const AIM = new THREE.Vector3(0.2, -0.42, -0.1);
+const AIM_PITCH = Math.PI / 2;
+const AIM_YAW = 0.05;
+const AIM_EASE = 10;
 
 const SWING_MS = 280;
 const PUSH_MS = 160;
@@ -42,6 +50,8 @@ export class ViewModel {
     this.lagPitch = 0;
     this.bobPhase = 0;
     this.bobAmount = 0;
+    // Eased 0..1: how far into the aiming pose.
+    this.aim = 0;
   }
 
   swing() {
@@ -56,10 +66,13 @@ export class ViewModel {
 
   // look: { yaw, pitch }; speed: horizontal blocks/s on the ground (0 in the air);
   // mining: keep swinging.
-  update(dt, { look, speed, mining, held }) {
+  // draw: how far a bow is drawn (0..1), 0 when not drawing.
+  update(dt, { look, speed, mining, held, draw = 0 }) {
     const now = performance.now();
     if (mining) this.swing();
     setHandItem(this.hand, held);
+    this.aim += ((draw > 0 ? 1 : 0) - this.aim) * Math.min(1, dt * AIM_EASE);
+    setBowDraw(handItem(this.hand), draw);
 
     if (this.lagYaw === null) this.lagYaw = look.yaw;
     const follow = 1 - Math.exp(-dt * SWAY_FOLLOW);
@@ -81,9 +94,18 @@ export class ViewModel {
     const p = (now - this.pushStart) / PUSH_MS;
     const push = p >= 0 && p < 1 ? Math.sin(Math.PI * p) : 0;
 
-    this.pivot.position.set(REST.x + swayX + bobX, REST.y - swayY + bobY, REST.z - push * 0.12);
+    const k = this.aim;
+    this.pivot.position.set(
+      REST.x + (AIM.x - REST.x) * k + swayX + bobX,
+      REST.y + (AIM.y - REST.y) * k - swayY + bobY,
+      REST.z + (AIM.z - REST.z) * k - push * 0.12,
+    );
     // The swing chops down and across toward the crosshair.
-    this.pivot.rotation.set(REST_PITCH - swing * 0.9, REST_YAW + swing * 0.35, swing * 0.2);
+    this.pivot.rotation.set(
+      REST_PITCH + (AIM_PITCH - REST_PITCH) * k - swing * 0.9,
+      REST_YAW + (AIM_YAW - REST_YAW) * k + swing * 0.35,
+      swing * 0.2,
+    );
   }
 
   render(renderer) {

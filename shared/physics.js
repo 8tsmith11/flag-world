@@ -7,7 +7,7 @@ import {
   TERMINAL_VELOCITY, SWIM_GRAVITY_SCALE, SWIM_UP_SPEED, SWIM_SPEED_SCALE, SWIM_EXIT_VELOCITY,
   ITEM_SIZE, ITEM_AIR_DRAG, ITEM_GROUND_FRICTION, KNOCKBACK_SPEED, KNOCKBACK_AIR_DECAY,
   KNOCKBACK_GROUND_DECAY, CARRY_SPEED_SCALE, CLIMB_SPEED, PLAYER_EYE_HEIGHT,
-  CROUCH_SPEED_SCALE, CROUCH_HEIGHT, CROUCH_EYE_DROP, CROUCH_MAX_DROP,
+  CROUCH_SPEED_SCALE, CROUCH_HEIGHT, CROUCH_EYE_DROP, CROUCH_MAX_DROP, BOW_DRAW_SPEED_SCALE,
 } from './config.js';
 import { BLOCK, isSolid, isLadder } from './blocks.js';
 
@@ -150,7 +150,9 @@ export function stepPlayer(state, input, world) {
   const len = Math.hypot(fwd, strafe);
   if (len > 1) { fwd /= len; strafe /= len; }
   const speed = WALK_SPEED * (inWater ? SWIM_SPEED_SCALE : 1) * (state.carrying ? CARRY_SPEED_SCALE : 1)
-    * (state.crouching ? CROUCH_SPEED_SCALE : 1);
+    * (state.crouching ? CROUCH_SPEED_SCALE : 1)
+    // Drawing a bow (input.draw is only sent, and only kept by the server, while holding one).
+    * (input.draw ? BOW_DRAW_SPEED_SCALE : 1);
   const sin = Math.sin(state.yaw), cos = Math.cos(state.yaw);
   // Yaw 0 looks down -Z (Three.js camera convention).
   // Knockback takes control away: none right after a hit, back to full as it fades.

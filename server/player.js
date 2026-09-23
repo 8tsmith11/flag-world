@@ -1,4 +1,4 @@
-import { MAX_HP, FLAG_GRAB_TIME, TICK_RATE } from '../shared/config.js';
+import { MAX_HP, FLAG_GRAB_TIME, TICK_RATE, BOW_FULL_DRAW } from '../shared/config.js';
 import { createPlayerState } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { breakingStats, attackStats } from '../shared/tools.js';
@@ -8,6 +8,7 @@ import { Inventory } from './inventory.js';
 // socket is set to null and the player stays in the world (position,
 // inventory, ...) until someone reconnects with the same name.
 export const GRAB_TICKS = Math.round(FLAG_GRAB_TIME * TICK_RATE);
+const BOW_FULL_TICKS = Math.round(BOW_FULL_DRAW * TICK_RATE);
 
 export class Player {
   constructor(id, socket, name, color, spawn) {
@@ -41,6 +42,9 @@ export class Player {
     this.grab = null;
     this.eliminated = false;
     this.inventory = new Inventory();
+    // Bow: ticks the draw has been held, and the game tick it can next shoot.
+    this.drawTicks = 0;
+    this.nextShotTick = 0;
     // "x,y,z" of the furnace whose screen is open, or null.
     this.viewing = null;
     // Hotbar slot in hand, from the latest input.
@@ -99,6 +103,8 @@ export class Player {
       carrying: this.carrying?.id ?? null,
       held: this.held(),
       grab: this.grab ? this.grab.ticks / GRAB_TICKS : 0,
+      // How far a bow is drawn, 0..1.
+      draw: Math.min(1, this.drawTicks / BOW_FULL_TICKS),
       lastSeq: this.lastSeq,
     };
   }

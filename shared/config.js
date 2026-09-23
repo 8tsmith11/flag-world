@@ -10,9 +10,10 @@ export const PORT = 3000;
 // World height in blocks. The X/Z size depends on the match's player count
 // (see worldSize in worldgen.js).
 export const WORLD_SIZE_Y = 32;
-// X/Z size in chunks: a base plus one per player, capped.
-export const WORLD_BASE_CHUNKS = 4;
-export const WORLD_MAX_CHUNKS = 16;
+// Test world X/Z size in chunks: a base plus two per player, capped.
+export const WORLD_BASE_CHUNKS = 8;
+export const WORLD_CHUNKS_PER_PLAYER = 2;
+export const WORLD_MAX_CHUNKS = 32;
 
 // Chunks are cubes of CHUNK_SIZE blocks.
 export const CHUNK_SIZE = 16;
@@ -121,6 +122,24 @@ export const FLAG_RETURN_TIME = 120;
 // A player is on a flag when their feet are within this horizontal distance of its base.
 export const FLAG_TOUCH_RADIUS = 0.8;
 export const CARRY_SPEED_SCALE = 0.6;
+
+// Bows. Times in seconds, speeds in blocks/s. Charge runs from the shortest
+// draw that shoots (BOW_MIN_DRAW) to a full draw (BOW_FULL_DRAW); arrow speed
+// and damage scale linearly across it.
+export const BOW_FULL_DRAW = 1;
+export const BOW_MIN_DRAW = 0.2;
+export const BOW_COOLDOWN = 0.5;
+export const BOW_DRAW_SPEED_SCALE = 0.5;
+export const ARROW_SPEED = [15, 50];
+export const ARROW_DAMAGE = [1, 5];
+// Arrows fall slower than players (GRAVITY) so they arc gently, and lose a
+// little speed each tick.
+export const ARROW_GRAVITY = 12;
+export const ARROW_DRAG = 0.99;
+export const ARROW_STICK_TIME = 10;
+// An arrow can't hit whoever shot it this soon after leaving the bow.
+export const ARROW_SAFE_TIME = 0.2;
+export const ARROW_KNOCKBACK = 3;
 
 // Furnace: seconds to smelt one item.
 export const SMELT_TIME = 5;

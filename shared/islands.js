@@ -74,9 +74,12 @@ const ORE_SCALE = 1 / 5;
 const ORE_THRESHOLD = 0.87;
 const ORE_CENTER_BONUS = 0.04;
 const ORE_EXPOSED_BONUS = 0.1;
-// Ponds: on islands at least this wide, with sand shores.
+// Ponds: on islands at least this wide, with sand shores. The center island
+// gets bigger lakes, about one per LAKE_AREA square blocks of it.
 const POND_MIN_WIDTH = 40;
 const POND_RADIUS = [2, 4];
+const LAKE_RADIUS = [3, 7];
+const LAKE_AREA = 3000;
 
 const lerp = ([a, b], t) => a + (b - a) * t;
 
@@ -89,18 +92,19 @@ export function generateIslandWorld(seed, playerCount, layout) {
 
   // 1. Center island, nudged off the exact center.
   const centerWidth = lerp(layout.center, random());
+  const center = makeIsland(random, 'center',
+    mid + (random() * 2 - 1) * CENTER_JITTER, mid + (random() * 2 - 1) * CENTER_JITTER,
+    centerWidth, CENTER_TOP);
   // The layout is for the widest center island; pull everything else in to
-  // match this one, so the gap to the ring is the same whatever its size.
-  const pull = (layout.center[1] - centerWidth) / 2;
+  // match this one, so the gap to the ring is the same whatever its size, and
+  // back out by how far it was nudged, so the gap holds on its near side too.
+  const pull = (layout.center[1] - centerWidth) / 2 - Math.hypot(center.x - mid, center.z - mid);
   const cfg = {
     ...layout,
     ring: layout.ring.map((r) => r - pull),
     outer: layout.outer.map((r) => r - pull),
     keepDistance: layout.keepDistance - pull,
   };
-  const center = makeIsland(random, 'center',
-    mid + (random() * 2 - 1) * CENTER_JITTER, mid + (random() * 2 - 1) * CENTER_JITTER,
-    centerWidth, CENTER_TOP);
   const islands = [center];
 
   // 2a. Keep islands, one per player, each holding its keep off-center.
@@ -112,8 +116,18 @@ export function generateIslandWorld(seed, playerCount, layout) {
     const maxOffset = Math.max(0, r * 0.72 - KEEP_REACH * 1.42);
     const angle = random() * Math.PI * 2, offset = random() * maxOffset;
     const top = RING_TOP + (random() - 0.5) * RING_TOP_SPREAD;
-    const island = makeIsland(random, 'keep', site.x - Math.cos(angle) * offset, site.z - Math.sin(angle) * offset, width, top);
-    island.keepSite = { cx: Math.floor(site.x), cz: Math.floor(site.z) };
+    let ix = site.x - Math.cos(angle) * offset, iz = site.z - Math.sin(angle) * offset;
+    // Keep the whole island inside the ring (a thin ring gets it centered),
+    // moving the keep with it so it stays on the island.
+    const [r0, r1] = cfg.ring;
+    const d = Math.hypot(ix - mid, iz - mid) || 1;
+    const lo = r0 + r, hi = r1 - r;
+    const want = lo > hi ? (r0 + r1) / 2 : Math.max(lo, Math.min(hi, d));
+    const shiftX = ((ix - mid) / d) * (want - d), shiftZ = ((iz - mid) / d) * (want - d);
+    ix += shiftX;
+    iz += shiftZ;
+    const island = makeIsland(random, 'keep', ix, iz, width, top);
+    island.keepSite = { cx: Math.floor(site.x + shiftX), cz: Math.floor(site.z + shiftZ) };
     return island;
   });
   islands.push(...keepIslands);
@@ -313,13 +327,16 @@ function carveIsland(island, noise, noise3, random) {
 // them, except the ones that end as entrances, which steer out through a
 // cliff, the underside or the top. Some center island worms open into a
 // round room.
-function carveCaves(island, box, noise3, random) {
+//
+// Also used for the Test world, which passes its whole terrain as one "island"
+// with its own avoid(wx, wz) (keeps and ponds) and a square `interior`.
+export function carveCaves(island, box, noise3, random) {
   const { x0, y0, z0, sx, sy, sz, data, colTop, colBottom } = box;
   const column = (lx, lz) => (lx >= 0 && lz >= 0 && lx < sx && lz < sz ? lx + lz * sx : -1);
   const keep = island.keepSite;
-  const nearKeep = (wx, wz) => keep
+  const nearKeep = island.avoid ?? ((wx, wz) => keep
     && Math.abs(wx - keep.cx) <= KEEP_REACH + CAVE_KEEP_CLEARANCE
-    && Math.abs(wz - keep.cz) <= KEEP_REACH + CAVE_KEEP_CLEARANCE;
+    && Math.abs(wz - keep.cz) <= KEEP_REACH + CAVE_KEEP_CLEARANCE);
 
   // At least CAVE_SHELL blocks of island above, below and to every side.
   const shellOffsets = [[0, 0], [CAVE_SHELL, 0], [-CAVE_SHELL, 0], [0, CAVE_SHELL], [0, -CAVE_SHELL],
@@ -355,8 +372,16 @@ function carveCaves(island, box, noise3, random) {
   const cx = island.x - x0, cz = island.z - z0;
   const pickInterior = () => {
     for (let tries = 0; tries < 12; tries++) {
-      const a = random() * Math.PI * 2, d = Math.sqrt(random()) * island.r * 0.75;
-      const lx = Math.floor(cx + Math.cos(a) * d), lz = Math.floor(cz + Math.sin(a) * d);
+      let lx, lz;
+      if (island.square) {
+        // Anywhere in the box (the Test world is square, not round).
+        lx = Math.floor(random() * sx);
+        lz = Math.floor(random() * sz);
+      } else {
+        const a = random() * Math.PI * 2, d = Math.sqrt(random()) * island.r * 0.75;
+        lx = Math.floor(cx + Math.cos(a) * d);
+        lz = Math.floor(cz + Math.sin(a) * d);
+      }
       const c = column(lx, lz);
       if (c < 0 || colTop[c] < 0) continue;
       const low = colBottom[c] + CAVE_SHELL + 3, high = colTop[c] - CAVE_SHELL - 3;
@@ -405,8 +430,8 @@ function carveCaves(island, box, noise3, random) {
     }
   };
 
-  const center = island.kind === 'center';
-  const area = Math.PI * island.r * island.r;
+  const center = island.kind === 'center' || island.square;
+  const area = island.square ? sx * sz : Math.PI * island.r * island.r;
   const worms = Math.max(1, Math.round(area * WORM_DENSITY * (center ? 1 : 0.5)));
   for (let i = 0; i < worms; i++) {
     const at = pickInterior();
@@ -435,38 +460,50 @@ function placeOre(island, box, noise3) {
   }
 }
 
-// Small still ponds on a big island's top (the center island gets a few,
-// others maybe one): a noisy round hollow of water, deeper in the middle, on
-// ground that's nearly flat and away from the keep. Sand goes around them.
+// Still ponds on a big island's top (lakes on the center island, maybe one
+// pond elsewhere): a noisy round basin of water, deeper in the middle, away
+// from the keep. The water level is the lowest ground in and around the basin,
+// so it never spills; the basin is dug down to it, and the ground around it
+// stands as banks. Spots that would cut deep into a hill, aren't grassy
+// ground, touch another pond, or have a cave close under them are skipped.
+// Sand goes around the water.
+const POND_MAX_DIG = 3;
 function addPonds(world, random, noise, island) {
-  const count = island.kind === 'center' ? 3 : random() < 0.5 ? 1 : 0;
+  const center = island.kind === 'center';
+  const count = center ? Math.round((Math.PI * island.r * island.r) / LAKE_AREA) : random() < 0.5 ? 1 : 0;
+  const soft = (id) => id === BLOCK.GRASS || id === BLOCK.DIRT || id === BLOCK.SAND;
   for (let p = 0; p < count; p++) {
-    for (let tries = 0; tries < 8; tries++) {
-      const angle = random() * Math.PI * 2, dist = random() * island.r * 0.5;
-      const radius = lerp(POND_RADIUS, random());
+    for (let tries = 0; tries < (center ? 16 : 8); tries++) {
+      const angle = random() * Math.PI * 2, dist = Math.sqrt(random()) * island.r * (center ? 0.75 : 0.5);
+      const radius = lerp(center ? LAKE_RADIUS : POND_RADIUS, random());
       const cx = Math.floor(island.x + Math.cos(angle) * dist), cz = Math.floor(island.z + Math.sin(angle) * dist);
       const keep = island.keepSite;
       if (keep && Math.hypot(cx - keep.cx, cz - keep.cz) < KEEP_REACH * 1.5 + radius + 6) continue;
-      const level = world.getSurfaceY(cx, cz, isSolid);
-      const reach = Math.ceil(radius) + 3;
-      // Nearly flat grass all around, so the water sits in a hollow.
-      let flat = true;
-      for (let dz = -reach; dz <= reach && flat; dz++) {
-        for (let dx = -reach; dx <= reach && flat; dx++) {
-          const top = world.getSurfaceY(cx + dx, cz + dz, isSolid);
-          flat = Math.abs(top - level) <= 1 && world.getBlock(cx + dx, top, cz + dz) === BLOCK.GRASS;
+      const reach = Math.ceil(radius * 1.25) + 2;
+      // The basin's cells (a noisy disc), and the ground heights around it.
+      const basin = [];
+      let level = Infinity, highest = -Infinity, ok = true;
+      for (let dz = -reach; dz <= reach && ok; dz++) {
+        for (let dx = -reach; dx <= reach && ok; dx++) {
+          const x = cx + dx, z = cz + dz;
+          const top = world.getSurfaceY(x, z, isSolid);
+          ok = top >= 0 && soft(world.getBlock(x, top, z)) && world.getBlock(x, top + 1, z) !== BLOCK.WATER;
+          level = Math.min(level, top);
+          const d = Math.hypot(dx, dz) / radius * (1 + 0.25 * noise(x + 0.5, z + 0.5));
+          if (d < 1) {
+            basin.push({ x, z, top, d });
+            highest = Math.max(highest, top);
+          }
         }
       }
-      if (!flat) continue;
-      for (let dz = -reach; dz <= reach; dz++) {
-        for (let dx = -reach; dx <= reach; dx++) {
-          const d = Math.hypot(dx, dz) / radius * (1 + 0.25 * noise(cx + dx + 0.5, cz + dz + 0.5));
-          if (d >= 1) continue;
-          const x = cx + dx, z = cz + dz;
-          for (let y = level + 1; y <= level + 2; y++) world.setBlock(x, y, z, BLOCK.AIR);
-          world.setBlock(x, level, z, BLOCK.WATER);
-          if (d < 0.55) world.setBlock(x, level - 1, z, BLOCK.WATER);
-        }
+      // Solid ground for three blocks under the water level everywhere, so
+      // neither the shallow edge nor the deeper middle sits over a cave.
+      ok = ok && basin.every(({ x, z }) => [1, 2, 3].every((k) => isSolid(world.getBlock(x, level - k, z))));
+      if (!ok || highest - level > POND_MAX_DIG) continue;
+      for (const { x, z, top, d } of basin) {
+        for (let y = level + 1; y <= top + 2; y++) world.setBlock(x, y, z, BLOCK.AIR);
+        world.setBlock(x, level, z, BLOCK.WATER);
+        if (d < 0.55) world.setBlock(x, level - 1, z, BLOCK.WATER);
       }
       sandShores(world, noise, cx - reach - 3, cz - reach - 3, cx + reach + 3, cz + reach + 3);
       break;

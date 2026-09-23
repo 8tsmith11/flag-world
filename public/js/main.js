@@ -3,7 +3,8 @@
 // runs fixed-rate input ticks and a per-frame render loop.
 
 import {
-  DEBUG, TICK_DT, PLAYER_EYE_HEIGHT, REACH_DISTANCE, RESPAWN_DELAY,
+  DEBUG, TICK_DT, TICK_RATE, PLAYER_EYE_HEIGHT, REACH_DISTANCE, RESPAWN_DELAY,
+  BOW_FULL_DRAW, BOW_MIN_DRAW, BOW_COOLDOWN,
   VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX,
 } from '/shared/config.js';
 import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT } from '/shared/protocol.js';
@@ -12,7 +13,7 @@ import {
   BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isDoor, isFurnace, isChest,
 } from '/shared/blocks.js';
 import { breakingStats } from '/shared/tools.js';
-import { getItemDef } from '/shared/items.js';
+import { getItemDef, ITEM } from '/shared/items.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '/shared/raycast.js';
 import { playerBoxOf, eyeHeight } from '/shared/physics.js';
 import { Connection } from './net.js';
@@ -107,6 +108,17 @@ let breaking = null;
 // Player id -> name, for the kill feed.
 const names = new Map();
 let shakeUntil = 0;
+// Bow draw, mirrored from the server's rules for the arm, string and zoom:
+// ticks drawn, and the local tick count before which a new draw doesn't build.
+let drawTicks = 0;
+let drawReadyAt = 0;
+let localTick = 0;
+const BOW_FULL_TICKS = Math.round(BOW_FULL_DRAW * TICK_RATE);
+const BOW_MIN_TICKS = Math.round(BOW_MIN_DRAW * TICK_RATE);
+const BOW_COOLDOWN_TICKS = Math.round(BOW_COOLDOWN * TICK_RATE);
+// Base field of view, and how much a full draw zooms in.
+const FOV = 75;
+const DRAW_ZOOM = 10;
 // Camera height above the feet, eased toward eyeHeight() as the player crouches.
 let eyeOffset = PLAYER_EYE_HEIGHT;
 const EYE_EASE = 14;
@@ -264,6 +276,7 @@ function enterDeath(msg, isEliminated) {
   // The server has already dropped everything, cursor stack included.
   closeInventory(false, false);
   mode = MODE.DEAD;
+  drawTicks = 0;
   eliminated = isEliminated;
   respawnRequested = false;
   respawnAt = performance.now() + RESPAWN_DELAY * 1000;
@@ -500,6 +513,16 @@ function frame(now) {
   while (accumulator >= TICK_DT) {
     accumulator -= TICK_DT;
     const controls = input.sample();
+    localTick++;
+    // Holding a bow, right click (held) draws it instead of placing or using.
+    const bow = heldItem() === ITEM.BOW;
+    controls.draw = bow && input.secondaryDown;
+    if (controls.draw) {
+      if (localTick >= drawReadyAt) drawTicks++;
+    } else {
+      if (drawTicks >= BOW_MIN_TICKS) drawReadyAt = localTick + BOW_COOLDOWN_TICKS;
+      drawTicks = 0;
+    }
     // Any click swings the arm; it only punches with a player under the crosshair.
     if (controls.attack) viewModel.swing();
     controls.attack = controls.attack && targetPlayer !== null;
@@ -515,7 +538,8 @@ function frame(now) {
     // Right click on a door opens or closes it instead of placing.
     const useDoor = controls.place && target && isDoor(target.id);
     controls.use = useDoor ? { x: target.x, y: target.y, z: target.z } : null;
-    controls.place = controls.place && !useDoor ? placeTarget() : null;
+    controls.place = controls.place && !useDoor && !bow ? placeTarget() : null;
+    if (bow) controls.use = null;
     const held = heldItem();
     const placing = controls.place && held !== null && (getItemDef(held).block !== null || getItemDef(held).places);
     if (useDoor || placing) viewModel.push();
@@ -556,6 +580,13 @@ function frame(now) {
   updateFlagHud();
 
   hotbar.select(input.slot);
+  // Zoom in a little as a bow is drawn.
+  const fov = FOV - DRAW_ZOOM * (playing ? Math.min(1, drawTicks / BOW_FULL_TICKS) : 0);
+  if (Math.abs(camera.fov - fov) > 0.01) {
+    camera.fov += (fov - camera.fov) * Math.min(1, dt * 12);
+    camera.updateProjectionMatrix();
+  }
+
   if (overview) chunks.update(world.sizeX / 2, world.sizeZ / 2);
   else chunks.update(camera.position.x, camera.position.z);
   clouds?.update(dt);
@@ -574,6 +605,7 @@ function frame(now) {
       speed: s.onGround ? Math.hypot(s.vx, s.vz) : 0,
       mining: breaking !== null,
       held: heldItem(),
+      draw: Math.min(1, drawTicks / BOW_FULL_TICKS),
     });
     viewModel.render(renderer);
   }

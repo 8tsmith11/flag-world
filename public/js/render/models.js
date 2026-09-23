@@ -26,6 +26,8 @@ const WALK_FULL_SPEED = 4;
 const CROUCH_SQUASH = 0.15;
 const CROUCH_LEAN = 0.35;
 const CROUCH_EASE = 12;
+// Shoulder angle holding a drawn bow out in front (arm level).
+const BOW_AIM = Math.PI / 2;
 
 function lambert(color) {
   return new THREE.MeshLambertMaterial({ color });
@@ -58,6 +60,71 @@ function createSword(color) {
   return group;
 }
 
+// A thin box from point a to point b (THREE.Vector3s), for bow limbs and strings.
+function rod(a, b, thickness, material) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, 1, thickness), material);
+  placeRod(mesh, a, b, dir);
+  return mesh;
+}
+
+function placeRod(mesh, a, b, dir = new THREE.Vector3().subVectors(b, a)) {
+  mesh.position.addVectors(a, b).multiplyScalar(0.5);
+  mesh.scale.set(1, Math.max(dir.length(), 1e-4), 1);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+}
+
+// A bow laid out the way a hand holds it: limbs up and down (±Z in the hand's
+// frame), bending back toward the archer (+Y), string between the tips, and
+// the shot going forward (-Y). userData.bow lets setBowDraw pull the string.
+const BOW_TIP = new THREE.Vector3(0, 0.12, 0.38);
+const BOW_PULL = 0.28;
+function createBow(color) {
+  const group = new THREE.Group();
+  const wood = lambert(color);
+  const grip = new THREE.Vector3(0, 0, 0.07), gripLow = new THREE.Vector3(0, 0, -0.07);
+  const top = BOW_TIP.clone(), bottom = BOW_TIP.clone().setZ(-BOW_TIP.z);
+  group.add(rod(gripLow, grip, 0.05, wood), rod(grip, top, 0.035, wood), rod(gripLow, bottom, 0.035, wood));
+  const stringMaterial = lambert(0xe8e2d0);
+  const upper = rod(top, new THREE.Vector3(0, BOW_TIP.y, 0), 0.012, stringMaterial);
+  const lower = rod(bottom, new THREE.Vector3(0, BOW_TIP.y, 0), 0.012, stringMaterial);
+  // The arrow on the string, shown while drawing.
+  const arrow = createArrowModel();
+  arrow.scale.setScalar(0.8);
+  arrow.visible = false;
+  group.add(upper, lower, arrow);
+  group.userData.bow = { upper, lower, arrow, top, bottom };
+  return group;
+}
+
+// Pulls a bow model's string back by `amount` (0..1) and nocks an arrow.
+export function setBowDraw(model, amount) {
+  const bow = model?.userData.bow;
+  if (!bow) return;
+  const nock = new THREE.Vector3(0, BOW_TIP.y + BOW_PULL * amount, 0);
+  placeRod(bow.upper, bow.top, nock);
+  placeRod(bow.lower, bow.bottom, nock);
+  bow.arrow.visible = amount > 0;
+  // The arrow runs from the nock forward (-Y); its model points along +Z.
+  bow.arrow.position.copy(nock);
+  bow.arrow.rotation.set(Math.PI / 2, 0, 0);
+}
+
+// An arrow pointing along +Z (so lookAt aims it): shaft, head and fletching.
+export function createArrowModel() {
+  const group = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.6), lambert(0xc9a26b));
+  shaft.position.z = 0.3;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.1), lambert(0x8c8c8c));
+  head.position.z = 0.62;
+  const fletching = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.01, 0.12), lambert(0xf2f2f2));
+  fletching.position.z = 0.06;
+  const fletching2 = fletching.clone();
+  fletching2.rotation.z = Math.PI / 2;
+  group.add(shaft, head, fletching, fletching2);
+  return group;
+}
+
 // A small flat ladder (two rails, three rungs) or door, standing on its base.
 function createFlatItem(kind, color, size) {
   const group = new THREE.Group();
@@ -83,6 +150,7 @@ export function createItemModel(item, blockSize = 0.25) {
   const def = getItemDef(item);
   if (def.tool === 'hammer') return createHammer(def.color);
   if (def.tool === 'sword') return createSword(def.color);
+  if (def.tool === 'bow') return createBow(def.color);
   if (def.places) return createFlatItem(def.places, def.color, blockSize);
   if (def.shape === 'ingot') {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(blockSize * 1.1, blockSize * 0.4, blockSize * 0.55), lambert(def.color));
@@ -129,6 +197,7 @@ export function setHandItem(hand, item) {
   // not its side, faces the way it swings. Blocks just sit in the fist.
   const tool = getItemDef(item).tool;
   if (tool === 'hammer') model.rotation.set(-Math.PI / 2, Math.PI / 2, 0);
+  else if (tool === 'bow') model.position.set(0, -0.02, 0); // built in the hand's frame already
   else if (tool) model.rotation.x = -Math.PI / 2;
   else model.position.set(0, -0.1, -0.05);
   hand.add(model);
@@ -178,8 +247,14 @@ export function swingPlayer(model) {
   model.userData.player.swingStart = performance.now();
 }
 
-// Per frame. speed: horizontal blocks/s; pitch: look pitch; crouching: squash and lean.
-export function animatePlayer(model, { dt, speed, pitch, held, crouching = false }) {
+// The item model a hand is holding, or null.
+export function handItem(hand) {
+  return hand.children[0] ?? null;
+}
+
+// Per frame. speed: horizontal blocks/s; pitch: look pitch; crouching: squash
+// and lean; draw: how far a bow is drawn (0..1), which raises the arm forward.
+export function animatePlayer(model, { dt, speed, pitch, held, crouching = false, draw = 0 }) {
   const p = model.userData.player;
   p.crouch += ((crouching ? 1 : 0) - p.crouch) * Math.min(1, dt * CROUCH_EASE);
   p.torso.scale.y = 1 - CROUCH_SQUASH * p.crouch;
@@ -196,7 +271,8 @@ export function animatePlayer(model, { dt, speed, pitch, held, crouching = false
   // Swing: forward and back from the shoulder, over the walking swing.
   const t = (performance.now() - p.swingStart) / SWING_MS;
   const swing = t >= 0 && t < 1 ? Math.sin(Math.PI * t) * SWING_ANGLE : 0;
-  p.shoulder.rotation.x = cycle * ARM_WALK_SWING * walk + swing;
+  p.shoulder.rotation.x = draw > 0 ? BOW_AIM + pitch * 0.8 : cycle * ARM_WALK_SWING * walk + swing;
 
   setHandItem(p.hand, held ?? null);
+  setBowDraw(handItem(p.hand), draw);
 }

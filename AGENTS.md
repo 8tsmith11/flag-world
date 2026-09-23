@@ -29,16 +29,17 @@ including the host, plays by opening `http://<host-ip>:3000`.
   Match players outlive their connection and are reclaimed by name; see the
   connection flow in `PROTOCOL.md`.
 - World generation is deterministic from the seed, the player count and the
-  world size (`WORLD_SIZES` in `shared/worldgen.js`: Test, Small, Medium,
-  Large); only those three are sent to clients. Test is the small slab world.
+  world size (`WORLD_SIZES` in `shared/worldgen.js`: Test, Tiny, Small,
+  Medium, Large); only those three are sent to clients. Test is the small slab world.
   The others are floating islands (`shared/islands.js`) and are tuned from
   that config plus the constants at the top of `islands.js`. Sizes differ in
   the center island's width and its gap to the ring (`WORLD_SIZES`);
   `ISLAND_LAYOUT` (ring and scatter thickness, keep spacing) is shared and
   `islandLayout(size)` derives the rest, world width included. Caves are worm tunnels (smooth noise-steered
   paths carving round tubes) carved into each island's buffer (`carveCaves`)
-  before fragment removal; the Test
-  world has one tunnel near the first keep. Use
+  before fragment removal. The Test
+  world is carved by the same code (as one square "island"), plus a tunnel
+  near the first keep. Use
   `world.sizeX`/`sizeY`/`sizeZ`, not constants.
 - Chunks are sparse: `World` only stores chunks that have held a non-air
   block, and `getBlock` returns air for missing ones. Clients mesh only chunks
@@ -99,6 +100,7 @@ server/
   player.js                  Server-side player (socket, input queue, physics state, inventory)
   inventory.js               36 slots + cursor stack: pickup, clicks, crafting
   item.js                    Dropped item entity
+  arrow.js                   Arrow entity: flight, swept collision, sticking
   flag.js                    A player's flag: home / carried / dropped / captured
   containers.js              Chest and furnace tile entities: slots, shift-click, smelting
 shared/                      Runs on server and client

@@ -52,6 +52,7 @@ unique within the lobby (ignoring case).
 | `carrying` | int \| null | Id of the flag they hold. Carriers walk at 60% speed (the client copies this into its physics state) |
 | `grab`     | number  | 0..1 progress toward taking the enemy flag they're standing on; 0 when not |
 | `held`     | int \| null | Item id in hand, drawn in their fist |
+| `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back |
 | `lastSeq`  | int     | Last input `seq` the server has simulated for this player |
 
 **BlockPos** — `{ x, y, z }`, integer block coordinates inside the world.
@@ -82,7 +83,8 @@ front that faces the player who placed them. They have one id per facing
 **ItemStack** — `{ item, count }`. Item ids (`shared/items.js`,
 `shared/itemIds.js`): 0–255 are the blocks (placed as that block); 256 and up
 are other items: `256` wood hammer, `257` ladder, `258` door, `259` iron ingot,
-`260` stone hammer, `261` iron hammer, `262`–`264` wood / stone / iron sword.
+`260` stone hammer, `261` iron hammer, `262`–`264` wood / stone / iron sword,
+`265` bow.
 `count` is 1 up to the item's `maxStack`: 1 for hammers and swords, 64 for
 everything else. What held tools do is in `shared/tools.js`.
 
@@ -103,6 +105,17 @@ held on the mouse in the inventory screen, or `null`.
 | Field  | Type | Notes |
 |--------|------|-------|
 | `item` | int  | Item id, which picks the cube's color |
+
+**ArrowSnapshot** — an arrow's state at one server tick. Sent in `entitySpawn`
+(as its info), then in `state` on every tick it flies and once as it sticks.
+Clients interpolate it and point the model along the velocity.
+
+| Field      | Type   | Notes |
+|------------|--------|-------|
+| `id`       | int    | Entity id |
+| `type`     | string | `"arrow"` |
+| `x`,`y`,`z`| number | Position |
+| `vx`,`vy`,`vz` | number | Velocity (blocks/s) |
 
 **PlayerInfo** — PlayerSnapshot plus:
 
@@ -149,7 +162,7 @@ everyone (also when a name is rejected, so the sender's field resets).
 | `name`  | string | New name; `error` if blank or taken |
 | `color` | int    | New color |
 | `ready` | bool   | Ready flag |
-| `worldSize` | string | Host only: `"test"`, `"small"`, `"medium"` or `"large"` (keys of `WORLD_SIZES`); others ignored |
+| `worldSize` | string | Host only: `"test"`, `"tiny"`, `"small"`, `"medium"` or `"large"` (keys of `WORLD_SIZES`); others ignored |
 
 ### `startMatch`
 
@@ -234,6 +247,7 @@ Match players only. Sent once per simulation tick (20/s). Each input advances th
 | `strafe`  | number | -1..1 (D = 1, A = -1) |
 | `jump`    | bool   | Jump held (swim up in water, jump out at the surface) |
 | `crouch`  | bool   | Crouch held (Shift, only while no screen is open) |
+| `draw`    | bool   | Right mouse held with a bow in hand (the client sends it only then; the server ignores it without a bow) |
 | `yaw`     | number | Look yaw |
 | `pitch`   | number | Look pitch, clamped to ±π/2 |
 | `slot`    | int    | Selected hotbar slot, 0..8: the item in hand (tool strength, placing, dropping, `held`) |
@@ -289,6 +303,19 @@ and Z moves are checked separately. A move is cut short if it would leave no
 ground within 1 block below the player's box (and no ladder there to grab),
 so a crouched player can't walk off a drop of more than 1 block but can slide
 along the edge.
+
+Bows: while `draw` is held with a bow, the draw builds, but not within 0.5 s
+of the last shot. Letting go shoots if it was held at least 0.2 s (sooner
+cancels); a full draw is 1 s. Drawing halves walking speed (shared physics).
+The arrow starts at the shooter's eyes along the look direction. Its speed
+(15 to 50 blocks/s) and damage (1 to 5) scale linearly from the weakest shot
+to a full draw. The server simulates it: gravity 12 (players have 28), 1% drag
+per tick, and each tick's whole path is checked against blocks and players,
+so fast arrows can't skip through thin walls. A block hit sticks the arrow
+there for 10 s, or until that block breaks; arrows never damage blocks. A
+player hit (not the shooter in the first 0.2 s) takes the damage and a small
+push along the arrow. The kill, and a void or fall death within 5 s, is
+credited to the shooter. Arrows are unlimited.
 
 Ladders: while a player overlaps a ladder there's no gravity. Holding W or
 jump climbs up, S climbs down (without walking off the ladder), and no input
@@ -368,7 +395,7 @@ reclaim.
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
 | `flags`   | FlagInfo[]    | Every player's flag |
 | `winnerId`| int \| null   | Set if the match is already over |
-| `entities`| ItemInfo[]    | Dropped items currently in the world |
+| `entities`| (ItemInfo \| ArrowSnapshot)[] | Dropped items and arrows currently in the world |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
@@ -378,7 +405,7 @@ Broadcast every server tick (20/s).
 | Field      | Type             | Notes |
 |------------|------------------|-------|
 | `tick`     | int              | Server tick number |
-| `entities` | (PlayerSnapshot \| ItemSnapshot)[] | All players, plus only the items that moved this tick. An item not listed stays where it was |
+| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot)[] | All players, plus only the items and arrows that moved this tick. One not listed stays where it was |
 | `flags`    | FlagState[] | Every flag |
 
 ### `blockChange`
@@ -393,16 +420,17 @@ player who caused it.
 
 ### `entitySpawn`
 
-A non-player entity appeared (a block drop or a thrown item).
+A non-player entity appeared: a block drop, a thrown item, or an arrow.
 
 | Field    | Type     |
 |----------|----------|
-| `entity` | ItemInfo |
+| `entity` | ItemInfo \| ArrowSnapshot |
 
 ### `entityDespawn`
 
 A non-player entity was removed: an item was picked up (all of it) or reached
-its 5 minute lifetime.
+its 5 minute lifetime, or an arrow hit a player, had its block broken, stayed
+stuck for 10 s, or fell below y = -20.
 
 | Field | Type | Notes |
 |-------|------|-------|

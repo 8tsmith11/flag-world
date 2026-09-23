@@ -30,6 +30,9 @@ export function itemIcon(item) {
     const grip = document.createElement('div');
     grip.className = 'grip';
     icon.append(blade, guard, grip);
+  } else if (def.tool === 'bow') {
+    icon.classList.add('bow');
+    icon.style.color = cssColor(def.color);
   } else if (def.shape === 'ingot') {
     icon.classList.add('ingot');
     icon.style.background = cssColor(def.color);

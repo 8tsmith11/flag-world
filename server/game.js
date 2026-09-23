@@ -5,7 +5,8 @@
 
 import {
   TICK_RATE, MAX_QUEUED_INPUTS, PLAYER_HEIGHT,
-  REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, TOWER_MIN_HEIGHT, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
+  REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, TOWER_MIN_HEIGHT,
+  BOW_FULL_DRAW, BOW_MIN_DRAW, BOW_COOLDOWN, ARROW_SPEED, ARROW_DAMAGE, ARROW_KNOCKBACK, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
   MAX_HP, REGEN_DELAY, REGEN_INTERVAL, HIT_TOLERANCE,
   KNOCKBACK_SPEED, KNOCKBACK_UP, RESPAWN_DELAY, VOID_Y, KILL_CREDIT_TIME, FALL_SAFE_DISTANCE,
@@ -18,6 +19,7 @@ import {
 import { getItemDef, ITEM } from '../shared/items.js';
 import { getRecipe } from '../shared/recipes.js';
 import { createContainer } from './containers.js';
+import { Arrow } from './arrow.js';
 import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../shared/worldgen.js';
 import { keepAt, flagHome } from '../shared/structures.js';
 import {
@@ -44,6 +46,9 @@ const REGEN_DELAY_TICKS = ticks(REGEN_DELAY);
 const REGEN_INTERVAL_TICKS = ticks(REGEN_INTERVAL);
 const RESPAWN_DELAY_TICKS = ticks(RESPAWN_DELAY);
 const KILL_CREDIT_TICKS = ticks(KILL_CREDIT_TIME);
+const BOW_FULL_TICKS = ticks(BOW_FULL_DRAW);
+const BOW_MIN_TICKS = ticks(BOW_MIN_DRAW);
+const BOW_COOLDOWN_TICKS = ticks(BOW_COOLDOWN);
 const FLAG_RETURN_TICKS = ticks(FLAG_RETURN_TIME);
 // While mining, other players see a swing this often.
 const BREAK_SWING_TICKS = 5;
@@ -122,8 +127,10 @@ export class Game {
     // Every block changed since generation, "x,y,z" -> id, sent to players on join.
     this.blockChanges = new Map();
     this.players = new Map();
-    // Dropped items by entity id. Items and players share the id space.
+    // Dropped items and flying or stuck arrows by entity id. They share the
+    // id space with players.
     this.items = new Map();
+    this.arrows = new Map();
     // Sessions on the "match in progress" screen.
     this.spectators = new Set();
   }
@@ -348,7 +355,7 @@ export class Game {
       tick: this.tick,
       blocks: [...this.blockChanges.values()],
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
-      entities: [...this.items.values()].map((e) => e.describe()),
+      entities: [...this.items.values(), ...this.arrows.values()].map((e) => e.describe()),
       inventory: player.inventory,
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
       winnerId: this.winnerId,
@@ -372,6 +379,7 @@ export class Game {
       drop: !!msg.drop,
       attack: !!msg.attack,
       crouch: !!msg.crouch,
+      draw: !!msg.draw,
     });
   }
 
@@ -698,6 +706,68 @@ export class Game {
     return Math.hypot(s.x - p.x, cy - nearestY, s.z - p.z) <= ITEM_PICKUP_RADIUS;
   }
 
+  // ---- Bows ----
+
+  // One tick of the bow: holding draw builds charge (not during the cooldown);
+  // letting go after at least BOW_MIN_DRAW shoots, sooner cancels.
+  stepBow(player, draw) {
+    if (player.held() !== ITEM.BOW) {
+      player.drawTicks = 0;
+      return;
+    }
+    if (draw) {
+      if (this.tick >= player.nextShotTick) player.drawTicks++;
+      return;
+    }
+    if (player.drawTicks >= BOW_MIN_TICKS) this.shoot(player, Math.min(1, player.drawTicks / BOW_FULL_TICKS));
+    player.drawTicks = 0;
+  }
+
+  // An arrow from the eyes along the look direction. Speed and damage scale
+  // linearly from the weakest shot (drawn BOW_MIN_DRAW) to a full draw.
+  shoot(player, draw) {
+    const minDraw = BOW_MIN_TICKS / BOW_FULL_TICKS;
+    const t = Math.max(0, Math.min(1, (draw - minDraw) / (1 - minDraw)));
+    const speed = ARROW_SPEED[0] + (ARROW_SPEED[1] - ARROW_SPEED[0]) * t;
+    const s = player.state;
+    const dir = lookDirection(s.yaw, s.pitch);
+    const arrow = new Arrow(this.nextId++, player, s.x, s.y + eyeHeight(s), s.z, dir.x * speed, dir.y * speed, dir.z * speed, t);
+    arrow.damage = Math.round(ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * t);
+    this.arrows.set(arrow.id, arrow);
+    player.nextShotTick = this.tick + BOW_COOLDOWN_TICKS;
+    this.broadcast({ type: S2C.ENTITY_SPAWN, entity: arrow.describe() });
+  }
+
+  // Moves every arrow. Returns the ones that moved (for STATE): flying, or
+  // just stuck.
+  updateArrows() {
+    const moved = [];
+    for (const arrow of this.arrows.values()) {
+      const flying = !arrow.stuckIn;
+      const result = arrow.step(this.world, this.players.values());
+      if (result === 'gone' || arrow.y < VOID_Y) {
+        this.removeArrow(arrow);
+      } else if (result?.hit) {
+        const target = result.hit, t = target.state;
+        // A small push along the arrow's flight.
+        t.kx += result.dir.x * ARROW_KNOCKBACK;
+        t.kz += result.dir.z * ARROW_KNOCKBACK;
+        t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
+        t.onGround = false;
+        this.damage(target, arrow.damage, arrow.shooter);
+        this.removeArrow(arrow);
+      } else if (flying) {
+        moved.push(arrow);
+      }
+    }
+    return moved;
+  }
+
+  removeArrow(arrow) {
+    this.arrows.delete(arrow.id);
+    this.broadcast({ type: S2C.ENTITY_DESPAWN, id: arrow.id });
+  }
+
   // ---- Combat ----
 
   // A punch: confirmed by casting from the attacker's eyes along this input's
@@ -773,6 +843,7 @@ export class Game {
     player.breaking = null;
     player.grab = null;
     player.viewing = null;
+    player.drawTicks = 0;
     if (player.carrying) this.dropFlag(player);
     player.eliminated = player.flag.state === FLAG_STATE.CAPTURED;
     const s = player.state;
@@ -926,6 +997,8 @@ export class Game {
         player.lastSeq = input.seq;
         if (player.dead) continue;
         player.selected = input.slot;
+        // Drawing (and its slowdown) only counts with a bow in hand.
+        if (input.draw && player.held() !== ITEM.BOW) input.draw = false;
         const prevY = player.state.y;
         stepPlayer(player.state, input, this.world);
         this.checkVoid(player);
@@ -936,6 +1009,7 @@ export class Game {
         if (input.use) this.stepUse(player, input.use);
         else if (input.place) this.stepPlace(player, input.place, input.slot);
         if (input.drop) this.stepDrop(player, input.slot);
+        this.stepBow(player, input.draw);
       }
       player.inputQueue.length = 0;
       this.regen(player);
@@ -944,7 +1018,7 @@ export class Game {
     this.updateFlags();
     this.updateContainers();
 
-    const movedItems = this.updateItems();
+    const movedItems = [...this.updateItems(), ...this.updateArrows()];
 
     for (const player of this.players.values()) {
       if (!player.inventoryDirty) continue;
