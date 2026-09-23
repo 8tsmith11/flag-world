@@ -8,7 +8,7 @@
 //   maxStack      - largest stack in one inventory slot (tools: 1)
 //   block         - block id placed with this item, or null
 //   tool          - model/icon shape for tools ('hammer', 'sword', 'bow'), or null
-//   shape         - model/icon shape for other non-block items ('ingot'), or null
+//   shape         - model/icon shape for other non-block items ('ingot', 'leather', 'beef'), or null
 
 //   places        - for items placed by special rules: 'ladder' or 'door'
 
@@ -40,6 +40,9 @@ for (const [material, color, hammer, sword] of MATERIALS) {
 defineItem(ITEM.IRON_INGOT, 'iron ingot', { shape: 'ingot', color: IRON_COLOR });
 // Hold right click to draw, release to shoot (arrows are unlimited).
 defineItem(ITEM.BOW, 'bow', { maxStack: 1, tool: 'bow', color: 0x8a5a2b });
+// Dropped by cows.
+defineItem(ITEM.LEATHER, 'leather', { shape: 'leather', color: 0x9b5e2f });
+defineItem(ITEM.BEEF, 'beef', { shape: 'beef', color: 0xc8484a });
 defineItem(ITEM.LADDER, 'ladder', { places: 'ladder', color: getBlockDef(ladderBlock(0)).color });
 defineItem(ITEM.DOOR, 'door', { places: 'door', color: getBlockDef(doorBlock(0, false, false)).color });
 

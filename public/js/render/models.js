@@ -125,6 +125,56 @@ export function createArrowModel() {
   return group;
 }
 
+// A cow, facing -Z like players: white body with black patches, a head with
+// a pink snout and little horns, and four legs that swing as it walks.
+const COW_LEG = 0.5;
+export function createCowModel() {
+  const group = new THREE.Group();
+  const white = lambert(0xf0efe8), black = lambert(0x2a2a2a);
+  const box = (w, h, d, x, y, z, material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x, y, z);
+    group.add(mesh);
+    return mesh;
+  };
+  box(0.9, 0.7, 1.3, 0, COW_LEG + 0.35, 0, white);
+  // Patches just proud of the body.
+  box(0.02, 0.35, 0.45, 0.46, COW_LEG + 0.45, 0.2, black);
+  box(0.02, 0.3, 0.35, -0.46, COW_LEG + 0.35, -0.25, black);
+  box(0.5, 0.02, 0.4, 0.1, COW_LEG + 0.71, 0.3, black);
+  // Head, snout, eyes, horns.
+  box(0.5, 0.48, 0.42, 0, COW_LEG + 0.6, -0.84, white);
+  box(0.36, 0.2, 0.08, 0, COW_LEG + 0.48, -1.08, lambert(0xe6a3a3));
+  for (const x of [-0.14, 0.14]) {
+    box(0.07, 0.07, 0.02, x, COW_LEG + 0.7, -1.06, black);
+    box(0.06, 0.14, 0.06, x * 1.6, COW_LEG + 0.9, -0.8, lambert(0xd8d2c0));
+  }
+  // Legs hang from pivots at the top so they can swing.
+  const legs = [];
+  for (const [x, z] of [[-0.3, -0.45], [0.3, -0.45], [-0.3, 0.45], [0.3, 0.45]]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, COW_LEG, z);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, COW_LEG, 0.2), white);
+    leg.position.y = -COW_LEG / 2;
+    const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.08, 0.21), black);
+    hoof.position.y = -COW_LEG + 0.04;
+    pivot.add(leg, hoof);
+    group.add(pivot);
+    legs.push(pivot);
+  }
+  group.userData.cow = { legs, phase: 0 };
+  return group;
+}
+
+// Per frame: diagonal pairs of legs swing opposite ways while it walks.
+export function animateCow(model, dt, speed) {
+  const cow = model.userData.cow;
+  const walk = Math.min(1, speed / 2);
+  if (walk > 0.05) cow.phase += speed * dt * 3;
+  const swing = Math.sin(cow.phase) * 0.6 * walk;
+  cow.legs.forEach((leg, i) => { leg.rotation.x = (i === 0 || i === 3) ? swing : -swing; });
+}
+
 // A small flat ladder (two rails, three rungs) or door, standing on its base.
 function createFlatItem(kind, color, size) {
   const group = new THREE.Group();

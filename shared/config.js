@@ -141,5 +141,18 @@ export const ARROW_STICK_TIME = 10;
 export const ARROW_SAFE_TIME = 0.2;
 export const ARROW_KNOCKBACK = 3;
 
+// Cows: collision box, health, walking speeds (fractions of WALK_SPEED),
+// herds (how many per square block of world, and their size), how long a
+// herd panics after one of them is hurt, and what they drop.
+export const COW_WIDTH = 0.9;
+export const COW_HEIGHT = 1.3;
+export const COW_HP = 10;
+export const COW_WANDER_SPEED = 0.3;
+export const COW_FLEE_SPEED = 0.85;
+export const COW_HERD_AREA = 20000;
+export const COW_HERD_SIZE = [3, 6];
+export const COW_PANIC_TIME = 5;
+export const COW_DROPS = { leather: [0, 2], beef: [1, 3] };
+
 // Furnace: seconds to smelt one item.
 export const SMELT_TIME = 5;

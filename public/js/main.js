@@ -561,7 +561,7 @@ function frame(now) {
   const dir = lookDirection(input.yaw, input.pitch);
   const block = playing ? raycastBlock(world, camera.position, dir, REACH_DISTANCE, isTargetable) : null;
   const hit = playing ? raycastPlayers(camera.position, dir, block ? block.t : REACH_DISTANCE,
-    entities.playerTargets(), (p) => playerBoxOf(p.state)) : null;
+    entities.attackTargets(), (p) => playerBoxOf(p.state)) : null;
   targetPlayer = hit ? hit.player.id : null;
   target = hit ? null : block;
   // Looking away (or the block breaking) resets progress, as on the server.

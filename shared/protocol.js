@@ -72,4 +72,5 @@ export const ENTITY_TYPE = {
   PLAYER: 'player',
   ITEM: 'item',
   ARROW: 'arrow',
+  COW: 'cow',
 };

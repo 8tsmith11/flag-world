@@ -84,7 +84,7 @@ front that faces the player who placed them. They have one id per facing
 `shared/itemIds.js`): 0–255 are the blocks (placed as that block); 256 and up
 are other items: `256` wood hammer, `257` ladder, `258` door, `259` iron ingot,
 `260` stone hammer, `261` iron hammer, `262`–`264` wood / stone / iron sword,
-`265` bow.
+`265` bow, `266` leather, `267` beef.
 `count` is 1 up to the item's `maxStack`: 1 for hammers and swords, 64 for
 everything else. What held tools do is in `shared/tools.js`.
 
@@ -116,6 +116,16 @@ Clients interpolate it and point the model along the velocity.
 | `type`     | string | `"arrow"` |
 | `x`,`y`,`z`| number | Position |
 | `vx`,`vy`,`vz` | number | Velocity (blocks/s) |
+
+**CowSnapshot** — a cow at one server tick. Sent in `entitySpawn` / `welcome`,
+then in `state` only on ticks it moved.
+
+| Field      | Type   | Notes |
+|------------|--------|-------|
+| `id`       | int    | Entity id |
+| `type`     | string | `"cow"` |
+| `x`,`y`,`z`| number | Feet position |
+| `yaw`      | number | Facing (0 looks toward -Z, like players) |
 
 **PlayerInfo** — PlayerSnapshot plus:
 
@@ -317,6 +327,15 @@ player hit (not the shooter in the first 0.2 s) takes the damage and a small
 push along the arrow. The kill, and a void or fall death within 5 s, is
 credited to the shooter. Arrows are unlimited.
 
+Cows: the server spawns herds at match start on open grass away from keeps
+(about one per 20,000 square blocks of world, 3-6 cows each). They reuse the
+player physics with a 0.9 × 1.3 box and edge protection always on, so they
+never walk off a drop of more than a block. They graze, wander near the middle
+of their herd, and head back if they stray, following A* paths over standable
+blocks (steps of one up or down, no water). Punches and arrows hit them (10 HP,
+knockback like players). When one is hurt, its whole herd runs away from the
+attacker for 5 s. A dead cow drops 0-2 leather and 1-3 beef.
+
 Ladders: while a player overlaps a ladder there's no gravity. Holding W or
 jump climbs up, S climbs down (without walking off the ladder), and no input
 holds position. This is in the shared physics, so it's predicted like the
@@ -395,7 +414,7 @@ reclaim.
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
 | `flags`   | FlagInfo[]    | Every player's flag |
 | `winnerId`| int \| null   | Set if the match is already over |
-| `entities`| (ItemInfo \| ArrowSnapshot)[] | Dropped items and arrows currently in the world |
+| `entities`| (ItemInfo \| ArrowSnapshot \| CowSnapshot)[] | Dropped items, arrows and cows currently in the world |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
@@ -405,7 +424,7 @@ Broadcast every server tick (20/s).
 | Field      | Type             | Notes |
 |------------|------------------|-------|
 | `tick`     | int              | Server tick number |
-| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot)[] | All players, plus only the items and arrows that moved this tick. One not listed stays where it was |
+| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| CowSnapshot)[] | All players, plus only the items, arrows and cows that moved this tick. One not listed stays where it was |
 | `flags`    | FlagState[] | Every flag |
 
 ### `blockChange`
@@ -424,13 +443,13 @@ A non-player entity appeared: a block drop, a thrown item, or an arrow.
 
 | Field    | Type     |
 |----------|----------|
-| `entity` | ItemInfo \| ArrowSnapshot |
+| `entity` | ItemInfo \| ArrowSnapshot \| CowSnapshot |
 
 ### `entityDespawn`
 
 A non-player entity was removed: an item was picked up (all of it) or reached
-its 5 minute lifetime, or an arrow hit a player, had its block broken, stayed
-stuck for 10 s, or fell below y = -20.
+its 5 minute lifetime; an arrow hit something, had its block broken, stayed
+stuck for 10 s, or fell below y = -20; or a cow died or fell into the void.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -463,7 +482,8 @@ to the player who swung; their own first-person arm animates locally.
 
 ### `damage`
 
-A player took damage (a punch or a fall). Broadcast to every match player. Clients flash the
+A player or cow took damage (a punch, an arrow or a fall). Broadcast to every
+match player. Clients flash the
 target red, or shake the screen if they are the target.
 
 | Field        | Type | Notes |

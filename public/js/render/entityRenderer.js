@@ -6,9 +6,13 @@
 // two server snapshots surrounding that time, which hides network jitter.
 
 import * as THREE from 'three';
-import { ITEM_SIZE } from '/shared/config.js';
+import { ITEM_SIZE, COW_WIDTH, COW_HEIGHT } from '/shared/config.js';
 import { ENTITY_TYPE } from '/shared/protocol.js';
-import { createPlayerModel, createItemModel, createArrowModel, animatePlayer, swingPlayer } from './models.js';
+import {
+  createPlayerModel, createItemModel, createArrowModel, createCowModel, animatePlayer, animateCow, swingPlayer,
+} from './models.js';
+
+const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
 
 const INTERP_DELAY_MS = 100;
 const MAX_SNAPSHOTS = 20;
@@ -42,6 +46,7 @@ export function createSpriteModel(texture, width, height) {
 const MODEL_FACTORIES = {
   [ENTITY_TYPE.PLAYER]: createPlayerModel,
   [ENTITY_TYPE.ITEM]: createDroppedItemModel,
+  [ENTITY_TYPE.COW]: createCowModel,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
     const arrow = createArrowModel();
@@ -119,6 +124,18 @@ export class EntityRenderer {
     return this.entities.get(id)?.object ?? null;
   }
 
+  // What a punch can hit, as drawn this frame: live players and cows, as
+  // { id, state: { x, y, z, crouching, box? } } for raycastPlayers.
+  attackTargets() {
+    const targets = this.playerTargets();
+    for (const [id, { object, info }] of this.entities) {
+      if (info.type !== ENTITY_TYPE.COW) continue;
+      const { x, y, z } = object.position;
+      targets.push({ id, state: { x, y, z, box: COW_BOX } });
+    }
+    return targets;
+  }
+
   // Live players as drawn this frame, as { id, state: { x, y, z, crouching } } for raycastPlayers.
   playerTargets() {
     const targets = [];
@@ -160,9 +177,10 @@ export class EntityRenderer {
       } else {
         object.rotation.y = lerpAngle(a.yaw, b.yaw, t);
       }
+      const span = (b.time - a.time) / 1000;
+      const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
+      if (object.userData.cow) animateCow(object, dt, speed);
       if (object.userData.player) {
-        const span = (b.time - a.time) / 1000;
-        const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
         animatePlayer(object, {
           dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, crouching: b.crouching, draw: b.draw,
         });

@@ -33,9 +33,10 @@ export function createPlayerState(x, y, z) {
   };
 }
 
-// The player's collision box: shorter while crouching.
+// The collision box: shorter while crouching. Mobs that reuse the player
+// physics (cows) set their own `box` in their state.
 export function playerBoxOf(state) {
-  return state.crouching ? CROUCH_BOX : PLAYER_BOX;
+  return state.box ?? (state.crouching ? CROUCH_BOX : PLAYER_BOX);
 }
 
 // Whether the player's box fits (hits no solid block) with its feet at height y.
@@ -176,8 +177,9 @@ export function stepPlayer(state, input, world) {
   state.vy = Math.max(-TERMINAL_VELOCITY, state.vy);
 
   // Edge protection: crouching on the ground (not jumping), don't walk off
-  // anything that would drop you more than CROUCH_MAX_DROP.
-  const guard = state.crouching && state.onGround && state.vy <= 0;
+  // anything that would drop you more than CROUCH_MAX_DROP. Mobs set
+  // state.edgeGuard to always have it.
+  const guard = (state.crouching || state.edgeGuard) && state.onGround && state.vy <= 0;
   moveBody(state, world, box, guard);
 
   // Knockback fades (slowly in the air, fast on the ground) and stops against a wall.

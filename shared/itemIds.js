@@ -13,4 +13,6 @@ export const ITEM = {
   STONE_SWORD: 263,
   IRON_SWORD: 264,
   BOW: 265,
+  LEATHER: 266,
+  BEEF: 267,
 };

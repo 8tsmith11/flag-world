@@ -6,7 +6,8 @@
 import {
   TICK_RATE, MAX_QUEUED_INPUTS, PLAYER_HEIGHT,
   REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, TOWER_MIN_HEIGHT,
-  BOW_FULL_DRAW, BOW_MIN_DRAW, BOW_COOLDOWN, ARROW_SPEED, ARROW_DAMAGE, ARROW_KNOCKBACK, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
+  BOW_FULL_DRAW, BOW_MIN_DRAW, BOW_COOLDOWN, ARROW_SPEED, ARROW_DAMAGE, ARROW_KNOCKBACK,
+  COW_HERD_AREA, COW_HERD_SIZE, COW_PANIC_TIME, COW_DROPS, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
   MAX_HP, REGEN_DELAY, REGEN_INTERVAL, HIT_TOLERANCE,
   KNOCKBACK_SPEED, KNOCKBACK_UP, RESPAWN_DELAY, VOID_Y, KILL_CREDIT_TIME, FALL_SAFE_DISTANCE,
@@ -20,6 +21,8 @@ import { getItemDef, ITEM } from '../shared/items.js';
 import { getRecipe } from '../shared/recipes.js';
 import { createContainer } from './containers.js';
 import { Arrow } from './arrow.js';
+import { Cow, Herd } from './cow.js';
+import { canStand } from './pathfind.js';
 import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../shared/worldgen.js';
 import { keepAt, flagHome } from '../shared/structures.js';
 import {
@@ -49,6 +52,7 @@ const KILL_CREDIT_TICKS = ticks(KILL_CREDIT_TIME);
 const BOW_FULL_TICKS = ticks(BOW_FULL_DRAW);
 const BOW_MIN_TICKS = ticks(BOW_MIN_DRAW);
 const BOW_COOLDOWN_TICKS = ticks(BOW_COOLDOWN);
+const COW_PANIC_TICKS = ticks(COW_PANIC_TIME);
 const FLAG_RETURN_TICKS = ticks(FLAG_RETURN_TIME);
 // While mining, other players see a swing this often.
 const BREAK_SWING_TICKS = 5;
@@ -131,6 +135,7 @@ export class Game {
     // id space with players.
     this.items = new Map();
     this.arrows = new Map();
+    this.cows = new Map();
     // Sessions on the "match in progress" screen.
     this.spectators = new Set();
   }
@@ -298,6 +303,7 @@ export class Game {
     console.log(`Match started: seed ${this.seed}, ${this.playerCount} player(s), `
       + `${WORLD_SIZES[this.worldSize].label} world ${this.world.sizeX}x${this.world.sizeZ}x${this.world.sizeY} `
       + `(generated in ${Math.round(performance.now() - started)} ms)`);
+    this.spawnHerds();
     for (const player of this.players.values()) this.sendWelcome(player);
   }
 
@@ -355,7 +361,7 @@ export class Game {
       tick: this.tick,
       blocks: [...this.blockChanges.values()],
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
-      entities: [...this.items.values(), ...this.arrows.values()].map((e) => e.describe()),
+      entities: [...this.items.values(), ...this.arrows.values(), ...this.cows.values()].map((e) => e.describe()),
       inventory: player.inventory,
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
       winnerId: this.winnerId,
@@ -744,7 +750,7 @@ export class Game {
     const moved = [];
     for (const arrow of this.arrows.values()) {
       const flying = !arrow.stuckIn;
-      const result = arrow.step(this.world, this.players.values());
+      const result = arrow.step(this.world, [...this.players.values(), ...this.cows.values()]);
       if (result === 'gone' || arrow.y < VOID_Y) {
         this.removeArrow(arrow);
       } else if (result?.hit) {
@@ -754,7 +760,8 @@ export class Game {
         t.kz += result.dir.z * ARROW_KNOCKBACK;
         t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
         t.onGround = false;
-        this.damage(target, arrow.damage, arrow.shooter);
+        if (target instanceof Cow) this.hurtCow(target, arrow.damage, arrow.shooter);
+        else this.damage(target, arrow.damage, arrow.shooter);
         this.removeArrow(arrow);
       } else if (flying) {
         moved.push(arrow);
@@ -766,6 +773,73 @@ export class Game {
   removeArrow(arrow) {
     this.arrows.delete(arrow.id);
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: arrow.id });
+  }
+
+  // ---- Cows ----
+
+  // Herds on open grass away from the keeps, about one per COW_HERD_AREA
+  // square blocks of world; each cow near its herd's spot.
+  spawnHerds() {
+    const w = this.world;
+    const herds = Math.max(2, Math.round((w.sizeX * w.sizeZ) / COW_HERD_AREA));
+    const grassy = (x, z) => {
+      const y = w.getSurfaceY(x, z, isSolid);
+      return y >= 0 && w.getBlock(x, y, z) === BLOCK.GRASS && canStand(w, x, y + 1, z, 2) ? y + 1 : null;
+    };
+    for (let h = 0; h < herds; h++) {
+      for (let tries = 0; tries < 60; tries++) {
+        const cx = Math.floor(Math.random() * w.sizeX), cz = Math.floor(Math.random() * w.sizeZ);
+        if (grassy(cx, cz) === null || w.keeps.some((k) => Math.hypot(cx - k.cx, cz - k.cz) < 20)) continue;
+        const herd = new Herd(h);
+        const size = COW_HERD_SIZE[0] + Math.floor(Math.random() * (COW_HERD_SIZE[1] - COW_HERD_SIZE[0] + 1));
+        for (let c = 0, attempts = 0; c < size && attempts < 30; attempts++) {
+          const x = cx + Math.floor((Math.random() - 0.5) * 8), z = cz + Math.floor((Math.random() - 0.5) * 8);
+          const y = grassy(x, z);
+          if (y === null) continue;
+          const cow = new Cow(this.nextId++, herd, x + 0.5, y, z + 0.5);
+          this.cows.set(cow.id, cow);
+          c++;
+        }
+        break;
+      }
+    }
+  }
+
+  // Moves every cow; returns the ones that moved (for STATE).
+  updateCows() {
+    const moved = [];
+    for (const cow of this.cows.values()) {
+      const s = cow.state;
+      const before = `${s.x},${s.y},${s.z},${s.yaw}`;
+      cow.step(this.world, this.tick);
+      if (s.y < VOID_Y) this.removeCow(cow);
+      else if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(cow);
+    }
+    return moved;
+  }
+
+  // A hurt cow's whole herd runs from the attacker. At 0 HP it drops leather and beef.
+  hurtCow(cow, amount, attacker) {
+    cow.hp = Math.max(0, cow.hp - amount);
+    this.broadcast({ type: S2C.DAMAGE, id: cow.id, attackerId: attacker?.id ?? null, hp: cow.hp });
+    cow.herd.panicUntil = this.tick + COW_PANIC_TICKS;
+    cow.herd.threat = attacker ? { x: attacker.state.x, z: attacker.state.z } : { x: cow.state.x, z: cow.state.z };
+    // The herd reacts within a few ticks (spread out, so they don't all plan at once).
+    for (const other of cow.herd.cows) other.repath = Math.min(other.repath, 1 + Math.floor(Math.random() * 4));
+    if (cow.hp > 0) return;
+    const s = cow.state;
+    const roll = ([lo, hi]) => lo + Math.floor(Math.random() * (hi - lo + 1));
+    for (const [item, count] of [[ITEM.LEATHER, roll(COW_DROPS.leather)], [ITEM.BEEF, roll(COW_DROPS.beef)]]) {
+      if (count > 0) this.spawnItem(item, count, s.x, s.y + 0.5, s.z, (Math.random() - 0.5) * 2, ITEM_POP_SPEED, (Math.random() - 0.5) * 2, ITEM_PICKUP_DELAY);
+    }
+    this.removeCow(cow);
+  }
+
+  removeCow(cow) {
+    cow.dead = true;
+    cow.herd.cows.delete(cow);
+    this.cows.delete(cow.id);
+    this.broadcast({ type: S2C.ENTITY_DESPAWN, id: cow.id });
   }
 
   // ---- Combat ----
@@ -782,7 +856,7 @@ export class Game {
     const eye = { x: s.x, y: s.y + eyeHeight(s), z: s.z };
     const dir = lookDirection(s.yaw, s.pitch);
     const block = raycastBlock(this.world, eye, dir, REACH_DISTANCE, isTargetable);
-    const targets = [...this.players.values()].filter((p) => p !== player && !p.dead && p.connected);
+    const targets = [...this.players.values(), ...this.cows.values()].filter((p) => p !== player && !p.dead && p.connected);
     const hit = raycastPlayers(eye, dir, block ? block.t : REACH_DISTANCE, targets, (p) => playerBoxOf(p.state), HIT_TOLERANCE);
     if (!hit) return;
 
@@ -795,7 +869,8 @@ export class Game {
     t.kz = dz * KNOCKBACK_SPEED;
     t.vy = Math.max(t.vy, KNOCKBACK_UP);
     t.onGround = false;
-    this.damage(target, weapon.damage, player);
+    if (target instanceof Cow) this.hurtCow(target, weapon.damage, player);
+    else this.damage(target, weapon.damage, player);
   }
 
   // attacker: the player who hit them, or null (fall damage). A death with no
@@ -1018,7 +1093,7 @@ export class Game {
     this.updateFlags();
     this.updateContainers();
 
-    const movedItems = [...this.updateItems(), ...this.updateArrows()];
+    const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateCows()];
 
     for (const player of this.players.values()) {
       if (!player.inventoryDirty) continue;

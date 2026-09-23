@@ -33,6 +33,9 @@ export function itemIcon(item) {
   } else if (def.tool === 'bow') {
     icon.classList.add('bow');
     icon.style.color = cssColor(def.color);
+  } else if (def.shape === 'leather' || def.shape === 'beef') {
+    icon.classList.add(def.shape);
+    icon.style.background = cssColor(def.color);
   } else if (def.shape === 'ingot') {
     icon.classList.add('ingot');
     icon.style.background = cssColor(def.color);

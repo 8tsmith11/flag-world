@@ -101,6 +101,8 @@ server/
   inventory.js               36 slots + cursor stack: pickup, clicks, crafting
   item.js                    Dropped item entity
   arrow.js                   Arrow entity: flight, swept collision, sticking
+  cow.js                     Cows and herds: wandering, panic, path following
+  pathfind.js                A* over standable blocks for walking mobs
   flag.js                    A player's flag: home / carried / dropped / captured
   containers.js              Chest and furnace tile entities: slots, shift-click, smelting
 shared/                      Runs on server and client

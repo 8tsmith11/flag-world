@@ -114,6 +114,9 @@ a ladder is safe.
 The big islands have caves, some with entrances in cliffs, undersides or the
 top.
 
+Cows graze in herds. Hit one and the whole herd runs; a dead cow drops leather
+and beef.
+
 The center island has lakes, and some other big islands a small pond, all
 with sandy shores. In the inventory, click to pick up
 or put down a stack, and right click to pick up half or put down one.
