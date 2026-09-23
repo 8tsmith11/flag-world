@@ -98,6 +98,9 @@ furnace (right click) with wood or planks as fuel to smelt iron ingots.
 In any inventory screen, shift-click moves a whole stack across: between a
 chest or furnace and your inventory, or between your hotbar and the rest.
 
+Blocks can be placed in water. To build straight up, jump and place a block
+under your feet while you're in the air.
+
 Ladders go on the side of a block. Hold W or Space to climb, S to climb down.
 Doors are two blocks tall and need solid ground. Right click opens or closes
 them (anyone can).
@@ -118,12 +121,12 @@ the middle. Keeps can't be broken or built in.
 
 - Stand on an enemy flag for 2 seconds to take it. You move at 60% speed
   while carrying it, and a light beam above you shows everyone where it is.
-- Bring it to your own pedestal while your own flag is home to capture it.
-  That player is now flagless.
+- Bring it to your own pedestal to capture it (your own flag has to be home,
+  unless you're already flagless). That player is now flagless.
 - If a carrier dies, the flag drops. It returns home after 2 minutes, or
   straight away if its owner touches it.
-- Flagless players keep playing, but they can't capture, and when they die
-  they're eliminated and become a spectator (WASD to fly, Space/Shift for
+- Flagless players keep playing, and can still take and capture flags, but
+  when they die they're eliminated and become a spectator (WASD to fly, Space/Shift for
   up/down).
 - The last player who hasn't been eliminated wins.
 

@@ -5,7 +5,7 @@
 
 import {
   TICK_RATE, MAX_QUEUED_INPUTS, PLAYER_HEIGHT,
-  REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
+  REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, TOWER_MIN_HEIGHT, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
   MAX_HP, REGEN_DELAY, REGEN_INTERVAL, HIT_TOLERANCE,
   KNOCKBACK_SPEED, KNOCKBACK_UP, RESPAWN_DELAY, VOID_Y, KILL_CREDIT_TIME, FALL_SAFE_DISTANCE,
@@ -22,6 +22,7 @@ import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../sh
 import { keepAt, flagHome } from '../shared/structures.js';
 import {
   stepPlayer, stepItem, playerOverlapsBlock, createPlayerState, playerBoxOf, eyeHeight, isOnLadder, isInWater,
+  playerFitsAt,
 } from '../shared/physics.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '../shared/raycast.js';
 import {
@@ -458,6 +459,7 @@ export class Game {
 
     // What goes where: [x, y, z, block id] for each cell.
     let cells;
+    let lift = false;
     if (def.places === 'ladder') {
       // Flat against the side of a full block: the targeted face must be a side.
       if (pos.ny !== 0 || (pos.nx === 0 && pos.nz === 0)) return;
@@ -474,13 +476,24 @@ export class Game {
     } else {
       const attached = NEIGHBOURS.some(([dx, dy, dz]) =>
         isTargetable(this.world.getBlock(pos.x + dx, pos.y + dy, pos.z + dz)));
-      if (!attached || this.playerIn(pos.x, pos.y, pos.z)) return;
+      if (!attached) return;
+      // Nobody may be in the way, except that a player jumping up can place
+      // the block under their own feet (towering) and is lifted on top of it.
+      for (const p of this.players.values()) {
+        if (p.dead || !playerOverlapsBlock(p.state.x, p.state.y, p.state.z, pos.x, pos.y, pos.z, playerBoxOf(p.state))) continue;
+        if (p !== player || !this.canTower(p, pos)) return;
+        lift = true;
+      }
       // Furnaces and chests face the player who places them.
       const look = lookDirection(player.state.yaw, 0);
       const toward = Math.abs(look.x) > Math.abs(look.z) ? facingOf(-Math.sign(look.x), 0) : facingOf(0, -Math.sign(look.z));
       cells = [[pos.x, pos.y, pos.z, facedBlock(def.block, toward)]];
     }
     player.inventory.takeOne(slot);
+    if (lift) {
+      player.state.y = pos.y + 1;
+      player.state.vy = Math.max(player.state.vy, 0);
+    }
     for (const [x, y, z, id] of cells) {
       this.world.setBlock(x, y, z, id);
       const container = createContainer(getBlockDef(id).tileEntity);
@@ -490,9 +503,17 @@ export class Game {
     this.swing(player);
   }
 
-  // Air, and outside every keep's no-build zone.
+  // Air or water (placing into water replaces it), and outside every keep's no-build zone.
   buildable(x, y, z) {
-    return this.world.getBlock(x, y, z) === BLOCK.AIR && this.world.inBounds(x, y, z) && !keepAt(this.world, x, y, z);
+    const id = this.world.getBlock(x, y, z);
+    return (id === BLOCK.AIR || id === BLOCK.WATER) && this.world.inBounds(x, y, z) && !keepAt(this.world, x, y, z);
+  }
+
+  // In the air, feet at least TOWER_MIN_HEIGHT up the cell (and still in it),
+  // with room to stand on top of it.
+  canTower(player, pos) {
+    const s = player.state;
+    return !s.onGround && s.y >= pos.y + TOWER_MIN_HEIGHT && s.y < pos.y + 1 && playerFitsAt(this.world, s, pos.y + 1);
   }
 
   // Tells everyone else to play this player's arm swing.
@@ -870,8 +891,11 @@ export class Game {
       }
       const own = player.flag;
       if (own.state === FLAG_STATE.DROPPED && this.onFlag(player, own.body)) this.returnFlag(own, player);
+      // Capture on your own pedestal while your flag is home, or while you're
+      // flagless (your flag already captured).
       if (player.carrying) {
-        if (own.state === FLAG_STATE.HOME && this.onFlag(player, own.home)) this.capture(player);
+        const canCapture = own.state === FLAG_STATE.HOME || own.state === FLAG_STATE.CAPTURED;
+        if (canCapture && this.onFlag(player, own.home)) this.capture(player);
         continue;
       }
 

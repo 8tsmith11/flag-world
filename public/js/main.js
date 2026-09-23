@@ -6,7 +6,7 @@ import {
   DEBUG, TICK_DT, PLAYER_EYE_HEIGHT, REACH_DISTANCE, RESPAWN_DELAY,
   VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX,
 } from '/shared/config.js';
-import { C2S, S2C, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT } from '/shared/protocol.js';
+import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT } from '/shared/protocol.js';
 import { generateWorld } from '/shared/worldgen.js';
 import {
   BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isDoor, isFurnace, isChest,
@@ -259,10 +259,6 @@ function deathText({ id, killerId, cause }) {
   return `${killer} killed ${victim}`;
 }
 
-function flagless() {
-  return flags.get(player.id)?.state.state === FLAG_STATE.CAPTURED;
-}
-
 // msg: the DEATH message, or null when we learn it from a snapshot (reclaiming a dead player).
 function enterDeath(msg, isEliminated) {
   // The server has already dropped everything, cursor stack included.
@@ -488,8 +484,7 @@ function updateFlagHud() {
     carryLabel.set('');
     return;
   }
-  const goal = flagless() ? "you have no flag, so you can't capture" : 'bring it to your pedestal';
-  carryLabel.set(`Carrying ${nameOf(self.carrying)}'s flag — ${goal}`);
+  carryLabel.set(`Carrying ${nameOf(self.carrying)}'s flag — bring it to your pedestal`);
 }
 
 function frame(now) {

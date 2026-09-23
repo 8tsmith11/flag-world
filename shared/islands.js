@@ -51,21 +51,23 @@ const MAX_CONNECT_GAP = 45;
 const CENTER_BRIDGES = 2;
 const STONE_SPACING = 3;
 const CRUMB_CHANCE = 0.35;
-// Caves (see carveCaves). Noise scales are per block; radii are in noise units.
-// Nearly the same scale up and across keeps tunnels round in cross-section;
-// the slightly finer vertical scale keeps them from climbing too steeply.
+// Caves (see carveCaves): worm tunnels. Radii and steps in blocks.
 const CAVE_MIN_WIDTH = 25;
 const CAVE_SHELL = 3;
 // No carving this close to a keep's flattened area.
 const CAVE_KEEP_CLEARANCE = 6;
-const TUNNEL_SCALE = 1 / 30;
-const TUNNEL_SCALE_Y = 1 / 26;
-const TUNNEL_RADIUS = [0.16, 0.26];
-const CHAMBER_SCALE = 1 / 32;
-const CHAMBER_SCALE_Y = 1 / 18;
-const CHAMBER_THRESHOLD = 0.6;
-const ENTRANCE_SCALE = 1 / 28;
-const ENTRANCE_THRESHOLD = 0.3;
+// Worms per square block of island (center island; ring islands get fewer).
+const WORM_DENSITY = 1 / 480;
+const WORM_RADIUS = [1.9, 2.8];
+const WORM_STEP = 0.8;
+// How fast a worm turns and how its width wanders, per step along it.
+const WORM_TURN = 0.2;
+const WORM_CLIMB = 0.1;
+const WORM_MAX_PITCH = 0.55;
+const ENTRANCE_CHANCE = 0.4;
+// Round rooms along some center island worms.
+const CHAMBER_CHANCE = 0.15;
+const CHAMBER_RADIUS = [4, 7];
 // Iron ore: blobby 3D noise veins through stone. Stone next to air (cave
 // walls, undersides, cliffs) needs less, and the center island less again.
 const ORE_SCALE = 1 / 5;
@@ -154,7 +156,7 @@ export function generateIslandWorld(seed, playerCount, layout) {
     placed++;
   }
 
-  for (const island of islands) writeIsland(world, carveIsland(island, noise, noise3));
+  for (const island of islands) writeIsland(world, carveIsland(island, noise, noise3, random));
 
   // Keeps, flattening the ground under them. Players are assigned in lobby order.
   world.keeps = keepIslands.map((island) => {
@@ -255,7 +257,7 @@ function undersideDepth(island, t, dx, dz, jag) {
 
 // Builds one island into its own box of blocks, carves its caves, then removes
 // small fragments.
-function carveIsland(island, noise, noise3) {
+function carveIsland(island, noise, noise3, random) {
   const { r, ox, oz } = island;
   const ext = Math.ceil(r * 1.2) + 1;
   const x0 = Math.floor(island.x) - ext, z0 = Math.floor(island.z) - ext;
@@ -297,21 +299,22 @@ function carveIsland(island, noise, noise3) {
     }
   }
   const box = { x0, y0, z0, sx, sy, sz, data, colTop, colBottom };
-  if (island.kind === 'center' || (island.kind !== 'outer' && island.r * 2 > CAVE_MIN_WIDTH)) carveCaves(island, box, noise3);
+  if (island.kind === 'center' || (island.kind !== 'outer' && island.r * 2 > CAVE_MIN_WIDTH)) carveCaves(island, box, noise3, random);
   placeOre(island, box, noise3);
   removeFragments(data, sx, sy, sz);
   return box;
 }
 
-// Minecraft-style noise caves, decided per block. Tunnels run where two 3D
-// noise fields are both near zero, which traces smooth winding tubes; a slow
-// third field varies their thickness along their length. The center island
-// also gets open chambers where a blobby field is high. A rock shell is kept
-// around the island, except where a slow "entrance" field lets tunnels break
-// through a cliff, the underside or the top.
-function carveCaves(island, box, noise3) {
-  const { x0, y0, sx, sz, data, colTop, colBottom } = box;
-  const z0 = box.z0;
+// Worm caves, like classic Minecraft: each worm starts inside the island and
+// crawls along a smooth, winding path (its turning and climbing come from
+// smooth noise, so it curves rather than jitters), carving a ball at every
+// step. The result is a round tube 4-6 blocks across whose width swells and
+// narrows a little. Worms keep a shell of CAVE_SHELL blocks of rock around
+// them, except the ones that end as entrances, which steer out through a
+// cliff, the underside or the top. Some center island worms open into a
+// round room.
+function carveCaves(island, box, noise3, random) {
+  const { x0, y0, z0, sx, sy, sz, data, colTop, colBottom } = box;
   const column = (lx, lz) => (lx >= 0 && lz >= 0 && lx < sx && lz < sz ? lx + lz * sx : -1);
   const keep = island.keepSite;
   const nearKeep = (wx, wz) => keep
@@ -325,35 +328,93 @@ function carveCaves(island, box, noise3) {
     const c = column(lx + dx, lz + dz);
     return c >= 0 && colTop[c] >= 0 && y >= colBottom[c] + CAVE_SHELL && y <= colTop[c] - CAVE_SHELL;
   });
+  const inside = (lx, y, lz) => {
+    const c = column(lx, lz);
+    return c >= 0 && colTop[c] >= 0 && y >= colBottom[c] && y <= colTop[c];
+  };
 
-  const chambers = island.kind === 'center';
-  const [thin, thick] = TUNNEL_RADIUS;
-  for (let lz = 0; lz < sz; lz++) {
-    for (let lx = 0; lx < sx; lx++) {
-      const c = lx + lz * sx;
-      if (colTop[c] < 0) continue;
-      const wx = x0 + lx, wz = z0 + lz;
-      if (nearKeep(wx, wz)) continue;
-      for (let y = colBottom[c]; y <= colTop[c]; y++) {
-        const i = lx + sx * (lz + sz * (y - y0));
-        if (!data[i]) continue;
-        const a = noise3(wx * TUNNEL_SCALE, y * TUNNEL_SCALE_Y, wz * TUNNEL_SCALE);
-        let hole = false;
-        // Cheap reject: far from the first field's zero there can't be a tunnel.
-        if (Math.abs(a) < thick) {
-          const b = noise3(wx * TUNNEL_SCALE + 71.3, y * TUNNEL_SCALE_Y + 13.1, wz * TUNNEL_SCALE + 29.7);
-          const r = thin + (thick - thin) * (noise3(wx / 48 + 500, y / 48, wz / 48 + 500) * 0.5 + 0.5);
-          hole = a * a + b * b < r * r;
+  // Clears a ball (squash < 1 flattens it) around a point in box coordinates.
+  // open: allowed to break through the shell (entrances).
+  const carve = (px, py, pz, radius, squash, open) => {
+    const ry = radius * squash;
+    for (let lz = Math.floor(pz - radius); lz <= Math.floor(pz + radius); lz++) {
+      for (let lx = Math.floor(px - radius); lx <= Math.floor(px + radius); lx++) {
+        if (column(lx, lz) < 0 || nearKeep(x0 + lx, z0 + lz)) continue;
+        for (let y = Math.floor(py - ry); y <= Math.floor(py + ry); y++) {
+          const ly = y - y0;
+          if (ly < 0 || ly >= sy) continue;
+          const d = ((lx + 0.5 - px) / radius) ** 2 + ((y + 0.5 - py) / ry) ** 2 + ((lz + 0.5 - pz) / radius) ** 2;
+          if (d > 1 || (!open && !interior(lx, y, lz))) continue;
+          data[lx + sx * (lz + sz * ly)] = 0;
         }
-        if (!hole && chambers) {
-          hole = noise3(wx * CHAMBER_SCALE + 300, y * CHAMBER_SCALE_Y, wz * CHAMBER_SCALE + 300) > CHAMBER_THRESHOLD;
-        }
-        if (!hole) continue;
-        if (!interior(lx, y, lz)
-          && noise3(wx * ENTRANCE_SCALE + 900, y * ENTRANCE_SCALE, wz * ENTRANCE_SCALE + 900) < ENTRANCE_THRESHOLD) continue;
-        data[i] = 0;
       }
     }
+  };
+
+  // A random point well inside the island, or null.
+  const cx = island.x - x0, cz = island.z - z0;
+  const pickInterior = () => {
+    for (let tries = 0; tries < 12; tries++) {
+      const a = random() * Math.PI * 2, d = Math.sqrt(random()) * island.r * 0.75;
+      const lx = Math.floor(cx + Math.cos(a) * d), lz = Math.floor(cz + Math.sin(a) * d);
+      const c = column(lx, lz);
+      if (c < 0 || colTop[c] < 0) continue;
+      const low = colBottom[c] + CAVE_SHELL + 3, high = colTop[c] - CAVE_SHELL - 3;
+      const y = Math.floor(low + random() * (high - low + 1));
+      if (high >= low && interior(lx, y, lz) && !nearKeep(x0 + lx, z0 + lz)) return { x: lx + 0.5, y: y + 0.5, z: lz + 0.5 };
+    }
+    return null;
+  };
+
+  const worm = (start) => {
+    let { x, y, z } = start;
+    let yaw = random() * Math.PI * 2, pitch = (random() - 0.5) * 0.3;
+    const radius = WORM_RADIUS[0] + random() * (WORM_RADIUS[1] - WORM_RADIUS[0]);
+    const length = Math.floor(Math.min(200, island.r * (1.5 + random() * 1.5)) / WORM_STEP);
+    const exits = random() < ENTRANCE_CHANCE;
+    const exitMode = ['side', 'bottom', 'top'][Math.floor(random() * 3)];
+    const exitAt = Math.floor(length * 0.6);
+    // This worm's own track through the noise, so worms wind differently.
+    const track = random() * 1000;
+    let outside = 0;
+    for (let step = 0; step < length + 60; step++) {
+      const exiting = exits && step >= exitAt;
+      if (!exiting && step >= length) break;
+      const t = step * 0.05;
+      const r = radius * (0.85 + 0.3 * (noise3(t * 0.7, track, 100) * 0.5 + 0.5));
+      carve(x, y, z, r, 1, exiting);
+      yaw += noise3(t, track, 0) * WORM_TURN;
+      pitch = Math.max(-WORM_MAX_PITCH, Math.min(WORM_MAX_PITCH, pitch * 0.92 + noise3(t, track, 50) * WORM_CLIMB));
+      if (exiting) {
+        // Steer out: away from the island center, or down / up.
+        if (exitMode === 'side') {
+          const out = Math.atan2(z - cz, x - cx);
+          yaw += Math.atan2(Math.sin(out - yaw), Math.cos(out - yaw)) * 0.15;
+          pitch *= 0.7;
+        } else {
+          pitch += ((exitMode === 'bottom' ? -1 : 1) - pitch) * 0.15;
+        }
+      }
+      x += Math.cos(yaw) * Math.cos(pitch) * WORM_STEP;
+      z += Math.sin(yaw) * Math.cos(pitch) * WORM_STEP;
+      y += Math.sin(pitch) * WORM_STEP;
+      if (!inside(Math.floor(x), Math.floor(y), Math.floor(z))) {
+        // An entrance carries on a couple of blocks into the open; anything else stops.
+        if (!exiting || ++outside > 3) break;
+      }
+    }
+  };
+
+  const center = island.kind === 'center';
+  const area = Math.PI * island.r * island.r;
+  const worms = Math.max(1, Math.round(area * WORM_DENSITY * (center ? 1 : 0.5)));
+  for (let i = 0; i < worms; i++) {
+    const at = pickInterior();
+    if (!at) continue;
+    if (center && random() < CHAMBER_CHANCE) {
+      carve(at.x, at.y, at.z, CHAMBER_RADIUS[0] + random() * (CHAMBER_RADIUS[1] - CHAMBER_RADIUS[0]), 0.6, false);
+    }
+    worm(at);
   }
 }
 

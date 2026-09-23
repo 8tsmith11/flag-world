@@ -35,8 +35,9 @@ including the host, plays by opening `http://<host-ip>:3000`.
   that config plus the constants at the top of `islands.js`. Sizes differ in
   the center island's width and its gap to the ring (`WORLD_SIZES`);
   `ISLAND_LAYOUT` (ring and scatter thickness, keep spacing) is shared and
-  `islandLayout(size)` derives the rest, world width included. Caves are 3D-noise tunnels and chambers carved into
-  each island's buffer (`carveCaves`) before fragment removal; the Test
+  `islandLayout(size)` derives the rest, world width included. Caves are worm tunnels (smooth noise-steered
+  paths carving round tubes) carved into each island's buffer (`carveCaves`)
+  before fragment removal; the Test
   world has one tunnel near the first keep. Use
   `world.sizeX`/`sizeY`/`sizeZ`, not constants.
 - Chunks are sparse: `World` only stores chunks that have held a non-air

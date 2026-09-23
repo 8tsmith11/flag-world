@@ -38,6 +38,11 @@ export function playerBoxOf(state) {
   return state.crouching ? CROUCH_BOX : PLAYER_BOX;
 }
 
+// Whether the player's box fits (hits no solid block) with its feet at height y.
+export function playerFitsAt(world, state, y) {
+  return !collidesAt(world, playerBoxOf(state), state.x, y, state.z);
+}
+
 // Eye height above the feet: lower while crouching.
 export function eyeHeight(state) {
   return PLAYER_EYE_HEIGHT - (state.crouching ? CROUCH_EYE_DROP : 0);

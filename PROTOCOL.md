@@ -255,10 +255,13 @@ divided by the hammer's speed (wood 1, stone 1.5, iron 2). The result arrives as
 (usually itself; leaves drop nothing) pops out as an item entity
 (`entitySpawn`). Other players get a `swing` every 5 ticks while mining.
 
-`place` is the air cell against the targeted face. The server places the
-item in `slot` only if the cell is air, is within reach, and is outside every
-keep's volume. Then, by item:
-- **Block:** the cell touches a solid or breakable block and doesn't overlap any player.
+`place` is the cell against the targeted face. The server places the item in
+`slot` only if the cell is air or water (water is replaced), is within reach,
+and is outside every keep's volume. Then, by item:
+- **Block:** the cell touches a solid or breakable block and doesn't overlap any
+  player. The exception is towering: a player in the air whose feet are at
+  least 0.5 up the cell (and still in it), with room above, may place the
+  block under themselves and is lifted on top of it.
 - **Ladder:** the clicked face is a side (`ny` = 0) of a full solid block. It
   hangs on that face.
 - **Door:** the cell above is also free, the block below is a full solid block,
@@ -502,11 +505,12 @@ The server runs these rules; the messages above carry the results.
 - **Returning.** A dropped flag returns home after 120 s, or at once if its
   owner is on it or it falls below y = -20.
 - **Capturing.** A carrier captures when they are on their own pedestal
-  while their own flag is home. The captured flag's owner becomes flagless:
+  while their own flag is home, or already captured (flagless players can
+  capture too). The captured flag's owner becomes flagless:
   they keep playing where they are, with their inventory, and their keep
   stays standing.
-- **Elimination.** Flagless players can still fight, mine, build and take and
-  carry flags, but can't capture. When a flagless player dies (void included),
+- **Elimination.** Flagless players can still fight, mine, build, and take,
+  carry and capture flags. When a flagless player dies (void included),
   they are eliminated and spectate with a free-fly camera. When only one
   player is left who hasn't been eliminated, they win (`matchEnd`).
 

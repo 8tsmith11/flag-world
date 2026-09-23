@@ -51,6 +51,9 @@ export const CROUCH_SPEED_SCALE = 0.3;
 export const CROUCH_HEIGHT = 1.45;
 export const CROUCH_EYE_DROP = 0.3;
 export const CROUCH_MAX_DROP = 1;
+// Towering: a player in the air may place a block in the cell their feet are
+// in once they're at least this far up it; they're lifted on top of it.
+export const TOWER_MIN_HEIGHT = 0.5;
 // Ladders: climbing speed up or down (blocks/s).
 export const CLIMB_SPEED = 3;
 
