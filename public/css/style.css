@@ -1,0 +1,657 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: system-ui, sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  user-select: none;
+}
+
+.screen.hidden {
+  display: none;
+}
+
+#overlay {
+  cursor: pointer;
+}
+
+.settings {
+  display: inline-block;
+  margin: 4px 0 12px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  cursor: default;
+}
+
+.settings label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.screen .panel {
+  text-align: center;
+}
+
+.screen h1 {
+  margin: 0 0 0.5em;
+  font-size: 3em;
+}
+
+.screen .hint {
+  opacity: 0.7;
+}
+
+/* Lobby and match-in-progress screens. */
+.card {
+  min-width: 340px;
+  max-width: calc(100vw - 32px);
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 8px;
+  cursor: default;
+  user-select: text;
+}
+
+.card .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0;
+}
+
+.card label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.card input:not([type="color"]) {
+  width: 11em;
+  padding: 5px 7px;
+  font: inherit;
+}
+
+.card select {
+  padding: 5px 7px;
+  font: inherit;
+}
+
+.card input[type="color"] {
+  width: 40px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.card button {
+  padding: 6px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.card button.on {
+  background: #3c9d4a;
+  color: #fff;
+  border: 1px solid #2c7a38;
+}
+
+.card button:disabled {
+  cursor: not-allowed;
+}
+
+.players {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  text-align: left;
+}
+
+.players li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.players .dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.players .name {
+  flex: 1;
+}
+
+.players .tag {
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.players .status.ready,
+.players .status.connected {
+  color: #7fe08c;
+}
+
+.players .status.waiting,
+.players .status.disconnected {
+  color: #f0b35e;
+}
+
+.error {
+  min-height: 1.2em;
+  color: #ff8a80;
+}
+
+#crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  background:
+    linear-gradient(#fff, #fff) center / 2px 100% no-repeat,
+    linear-gradient(#fff, #fff) center / 100% 2px no-repeat;
+  mix-blend-mode: difference;
+}
+
+#debug {
+  position: fixed;
+  left: 8px;
+  top: 8px;
+  margin: 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: 13px/1.4 ui-monospace, monospace;
+  pointer-events: none;
+}
+
+#hotbar {
+  --slot: 44px;
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+#hotbar .slot {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#hotbar .slot.selected {
+  border-color: #fff;
+}
+
+.slot .count {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  color: #fff;
+  font: bold calc(var(--slot, 44px) * 0.3) / 1 ui-monospace, monospace;
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* The crosshair and HUD only belong in the match, and spectators have no body. */
+body:not(.in-game) #crosshair,
+body:not(.in-game) #hotbar,
+body:not(.in-game) #health,
+body.spectating #crosshair,
+body.spectating #hotbar,
+body.spectating #health {
+  display: none;
+}
+
+#grab {
+  position: fixed;
+  left: 50%;
+  top: 60%;
+  transform: translateX(-50%);
+  width: 240px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+
+#grab[hidden] {
+  display: none;
+}
+
+#grab .fill {
+  height: 100%;
+  background: #f2c230;
+}
+
+#grab .label {
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  font: bold 12px/18px system-ui, sans-serif;
+  text-align: center;
+  text-shadow: 1px 1px 0 #000;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 22px;
+  font-weight: bold;
+  text-shadow: 1px 1px 0 #000;
+  pointer-events: none;
+}
+
+#toast.show {
+  animation: toast-fade 3.5s forwards;
+}
+
+@keyframes toast-fade {
+  0%, 75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+#carry {
+  position: fixed;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#carry[hidden] {
+  display: none;
+}
+
+#health {
+  position: fixed;
+  left: 50%;
+  bottom: 70px;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+#health .fill {
+  height: 100%;
+  background: #d8342c;
+  transition: width 0.15s;
+}
+
+#health .label {
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  font: bold 11px/14px ui-monospace, monospace;
+  text-align: center;
+  text-shadow: 1px 1px 0 #000;
+}
+
+#feed {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+
+#feed li {
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 14px;
+  text-align: right;
+  animation: feed-fade 6s forwards;
+}
+
+/* Final eliminations: dark red so they stand out from regular kills. */
+#feed li.elim {
+  color: #ffe0e0;
+  background: rgba(125, 0, 0, 0.85);
+  font-weight: bold;
+}
+
+@keyframes feed-fade {
+  0%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Death: the world goes grey behind the YOU DIED screen. */
+body.dead canvas {
+  filter: grayscale(1);
+}
+
+#death {
+  background: rgba(60, 0, 0, 0.35);
+}
+
+#death.ready {
+  cursor: pointer;
+}
+
+#death .died {
+  color: #e02020;
+  font-size: 6em;
+  letter-spacing: 0.05em;
+  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+}
+
+#death .prompt {
+  font-size: 1.3em;
+}
+
+#end {
+  background: rgba(0, 0, 0, 0.55);
+  cursor: default;
+}
+
+#end h1 {
+  color: #f2c230;
+  font-size: 5em;
+  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+}
+
+/* Item icons (hotbar and inventory), scaled to the slot. */
+.icon {
+  position: relative;
+  width: calc(var(--slot, 44px) * 0.6);
+  height: calc(var(--slot, 44px) * 0.6);
+  pointer-events: none;
+}
+
+.icon.block {
+  box-shadow: inset 0 -23% 0 rgba(0, 0, 0, 0.25);
+}
+
+.icon.sword {
+  transform: rotate(45deg);
+}
+
+.icon.sword .blade,
+.icon.sword .guard,
+.icon.sword .grip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.icon.sword .blade {
+  top: 0;
+  width: 18%;
+  height: 62%;
+  border-radius: 2px 2px 0 0;
+}
+
+.icon.sword .guard {
+  top: 62%;
+  width: 55%;
+  height: 10%;
+  background: #8c8c8c;
+}
+
+.icon.sword .grip {
+  top: 72%;
+  width: 14%;
+  height: 28%;
+  background: #6b4a2b;
+}
+
+.icon.ingot {
+  height: calc(var(--slot, 44px) * 0.3);
+  border-radius: 3px;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2), inset 0 2px 0 rgba(255, 255, 255, 0.4);
+}
+
+.icon.ladder {
+  /* Rails from the side borders, rungs from a repeating gradient; color is the item's. */
+  box-sizing: border-box;
+  border-left: 3px solid currentColor;
+  border-right: 3px solid currentColor;
+  background: repeating-linear-gradient(to bottom, transparent 0 20%, currentColor 20% 30%);
+}
+
+.icon.door {
+  width: calc(var(--slot, 44px) * 0.4);
+  border-radius: 2px;
+  box-shadow: inset -4px 0 0 rgba(0, 0, 0, 0.15), inset 0 0 0 2px rgba(0, 0, 0, 0.25);
+}
+
+.icon.hammer .handle {
+  position: absolute;
+  left: 42%;
+  top: 30%;
+  width: 16%;
+  height: 70%;
+  background: #8c8c8c;
+}
+
+.icon.hammer .head {
+  position: absolute;
+  left: 12%;
+  top: 8%;
+  width: 76%;
+  height: 30%;
+  border-radius: 3px;
+}
+
+/* Inventory screen. Everything is sized from --slot, which shrinks with the
+   window (width: preview + 9 slots + crafting column is about 18 slots plus
+   padding; height: about 7.5 slots plus headings) so the whole screen fits. If
+   even the smallest size doesn't fit, the columns wrap and the screen scrolls. */
+#inventory {
+  --slot: clamp(24px, min((100vw - 190px) / 18, (100vh - 150px) / 7.5), 44px);
+  overflow: auto;
+}
+
+#inventory > .inv {
+  /* Centers like the other screens, but stays scrollable when too big. */
+  margin: auto;
+}
+
+.inv {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(var(--slot) * 0.5);
+  align-items: flex-start;
+  max-width: none;
+  text-align: left;
+}
+
+.inv h2 {
+  margin: 0 0 10px;
+  font-size: 1.2em;
+}
+
+#inv-preview {
+  width: calc(var(--slot) * 4);
+  height: calc(var(--slot) * 6.8);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+}
+
+.inv .grid {
+  display: grid;
+  grid-template-columns: repeat(9, var(--slot));
+  gap: 4px;
+}
+
+#inv-hotbar {
+  margin-top: 12px;
+}
+
+.inv .slot,
+#inv-cursor {
+  position: relative;
+  width: var(--slot);
+  height: var(--slot);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inv .slot {
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+}
+
+.inv .slot:hover {
+  border-color: #fff;
+}
+
+/* The stack held on the mouse, drawn under the pointer. */
+#inv-cursor {
+  position: fixed;
+  left: calc(var(--slot) / -2);
+  top: calc(var(--slot) / -2);
+  pointer-events: none;
+}
+
+.inv-side {
+  width: calc(var(--slot) * 5);
+}
+
+.inv-side[hidden],
+#inv-preview[hidden] {
+  display: none;
+}
+
+/* Furnace: input over a flame over fuel, an arrow, then the output. */
+.furnace {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--slot) * 0.3);
+}
+
+.furnace-in {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.furnace .flame {
+  position: relative;
+  width: calc(var(--slot) * 0.5);
+  height: calc(var(--slot) * 0.5);
+  background: rgba(255, 255, 255, 0.1);
+  clip-path: polygon(50% 0, 90% 55%, 75% 100%, 25% 100%, 10% 55%);
+}
+
+.furnace .flame .fill {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 0;
+  background: linear-gradient(to top, #ff5a1f, #ffc93c);
+}
+
+.furnace-arrow {
+  position: relative;
+  width: calc(var(--slot) * 1.1);
+  height: calc(var(--slot) * 0.45);
+  background: rgba(255, 255, 255, 0.1);
+  clip-path: polygon(0 30%, 65% 30%, 65% 0, 100% 50%, 65% 100%, 65% 70%, 0 70%);
+}
+
+.furnace-arrow .fill {
+  height: 100%;
+  width: 0;
+  background: #fff;
+}
+
+#inv-recipes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: calc(var(--slot) * 7);
+  overflow-y: auto;
+}
+
+#inv-recipes li {
+  margin-bottom: 6px;
+}
+
+#inv-recipes button {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 4px 8px 4px 4px;
+  text-align: left;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+#inv-recipes button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+#inv-recipes .slot {
+  background: none;
+  border: none;
+  cursor: inherit;
+}
+
+.recipe-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.recipe-text span {
+  opacity: 0.7;
+}

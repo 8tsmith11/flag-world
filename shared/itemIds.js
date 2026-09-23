@@ -1,0 +1,15 @@
+// Ids of items that aren't blocks (256 and up; 0-255 are the blocks). Kept
+// apart from items.js so blocks.js can name them without a circular import.
+// Never renumber.
+
+export const ITEM = {
+  WOOD_HAMMER: 256,
+  LADDER: 257,
+  DOOR: 258,
+  IRON_INGOT: 259,
+  STONE_HAMMER: 260,
+  IRON_HAMMER: 261,
+  WOOD_SWORD: 262,
+  STONE_SWORD: 263,
+  IRON_SWORD: 264,
+};
