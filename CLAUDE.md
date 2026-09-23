@@ -20,7 +20,8 @@ including the host, plays by opening `http://<host-ip>:3000`.
 - Client code imports shared modules by absolute URL (`/shared/...`).
 - Every WebSocket message type is listed in `shared/protocol.js` and documented
   in `PROTOCOL.md`. Update both whenever a message is added or changed.
-- Movement is a fixed-tick simulation (`shared/physics.js`). Each client input
+- Movement (including crouching and its edge protection) is a fixed-tick
+  simulation (`shared/physics.js`). Each client input
   is exactly one tick. The client predicts its own player with the same code
   and replays unacknowledged inputs on each server state, so the physics must
   stay deterministic.
@@ -31,10 +32,10 @@ including the host, plays by opening `http://<host-ip>:3000`.
   world size (`WORLD_SIZES` in `shared/worldgen.js`: Test, Small, Medium,
   Large); only those three are sent to clients. Test is the small slab world.
   The others are floating islands (`shared/islands.js`) and are tuned from
-  that config plus the constants at the top of `islands.js`. Sizes differ only
-  in the center island's width; `ISLAND_LAYOUT` (ring gap, ring and scatter
-  thickness, keep spacing) is shared and `islandLayout(size)` derives the rest,
-  world width included. Caves are 3D-noise tunnels and chambers carved into
+  that config plus the constants at the top of `islands.js`. Sizes differ in
+  the center island's width and its gap to the ring (`WORLD_SIZES`);
+  `ISLAND_LAYOUT` (ring and scatter thickness, keep spacing) is shared and
+  `islandLayout(size)` derives the rest, world width included. Caves are 3D-noise tunnels and chambers carved into
   each island's buffer (`carveCaves`) before fragment removal; the Test
   world has one tunnel near the first keep. Use
   `world.sizeX`/`sizeY`/`sizeZ`, not constants.
@@ -55,10 +56,11 @@ including the host, plays by opening `http://<host-ip>:3000`.
   items (hammers, swords, ladder, door, ingot) start at 256, with ids in
   `shared/itemIds.js`. Hammer strength/speed and sword damage/cooldown are in
   `shared/tools.js`. Recipes have a `station` (null or 'workbench'); smelting
-  and fuel are data in `shared/recipes.js`. Furnaces are tile entities
-  (`server/furnace.js`, in `world.tileEntities`) ticked by the server. Never renumber. Recipes are data in
-  `shared/recipes.js`. The inventory is 36 slots (hotbar 0-8) plus a cursor
-  stack. It's server-owned (`server/inventory.js`), and the client only sends
+  and fuel are data in `shared/recipes.js`. Chests and furnaces are
+  containers: tile entities (`server/containers.js`, in `world.tileEntities`)
+  that the server ticks and sends to everyone viewing them. Faced blocks
+  (furnace, chest) have one id per facing (`FACED`). The inventory is 36 slots
+  (hotbar 0-8) plus a cursor stack. It's server-owned (`server/inventory.js`), and the client only sends
   clicks and crafts.
 - Breaking a block needs the held item's tool strength (bare hands are
   `HAND_STRENGTH`) >= its `hardness` and holding the break button on it for `breakTime`. Progress
@@ -97,7 +99,7 @@ server/
   inventory.js               36 slots + cursor stack: pickup, clicks, crafting
   item.js                    Dropped item entity
   flag.js                    A player's flag: home / carried / dropped / captured
-  furnace.js                 Furnace tile entity: slots, fuel, smelting
+  containers.js              Chest and furnace tile entities: slots, shift-click, smelting
 shared/                      Runs on server and client
   config.js                  Constants: DEBUG, Test world size, chunk size, view distance, physics, gameplay
   blocks.js                  Block type registry and properties
@@ -121,7 +123,7 @@ public/
     input.js                 Keyboard, pointer-lock mouse look, mouse buttons, hotbar selection, key hook
     hotbar.js                Hotbar HUD
     itemIcon.js              DOM item icons for the hotbar and inventory
-    inventoryScreen.js       Inventory / workbench / furnace screen: slots, cursor stack, recipes, preview
+    inventoryScreen.js       Inventory / workbench / furnace / chest screen: slots, cursor, recipes, preview
     hud.js                   Health bar, kill feed, flag grab bar, notifications
     lobby.js                 Lobby and match-in-progress screens, remembered name
     spectator.js             Free-fly camera for eliminated players
@@ -131,7 +133,7 @@ public/
       scene.js               Renderer, camera, lights, fog tied to view distance
       clouds.js              Drifting cloud layers (island worlds)
       overview.js            Debug top-down camera of the whole world
-      mesher.js              Chunk -> BufferGeometry (visible cube faces; ladders/doors as boxes)
+      mesher.js              Chunk -> BufferGeometry (visible cube faces; shaped blocks as colored boxes)
       chunkRenderer.js       Meshes chunks within the view distance, nearest first; unloads far ones
       entityRenderer.js      Remote entity models, snapshot interpolation, player animation
       models.js              Player model (body, head, arm), item models (cubes, hammer)

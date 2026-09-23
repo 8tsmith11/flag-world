@@ -91,7 +91,8 @@ export class EntityRenderer {
     // Dying or respawning moves the player instantly; don't interpolate across it.
     if (entity.snapshots.at(-1)?.dead !== dead) entity.snapshots.length = 0;
     entity.snapshots.push({
-      time: performance.now(), x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held, dead,
+      time: performance.now(), x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
+      crouching: !!snap.crouching, dead,
     });
     if (entity.snapshots.length > MAX_SNAPSHOTS) entity.snapshots.shift();
   }
@@ -112,11 +113,13 @@ export class EntityRenderer {
     return this.entities.get(id)?.object ?? null;
   }
 
-  // Live players as drawn this frame, as { id, state: { x, y, z } } for raycastPlayers.
+  // Live players as drawn this frame, as { id, state: { x, y, z, crouching } } for raycastPlayers.
   playerTargets() {
     const targets = [];
-    for (const [id, { object, info }] of this.entities) {
-      if (info.type === ENTITY_TYPE.PLAYER && object.visible) targets.push({ id, state: object.position });
+    for (const [id, { object, info, snapshots }] of this.entities) {
+      if (info.type !== ENTITY_TYPE.PLAYER || !object.visible) continue;
+      const { x, y, z } = object.position;
+      targets.push({ id, state: { x, y, z, crouching: !!snapshots.at(-1)?.crouching } });
     }
     return targets;
   }
@@ -150,7 +153,7 @@ export class EntityRenderer {
       if (object.userData.player) {
         const span = (b.time - a.time) / 1000;
         const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
-        animatePlayer(object, { dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held });
+        animatePlayer(object, { dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, crouching: b.crouching });
       }
     }
   }

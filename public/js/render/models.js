@@ -21,6 +21,11 @@ const WALK_PHASE_PER_BLOCK = 2.4;
 const WADDLE = 0.07;
 const ARM_WALK_SWING = 0.35;
 const WALK_FULL_SPEED = 4;
+// Crouching: how much shorter the body gets, how far it leans forward, and
+// how fast it eases between standing and crouched (per second).
+const CROUCH_SQUASH = 0.15;
+const CROUCH_LEAN = 0.35;
+const CROUCH_EASE = 12;
 
 function lambert(color) {
   return new THREE.MeshLambertMaterial({ color });
@@ -108,7 +113,7 @@ export function createArm(color) {
 }
 
 // Puts `item` (or nothing, for null) in a hand group; tools point along the
-// hand's +Z out of the fist. Skips the work if it's already holding it.
+// hand's -Z out of the fist. Skips the work if it's already holding it.
 export function setHandItem(hand, item) {
   if (hand.userData.item === item) return;
   hand.userData.item = item;
@@ -118,8 +123,13 @@ export function setHandItem(hand, item) {
   }
   if (item === null) return;
   const model = createItemModel(item, 0.2);
-  // Tools lie along the handle's +Y; turn that to +Z. Blocks sit in the fist.
-  if (getItemDef(item).tool) model.rotation.x = Math.PI / 2;
+  // Tools are modeled along +Y (handle or grip at the bottom). Tip that forward
+  // to the hand's -Z, out of the fist. A hammer also turns a quarter-turn about
+  // its own handle first (Y is applied before X), so the head's striking face,
+  // not its side, faces the way it swings. Blocks just sit in the fist.
+  const tool = getItemDef(item).tool;
+  if (tool === 'hammer') model.rotation.set(-Math.PI / 2, Math.PI / 2, 0);
+  else if (tool) model.rotation.x = -Math.PI / 2;
   else model.position.set(0, -0.1, -0.05);
   hand.add(model);
 }
@@ -160,7 +170,7 @@ export function createPlayerModel({ color }) {
   shoulder.position.set(BODY_RADIUS + ARM_RADIUS + 0.02, BODY_HEIGHT - 0.1, 0);
   torso.add(shoulder);
 
-  group.userData.player = { torso, head, shoulder, hand, walkPhase: 0, swingStart: -Infinity };
+  group.userData.player = { torso, head, shoulder, hand, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
   return group;
 }
 
@@ -168,9 +178,13 @@ export function swingPlayer(model) {
   model.userData.player.swingStart = performance.now();
 }
 
-// Per frame. speed: horizontal blocks/s; pitch: look pitch.
-export function animatePlayer(model, { dt, speed, pitch, held }) {
+// Per frame. speed: horizontal blocks/s; pitch: look pitch; crouching: squash and lean.
+export function animatePlayer(model, { dt, speed, pitch, held, crouching = false }) {
   const p = model.userData.player;
+  p.crouch += ((crouching ? 1 : 0) - p.crouch) * Math.min(1, dt * CROUCH_EASE);
+  p.torso.scale.y = 1 - CROUCH_SQUASH * p.crouch;
+  // Negative X rotation tips the top toward the front (-Z).
+  p.torso.rotation.x = -CROUCH_LEAN * p.crouch;
   const walk = Math.min(1, speed / WALK_FULL_SPEED);
   if (walk > 0.05) p.walkPhase += speed * dt * WALK_PHASE_PER_BLOCK;
   else p.walkPhase = 0;

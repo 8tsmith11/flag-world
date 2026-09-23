@@ -4,7 +4,7 @@
 // can reclaim a disconnected player by name or wait on the in-progress screen.
 
 import {
-  TICK_RATE, MAX_QUEUED_INPUTS, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT,
+  TICK_RATE, MAX_QUEUED_INPUTS, PLAYER_HEIGHT,
   REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
   MAX_HP, REGEN_DELAY, REGEN_INTERVAL, HIT_TOLERANCE,
@@ -12,16 +12,16 @@ import {
   FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS,
 } from '../shared/config.js';
 import {
-  BLOCK, isSolid, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf,
+  BLOCK, isSolid, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
   ladderBlock, isLadder, ladderFacing, doorBlock, isDoor, doorState,
 } from '../shared/blocks.js';
 import { getItemDef, ITEM } from '../shared/items.js';
 import { getRecipe } from '../shared/recipes.js';
-import { Furnace } from './furnace.js';
+import { createContainer } from './containers.js';
 import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../shared/worldgen.js';
 import { keepAt, flagHome } from '../shared/structures.js';
 import {
-  stepPlayer, stepItem, playerOverlapsBlock, createPlayerState, PLAYER_BOX, isOnLadder, isInWater,
+  stepPlayer, stepItem, playerOverlapsBlock, createPlayerState, playerBoxOf, eyeHeight, isOnLadder, isInWater,
 } from '../shared/physics.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '../shared/raycast.js';
 import {
@@ -196,8 +196,8 @@ export class Game {
           this.stowCursor(session.player);
         }
         break;
-      case C2S.OPEN_FURNACE:
-        if (session.player) this.openFurnace(session.player, msg);
+      case C2S.OPEN_CONTAINER:
+        if (session.player) this.openContainer(session.player, msg);
         break;
       case C2S.CRAFT:
         if (session.player) this.craft(session.player, msg);
@@ -370,6 +370,7 @@ export class Game {
       use: parseBlockPos(this.world, msg.use),
       drop: !!msg.drop,
       attack: !!msg.attack,
+      crouch: !!msg.crouch,
     });
   }
 
@@ -406,10 +407,10 @@ export class Game {
       const drop = getBlockDef(id).drops;
       if (drop !== null) this.dropAt(drop, x, y, z);
       const key = `${x},${y},${z}`;
-      const furnace = this.world.tileEntities.get(key);
-      if (furnace) {
+      const container = this.world.tileEntities.get(key);
+      if (container) {
         this.world.tileEntities.delete(key);
-        for (const stack of furnace.takeAll()) this.dropAt(stack.item, x, y, z, stack.count);
+        for (const stack of container.takeAll()) this.dropAt(stack.item, x, y, z, stack.count);
       }
     }
     FACING_DIRS.forEach(([dx, dz], facing) => {
@@ -429,7 +430,7 @@ export class Game {
   // True if any live player would overlap the block.
   playerIn(x, y, z) {
     for (const p of this.players.values()) {
-      if (!p.dead && playerOverlapsBlock(p.state.x, p.state.y, p.state.z, x, y, z)) return true;
+      if (!p.dead && playerOverlapsBlock(p.state.x, p.state.y, p.state.z, x, y, z, playerBoxOf(p.state))) return true;
     }
     return false;
   }
@@ -474,12 +475,16 @@ export class Game {
       const attached = NEIGHBOURS.some(([dx, dy, dz]) =>
         isTargetable(this.world.getBlock(pos.x + dx, pos.y + dy, pos.z + dz)));
       if (!attached || this.playerIn(pos.x, pos.y, pos.z)) return;
-      cells = [[pos.x, pos.y, pos.z, def.block]];
+      // Furnaces and chests face the player who places them.
+      const look = lookDirection(player.state.yaw, 0);
+      const toward = Math.abs(look.x) > Math.abs(look.z) ? facingOf(-Math.sign(look.x), 0) : facingOf(0, -Math.sign(look.z));
+      cells = [[pos.x, pos.y, pos.z, facedBlock(def.block, toward)]];
     }
     player.inventory.takeOne(slot);
     for (const [x, y, z, id] of cells) {
       this.world.setBlock(x, y, z, id);
-      if (getBlockDef(id).tileEntity === 'furnace') this.world.tileEntities.set(`${x},${y},${z}`, new Furnace());
+      const container = createContainer(getBlockDef(id).tileEntity);
+      if (container) this.world.tileEntities.set(`${x},${y},${z}`, container);
     }
     player.inventoryDirty = true;
     this.swing(player);
@@ -497,62 +502,88 @@ export class Game {
 
   // ---- Inventory screen ----
 
-  // A slot click in the inventory screen, or (container: 'furnace') in the
-  // open furnace's slots.
+  // A slot click in the inventory screen, or (container: true) in the open
+  // container's slots. With shift, the stack moves across instead: between
+  // the container and the inventory, or with none open, between the hotbar
+  // and the main grid.
   inventoryClick(player, msg) {
     if (player.dead) return;
     const { slot, button } = msg;
-    if (button !== 'left' && button !== 'right' || !Number.isInteger(slot)) return;
-    if (msg.container === 'furnace') {
-      const furnace = this.viewedFurnace(player);
-      if (!furnace || slot < 0 || slot > 2) return;
-      if (furnace.click(slot, button, player.inventory)) {
-        furnace.dirty = true;
+    if ((button !== 'left' && button !== 'right') || !Number.isInteger(slot)) return;
+    const container = this.viewedContainer(player);
+    const inv = player.inventory;
+    if (msg.container) {
+      if (!container || slot < 0 || slot >= container.slots.length) return;
+      let moved;
+      if (msg.shift) {
+        const stack = container.slots[slot];
+        if (!stack) return;
+        const left = inv.add(stack.item, stack.count);
+        moved = left < stack.count;
+        stack.count = left;
+        if (left === 0) container.slots[slot] = null;
+      } else {
+        moved = container.click(slot, button, inv);
+      }
+      if (moved) {
+        container.dirty = true;
         player.inventoryDirty = true;
       }
       return;
     }
-    if (slot < 0 || slot >= player.inventory.slots.length) return;
-    if (player.inventory.click(slot, button)) player.inventoryDirty = true;
+    if (slot < 0 || slot >= inv.slots.length) return;
+    if (!msg.shift) {
+      if (inv.click(slot, button)) player.inventoryDirty = true;
+    } else if (container) {
+      const stack = inv.slots[slot];
+      if (stack && container.insert(stack)) {
+        if (stack.count === 0) inv.slots[slot] = null;
+        container.dirty = true;
+        player.inventoryDirty = true;
+      }
+    } else if (inv.shiftMove(slot)) {
+      player.inventoryDirty = true;
+    }
   }
 
-  // Right click on a furnace: start sending its state to this player.
-  openFurnace(player, msg) {
+  // Right click on a chest or furnace: start sending its state to this player.
+  openContainer(player, msg) {
     const pos = parseBlockPos(this.world, msg);
     if (player.dead || !pos || !this.inReach(player, pos)) return;
     const key = `${pos.x},${pos.y},${pos.z}`;
-    const furnace = this.world.tileEntities.get(key);
-    if (!furnace) return;
+    const container = this.world.tileEntities.get(key);
+    if (!container) return;
     player.viewing = key;
-    this.send(player, { type: S2C.FURNACE, ...pos, ...furnace.view() });
+    this.send(player, { type: S2C.CONTAINER, ...pos, ...container.view() });
   }
 
-  // The furnace the player has open, if it still exists and is in reach.
-  viewedFurnace(player) {
+  // The container the player has open, if it still exists and is in reach.
+  viewedContainer(player) {
     if (!player.viewing) return null;
-    const furnace = this.world.tileEntities.get(player.viewing);
+    const container = this.world.tileEntities.get(player.viewing);
     const [x, y, z] = player.viewing.split(',').map(Number);
-    return furnace && this.inReach(player, { x, y, z }) ? furnace : null;
+    return container && this.inReach(player, { x, y, z }) ? container : null;
   }
 
-  // Smelting runs whether or not anyone is watching. Viewers get the new state
-  // when it changes, and are told to close if their furnace is gone or out of reach.
-  updateFurnaces() {
-    for (const furnace of this.world.tileEntities.values()) {
-      if (furnace.tick()) furnace.dirty = true;
+  // Furnaces smelt whether or not anyone is watching. Everyone with a container
+  // open gets its new state when it changes (from ticking or anyone's click),
+  // and is told to close if it's gone or out of reach.
+  updateContainers() {
+    for (const container of this.world.tileEntities.values()) {
+      if (container.tick()) container.dirty = true;
     }
     for (const player of this.players.values()) {
       if (!player.viewing) continue;
-      const furnace = this.viewedFurnace(player);
-      if (!furnace) {
+      const container = this.viewedContainer(player);
+      if (!container) {
         player.viewing = null;
         this.send(player, { type: S2C.CONTAINER_CLOSE });
-      } else if (furnace.dirty) {
+      } else if (container.dirty) {
         const [x, y, z] = player.viewing.split(',').map(Number);
-        this.send(player, { type: S2C.FURNACE, x, y, z, ...furnace.view() });
+        this.send(player, { type: S2C.CONTAINER, x, y, z, ...container.view() });
       }
     }
-    for (const furnace of this.world.tileEntities.values()) furnace.dirty = false;
+    for (const container of this.world.tileEntities.values()) container.dirty = false;
   }
 
   // Closing the screen (or leaving) puts the cursor stack back; what doesn't fit is dropped.
@@ -585,7 +616,7 @@ export class Game {
     const s = player.state;
     const dir = lookDirection(s.yaw, s.pitch);
     const v = ITEM_THROW_SPEED;
-    this.spawnItem(item, 1, s.x, s.y + PLAYER_EYE_HEIGHT - 0.3, s.z,
+    this.spawnItem(item, 1, s.x, s.y + eyeHeight(s) - 0.3, s.z,
       dir.x * v, dir.y * v + 1.5, dir.z * v, ITEM_THROW_PICKUP_DELAY);
   }
 
@@ -657,11 +688,11 @@ export class Game {
     player.nextAttackTick = this.tick + ticks(weapon.cooldown);
     this.swing(player);
     const s = player.state;
-    const eye = { x: s.x, y: s.y + PLAYER_EYE_HEIGHT, z: s.z };
+    const eye = { x: s.x, y: s.y + eyeHeight(s), z: s.z };
     const dir = lookDirection(s.yaw, s.pitch);
     const block = raycastBlock(this.world, eye, dir, REACH_DISTANCE, isTargetable);
     const targets = [...this.players.values()].filter((p) => p !== player && !p.dead && p.connected);
-    const hit = raycastPlayers(eye, dir, block ? block.t : REACH_DISTANCE, targets, PLAYER_BOX, HIT_TOLERANCE);
+    const hit = raycastPlayers(eye, dir, block ? block.t : REACH_DISTANCE, targets, (p) => playerBoxOf(p.state), HIT_TOLERANCE);
     if (!hit) return;
 
     const target = hit.player, t = target.state;
@@ -857,7 +888,7 @@ export class Game {
 
   inReach(player, pos) {
     const s = player.state;
-    const dist = Math.hypot(pos.x + 0.5 - s.x, pos.y + 0.5 - (s.y + PLAYER_EYE_HEIGHT), pos.z + 0.5 - s.z);
+    const dist = Math.hypot(pos.x + 0.5 - s.x, pos.y + 0.5 - (s.y + eyeHeight(s)), pos.z + 0.5 - s.z);
     return dist <= REACH_DISTANCE + REACH_SLACK;
   }
 
@@ -887,7 +918,7 @@ export class Game {
     }
 
     this.updateFlags();
-    this.updateFurnaces();
+    this.updateContainers();
 
     const movedItems = this.updateItems();
 

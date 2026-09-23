@@ -15,11 +15,10 @@ import { World } from './world.js';
 import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores } from './structures.js';
 import { generateIslandWorld } from './islands.js';
 
-// Island layout, shared by every island size (blocks). The sizes differ only
-// in how wide the center island is; the middle ring and outer scatter keep the
-// same thickness, island sizes, spacing and gap to the center, and simply sit
-// further out around a bigger center. World width follows from that.
-//   ringGap      widest center island edge -> nearest edge of a ring island
+// Island layout, shared by every island size (blocks). The sizes differ in the
+// center island's width and its gap to the ring (both per size, below); the
+// middle ring and outer scatter keep the same thickness, island sizes and
+// spacing, and sit further out around a bigger center. World width follows.
 //   ringWidth    thickness of the middle ring
 //   outerGap     outer edge of the ring -> inner edge of the outer scatter
 //   outerWidth   thickness of the outer scatter
@@ -28,7 +27,6 @@ import { generateIslandWorld } from './islands.js';
 //                distance from the center (0.55 fits about 11 keeps)
 export const ISLAND_LAYOUT = {
   height: 128,
-  ringGap: 30,
   ringWidth: 120,
   outerGap: 20,
   outerWidth: 60,
@@ -36,18 +34,19 @@ export const ISLAND_LAYOUT = {
   keepSpacing: 0.55,
 };
 
-// Lobby world sizes. `center` is the center island's width range [min, max].
+// Lobby world sizes. `center` is the center island's width range [min, max];
+// `ringGap` is from the center island's edge to the nearest ring island edge.
 // Derived layouts (islandLayout), for the widest center island; the generator
 // pulls the ring and scatter in to fit a narrower one:
-//            center    ring       keeps at  outer      world
-//   Small    85-110    85-205     145       225-285    602
-//   Medium   140-190   125-245    185       265-325    682
-//   Large    200-250   155-275    215       295-355    742
+//            center    gap  ring       keeps at  outer      world
+//   Small    150-180   12   102-222    162       242-302    636
+//   Medium   230-280   34   174-294    234       314-374    780
+//   Large    320-380   66   256-376    316       396-456    944
 export const WORLD_SIZES = {
   test: { label: 'Test' },
-  small: { label: 'Small', center: [85, 110] },
-  medium: { label: 'Medium', center: [140, 190] },
-  large: { label: 'Large', center: [200, 250] },
+  small: { label: 'Small', center: [150, 180], ringGap: 12 },
+  medium: { label: 'Medium', center: [230, 280], ringGap: 34 },
+  large: { label: 'Large', center: [320, 380], ringGap: 66 },
 };
 
 // Everything the island generator needs for a size, in blocks from the world
@@ -55,8 +54,8 @@ export const WORLD_SIZES = {
 // outer: [min, max], keepSpacing }.
 export function islandLayout(size) {
   const L = ISLAND_LAYOUT;
-  const { center } = WORLD_SIZES[size];
-  const ring = [center[1] / 2 + L.ringGap, center[1] / 2 + L.ringGap + L.ringWidth];
+  const { center, ringGap } = WORLD_SIZES[size];
+  const ring = [center[1] / 2 + ringGap, center[1] / 2 + ringGap + L.ringWidth];
   const outer = [ring[1] + L.outerGap, ring[1] + L.outerGap + L.outerWidth];
   const keepDistance = (ring[0] + ring[1]) / 2;
   return {

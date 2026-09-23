@@ -237,6 +237,23 @@ body.spectating #health {
   display: none;
 }
 
+#resume-hint {
+  position: fixed;
+  left: 50%;
+  top: 40%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 16px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+#resume-hint[hidden] {
+  display: none;
+}
+
 #grab {
   position: fixed;
   left: 50%;
@@ -528,6 +545,14 @@ body.dead canvas {
 
 #inv-hotbar {
   margin-top: 12px;
+}
+
+#inv-chest {
+  margin-bottom: 12px;
+}
+
+#inv-chest-panel[hidden] {
+  display: none;
 }
 
 .inv .slot,

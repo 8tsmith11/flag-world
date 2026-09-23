@@ -12,7 +12,7 @@ export const C2S = {
   INVENTORY_CLICK: 'inventoryClick',
   INVENTORY_CLOSE: 'inventoryClose',
   CRAFT: 'craft',
-  OPEN_FURNACE: 'openFurnace',
+  OPEN_CONTAINER: 'openContainer',
 };
 
 // Server -> client
@@ -31,7 +31,7 @@ export const S2C = {
   FLAG_EVENT: 'flagEvent',
   MATCH_END: 'matchEnd',
   SWING: 'swing',
-  FURNACE: 'furnace',
+  CONTAINER: 'container',
   CONTAINER_CLOSE: 'containerClose',
 };
 

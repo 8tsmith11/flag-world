@@ -36,10 +36,10 @@ World sizes:
 
 - **Test**: a small, low world for quick testing. It grows a little with
   more players.
-- **Small / Medium / Large**: floating islands, 602 / 682 / 742 blocks
-  across. There's a big center island (the only thing that grows with the
-  size), a ring of medium islands where every player gets their keep on their
-  own island, and small islands scattered further out. Some islands are joined by winding land bridges or lines of
+- **Small / Medium / Large**: floating islands, 636 / 780 / 944 blocks
+  across. There's a big center island (bigger, and further from the ring, in
+  larger worlds), a ring of large islands where every player gets their keep
+  on their own island, and small islands scattered further out. Some islands are joined by winding land bridges or lines of
   stepping stones; most aren't. Fall off and you're gone.
 
 A match lasts until the server is restarted. If you disconnect, reopen the page
@@ -54,15 +54,16 @@ where they can take over any disconnected player.
 | Click          | Capture mouse and start playing |
 | W A S D        | Move |
 | Space          | Jump (swim up in water; jump out at the surface) |
+| Shift          | Crouch: slower, lower, fits through 1.5-block gaps, and won't walk off edges higher than 1 block |
 | Mouse          | Look |
 | Left click     | Punch the player under the crosshair |
 | Hold left click | Break the block under the crosshair |
 | Right click    | Place the selected block |
 | 1–9 / scroll   | Select hotbar slot |
 | Q              | Drop one of the selected item |
-| E              | Inventory and crafting |
+| E              | Inventory and crafting (E again closes it; Esc closes it too, then click to resume) |
 | Arrow keys     | Look (for touchpads that pause while typing) |
-| Esc            | Release mouse |
+| Esc            | Release mouse (pause screen) |
 
 ## Trees, crafting and tools
 
@@ -80,6 +81,7 @@ Place the workbench and right click it for everything else:
 - Swords (more damage than fists): 2 planks / stone / iron ingots + 1 wood
 - 6 planks → door
 - 8 stone → furnace
+- 8 planks → chest (27 slots; anyone can open any chest)
 
 Iron ore is in the stone, especially in cave walls, cliffs and undersides, and
 most of all on the center island. It needs a stone hammer. Put it in a
@@ -92,6 +94,9 @@ furnace (right click) with wood or planks as fuel to smelt iron ingots.
 | Stone hammer | iron ore (3) | 1.5× | 2 |
 | Iron hammer | (4) | 2× | 2 |
 | Wood / stone / iron sword | like hands | 1× | 3 / 4 / 6 |
+
+In any inventory screen, shift-click moves a whole stack across: between a
+chest or furnace and your inventory, or between your hotbar and the rest.
 
 Ladders go on the side of a block. Hold W or Space to climb, S to climb down.
 Doors are two blocks tall and need solid ground. Right click opens or closes

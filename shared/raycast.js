@@ -63,10 +63,12 @@ export function rayBox(origin, dir, minX, minY, minZ, maxX, maxY, maxZ) {
 
 // Nearest player whose box (grown by `grow` on every side) the ray enters
 // within maxDist, as { player, t }, or null. `players` yields objects with a
-// feet position in `state`.
-export function raycastPlayers(origin, dir, maxDist, players, box, grow = 0) {
+// feet position in `state`; `box` is a collision box or a function giving
+// one per player (crouching players are shorter).
+export function raycastPlayers(origin, dir, maxDist, players, boxOf, grow = 0) {
   let best = null;
   for (const player of players) {
+    const box = typeof boxOf === 'function' ? boxOf(player) : boxOf;
     const { x, y, z } = player.state;
     const w = box.halfW + grow;
     const t = rayBox(origin, dir, x - w, y - grow, z - w, x + w, y + box.height + grow, z + w);

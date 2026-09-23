@@ -45,6 +45,7 @@ unique within the lobby (ignoring case).
 | `kx`,`kz`  | number  | Knockback velocity (blocks/s), added to movement and decaying each tick; also needed for reconciliation |
 | `yaw`,`pitch` | number | Look direction |
 | `onGround` | bool    | Standing on a solid block |
+| `crouching` | bool   | Crouched (drawn shorter and leaning forward); the client copies it into its physics state |
 | `hp`       | int     | Health, 0..20 |
 | `dead`     | bool    | Dead and waiting to respawn (or eliminated); not drawn, can't be hit, sends no inputs |
 | `eliminated` | bool  | Died while flagless; out of the match for good and spectating |
@@ -67,8 +68,16 @@ north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
 | 14–29 | door | `14 + facing + 4·open + 8·upper`: facing is the way the placer looked. Solid only when closed |
 
 Other blocks added with crafting: 30 iron ore (hardness 3), 31 sand, 32
-workbench (right click: crafting screen), 33 furnace (hardness 2; has its own
-inventory, see `openFurnace`).
+workbench (right click: crafting screen).
+
+Furnaces and chests have their own inventory (see `openContainer`) and a
+front that faces the player who placed them. They have one id per facing
+(`FACED` in `shared/blocks.js`); the first id is the item and the drop.
+
+| Ids | Block | Facing north, east, south, west |
+|-----|-------|------|
+| 33, 38, 39, 40 | furnace (hardness 2) | 33, 38, 39, 40 |
+| 34–37 | chest (hardness 1) | 34, 35, 36, 37 |
 
 **ItemStack** — `{ item, count }`. Item ids (`shared/items.js`,
 `shared/itemIds.js`): 0–255 are the blocks (placed as that block); 256 and up
@@ -160,31 +169,36 @@ _(no fields)_
 
 ### `inventoryClick`
 
-A click on a slot in the inventory screen, or in the open furnace. The server
-moves stacks between the slot and your cursor; the result comes back as
-`inventory` (and `furnace`). Invalid clicks are ignored.
+A click on a slot in the inventory screen, or in the container you have open.
+The server moves stacks between the slot and your cursor; the result comes back
+as `inventory` (and `container`, to everyone viewing it). Invalid clicks are
+ignored. Clicks are handled one at a time on the server, and each player has
+their own cursor, so two players can't take the same items: the first click
+gets the stack and the second finds the slot empty.
 
 | Field    | Type   | Notes |
 |----------|--------|-------|
-| `container` | string? | Absent for your inventory; `"furnace"` for the furnace you opened (must still exist and be in reach) |
-| `slot`   | int    | 0..35 in your inventory; furnace: 0 input (smeltables only), 1 fuel (fuels only), 2 output (take only; a left click can add it to a matching cursor stack) |
+| `container` | bool? | true: a slot of the container you opened (it must still exist and be in reach). Otherwise your inventory |
+| `slot`   | int    | Your inventory: 0..35. Chest: 0..26. Furnace: 0 input (smeltables only), 1 fuel (fuels only), 2 output (take only; a left click can add it to a matching cursor stack) |
+| `shift`  | bool?  | Shift-click: move the whole stack across instead, as much as fits. Container slot → your inventory. Inventory slot → the open container (a furnace takes ore into the input and fuel into the fuel slot, nothing else). With no container open: hotbar ↔ main grid. `button` is ignored |
 | `button` | string | `"left"`: pick up the whole stack, or put the cursor down (merging into the same item up to its max, or swapping with a different one). `"right"`: pick up half (rounded up), or put one item from the cursor down |
 
 ### `inventoryClose`
 
-The inventory, workbench or furnace screen was closed. The cursor stack goes
-back into the slots; whatever doesn't fit drops at your feet. Also stops
-`furnace` updates. _(no fields)_
+The inventory, workbench or container screen was closed. The cursor stack
+goes back into the slots; whatever doesn't fit drops at your feet. Also stops
+`container` updates. _(no fields)_
 
-### `openFurnace`
+### `openContainer`
 
-Right click on a furnace within reach: the server starts sending you its state
-(`furnace`) until you close the screen, walk out of reach, or it's broken
-(`containerClose`).
+Right click on a chest or furnace within reach: the server starts sending you
+its state (`container`) until you close the screen, walk out of reach, or it's
+broken (`containerClose`). Anyone can open any container, and any number of
+players can have the same one open.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `x`,`y`,`z` | int | The furnace block |
+| `x`,`y`,`z` | int | The chest or furnace block |
 
 ### `craft`
 
@@ -219,6 +233,7 @@ Match players only. Sent once per simulation tick (20/s). Each input advances th
 | `forward` | number | -1..1 (W = 1, S = -1) |
 | `strafe`  | number | -1..1 (D = 1, A = -1) |
 | `jump`    | bool   | Jump held (swim up in water, jump out at the surface) |
+| `crouch`  | bool   | Crouch held (Shift, only while no screen is open) |
 | `yaw`     | number | Look yaw |
 | `pitch`   | number | Look pitch, clamped to ±π/2 |
 | `slot`    | int    | Selected hotbar slot, 0..8: the item in hand (tool strength, placing, dropping, `held`) |
@@ -260,6 +275,17 @@ door won't close on a player standing in it.
 Breaking: either half of a door removes the whole door and drops one door.
 When a block breaks, ladders hanging on it and a door standing on it drop as
 items.
+
+Crouching (shared physics, simulated by the server and predicted by the
+client): 30% walking speed (multiplied with the flag carrier's 60%), eyes 0.3
+lower (reach and punches are measured from there), and a 1.45-tall collision
+box, so a crouched player fits through 1.5-block gaps. Letting go of crouch
+only stands you up once there's room for the full 1.8. Jumping works as normal.
+Edge protection: while crouched on the ground and not jumping, each tick's X
+and Z moves are checked separately. A move is cut short if it would leave no
+ground within 1 block below the player's box (and no ladder there to grab),
+so a crouched player can't walk off a drop of more than 1 block but can slide
+along the edge.
 
 Ladders: while a player overlaps a ladder there's no gravity. Holding W or
 jump climbs up, S climbs down (without walking off the ladder), and no input
@@ -484,23 +510,26 @@ The server runs these rules; the messages above carry the results.
   they are eliminated and spectate with a free-fly camera. When only one
   player is left who hasn't been eliminated, they win (`matchEnd`).
 
-### `furnace`
+### `container`
 
-The state of the furnace you have open: sent when you open it and whenever
-it changes. Smelting runs on the server whether or not anyone is watching.
-One fuel item burns long enough to smelt 2 items (wood) or 1 (planks). Each
-item takes 5 s (iron ore → iron ingot). If the fuel runs out or the input
-can't smelt, the half-done item starts over. Breaking a furnace drops it and
-everything in it.
+The state of the chest or furnace you have open. It's sent when you open it,
+and to everyone who has it open whenever it changes (anyone's click, or
+smelting). Breaking a container drops it and everything in it.
+
+Furnace: smelting runs on the server whether or not anyone is watching. One
+fuel item burns long enough to smelt 2 items (wood) or 1 (planks). Each item
+takes 5 s (iron ore → iron ingot). If the fuel runs out or the input can't
+smelt, the half-done item starts over.
 
 | Field       | Type   | Notes |
 |-------------|--------|-------|
-| `x`,`y`,`z` | int    | The furnace block |
-| `slots`     | (ItemStack \| null)[3] | Input, fuel, output |
-| `burn`      | number | Fuel left in the current fuel item, 0..1 |
-| `progress`  | number | Smelting progress on the current item, 0..1 |
+| `x`,`y`,`z` | int    | The block |
+| `kind`      | string | `"chest"` or `"furnace"` |
+| `slots`     | (ItemStack \| null)[] | Chest: 27. Furnace: input, fuel, output |
+| `burn`      | number | Furnace only: fuel left in the current fuel item, 0..1 |
+| `progress`  | number | Furnace only: smelting progress on the current item, 0..1 |
 
 ### `containerClose`
 
-The furnace you had open was broken or you moved out of reach; close the
+The container you had open was broken or you moved out of reach; close the
 screen. _(no fields)_

@@ -33,6 +33,7 @@ export class LocalPlayer {
     s.vx = snapshot.vx; s.vy = snapshot.vy; s.vz = snapshot.vz;
     s.kx = snapshot.kx; s.kz = snapshot.kz;
     s.carrying = snapshot.carrying !== null;
+    s.crouching = snapshot.crouching;
     s.onGround = snapshot.onGround;
     for (const input of this.pending) stepPlayer(s, input, this.world);
   }

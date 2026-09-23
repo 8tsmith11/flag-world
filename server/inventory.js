@@ -2,7 +2,7 @@
 // main grid the rest), each null or a stack { item, count }, plus the stack
 // held on the mouse cursor while the inventory screen is open.
 
-import { INVENTORY_SIZE } from '../shared/config.js';
+import { INVENTORY_SIZE, HOTBAR_SIZE } from '../shared/config.js';
 import { getItemDef } from '../shared/items.js';
 import { countItems } from '../shared/recipes.js';
 
@@ -67,15 +67,20 @@ export class Inventory {
   // Adds up to `count` of `item`, topping up matching stacks before using empty
   // slots, hotbar first in both passes. Returns how many didn't fit.
   add(item, count) {
+    return this.addTo(item, count, 0, this.slots.length);
+  }
+
+  // add(), limited to slots from..to-1.
+  addTo(item, count, from, to) {
     const max = maxStack(item);
-    for (const stack of this.slots) {
-      if (count === 0) break;
+    for (let i = from; i < to && count > 0; i++) {
+      const stack = this.slots[i];
       if (!stack || stack.item !== item || stack.count >= max) continue;
       const n = Math.min(count, max - stack.count);
       stack.count += n;
       count -= n;
     }
-    for (let i = 0; i < this.slots.length && count > 0; i++) {
+    for (let i = from; i < to && count > 0; i++) {
       if (this.slots[i]) continue;
       const n = Math.min(count, max);
       this.slots[i] = { item, count: n };
@@ -114,6 +119,19 @@ export class Inventory {
   // Inventory-screen click on one of these slots; see clickSlot.
   click(slot, button) {
     return clickSlot(this.slots, slot, this, button);
+  }
+
+  // Shift-click with no container open: moves a stack between the hotbar and
+  // the main grid, as much as fits. Returns whether anything moved.
+  shiftMove(slot) {
+    const stack = this.slots[slot];
+    if (!stack) return false;
+    const [from, to] = slot < HOTBAR_SIZE ? [HOTBAR_SIZE, this.slots.length] : [0, HOTBAR_SIZE];
+    const left = this.addTo(stack.item, stack.count, from, to);
+    if (left === stack.count) return false;
+    stack.count = left;
+    if (left === 0) this.slots[slot] = null;
+    return true;
   }
 
   // Puts the cursor stack back into the slots; returns what didn't fit (a

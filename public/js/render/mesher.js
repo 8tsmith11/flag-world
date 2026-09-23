@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CHUNK_SIZE } from '/shared/config.js';
-import { BLOCK, getBlockDef, FACING_DIRS, ladderFacing, doorState } from '/shared/blocks.js';
+import { BLOCK, getBlockDef, ladderFacing, doorState, blockBase } from '/shared/blocks.js';
 
 // Corner offsets are wound counter-clockwise when viewed from outside.
 // Triangles per face: (0,1,2) and (2,1,3). `shade` fakes directional variation.
@@ -24,6 +24,17 @@ function blockColor(id) {
   if (!c) {
     c = new THREE.Color().setHex(getBlockDef(id).color);
     colorCache.set(id, c);
+  }
+  return c;
+}
+
+// Linear-space colors for shape part hex colors, converted once.
+const hexCache = new Map();
+function hexColor(hex) {
+  let c = hexCache.get(hex);
+  if (!c) {
+    c = new THREE.Color().setHex(hex);
+    hexCache.set(hex, c);
   }
   return c;
 }
@@ -73,26 +84,81 @@ function rotateBox([x0, y0, z0, x1, y1, z1], facing) {
   return [Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz)];
 }
 
+// Shaped blocks are lists of boxes in block-local units, laid out facing
+// north (front toward -Z) and turned to the block's facing. Each box has an
+// optional color (else the block's).
 const LADDER_DEPTH = 0.07;
 // Ladder against the north side of its cell: two rails and four rungs.
-const LADDER_BOXES = [
+const LADDER = [
   [0.1, 0, 0, 0.22, 1, LADDER_DEPTH],
   [0.78, 0, 0, 0.9, 1, LADDER_DEPTH],
   ...[0.125, 0.375, 0.625, 0.875].map((y) => [0.22, y - 0.04, 0.01, 0.78, y + 0.04, LADDER_DEPTH - 0.01]),
-];
-const DOOR_THICKNESS = 0.1875;
-// A door for a player looking north: closed, it's a slab across the middle of
-// the cell; open, it has swung to lie along the west (left-hand) side.
-const DOOR_CLOSED = [0, 0, 0.5 - DOOR_THICKNESS / 2, 1, 1, 0.5 + DOOR_THICKNESS / 2];
-const DOOR_OPEN = [0, 0, 0, DOOR_THICKNESS, 1, 1];
-const DOOR_KNOB = [0.78, 0.45, 0.5 - DOOR_THICKNESS / 2 - 0.06, 0.88, 0.55, 0.5 + DOOR_THICKNESS / 2 + 0.06];
+].map((box) => ({ box }));
 
+// Doors are panels described across the door (u, 0-1), up it (v, 0-1) and
+// through it (w, around 0). Closed, the panel spans the cell's middle; open,
+// it has swung to lie along the west (left-hand) side.
+const DOOR_THICKNESS = 0.1875;
+const GLASS = 0x9fd3e6;
+const FRAME = 0.15, BAR = 0.03;
+const panel = (u0, v0, u1, v1, w = DOOR_THICKNESS / 2, color) => ({ panel: [u0, v0, u1, v1, w], color });
+const DOOR_LOWER = [panel(0, 0, 1, 1), panel(0.78, 0.45, 0.88, 0.55, DOOR_THICKNESS / 2 + 0.06, 0xd4af37)];
+// Upper half: a frame around four panes, split by a cross bar.
+const DOOR_UPPER = [
+  panel(0, 0, FRAME, 1), panel(1 - FRAME, 0, 1, 1),
+  panel(FRAME, 0, 1 - FRAME, FRAME), panel(FRAME, 1 - FRAME, 1 - FRAME, 1),
+  panel(0.5 - BAR, FRAME, 0.5 + BAR, 1 - FRAME), panel(FRAME, 0.5 - BAR, 1 - FRAME, 0.5 + BAR),
+  ...[[FRAME, 0.5 + BAR], [0.5 + BAR, 1 - FRAME]].flatMap(([u0, u1]) => [[FRAME, 0.5 - BAR], [0.5 + BAR, 1 - FRAME]]
+    .map(([v0, v1]) => panel(u0, v0, u1, v1, 0.02, GLASS))),
+];
+
+function doorBox({ panel: [u0, v0, u1, v1, w], color }, open) {
+  const mid = open ? DOOR_THICKNESS / 2 : 0.5;
+  const box = open
+    ? [mid - w, v0, u0, mid + w, v1, u1]
+    : [u0, v0, mid - w, u1, v1, mid + w];
+  return { box, color };
+}
+
+// Workbench: a light plank top with a 3x3 grid scored in it, on a darker,
+// slightly inset body.
+const WORKBENCH = [
+  { box: [0, 0.8, 0, 1, 1, 1], color: 0xc49a63 },
+  { box: [0.06, 0, 0.06, 0.94, 0.8, 0.94], color: 0x7d5230 },
+  ...[1 / 3, 2 / 3].flatMap((t) => [
+    { box: [t - 0.015, 1, 0.05, t + 0.015, 1.01, 0.95], color: 0x5a3a1e },
+    { box: [0.05, 1, t - 0.015, 0.95, 1.01, t + 0.015], color: 0x5a3a1e },
+  ]),
+];
+
+// Furnace: a stone block with a dark mouth under a lighter lintel on the
+// front, and a vent on top.
+const FURNACE = [
+  { box: [0, 0, 0, 1, 1, 1] },
+  { box: [0.25, 0.12, -0.01, 0.75, 0.5, 0.02], color: 0x1c1b1b },
+  { box: [0.2, 0.5, -0.015, 0.8, 0.58, 0.02], color: 0x9c9ca2 },
+  { box: [0.35, 1, 0.35, 0.65, 1.01, 0.65], color: 0x2a2a2a },
+];
+
+// Chest: a wooden box a little smaller than its cell, a dark band where the
+// lid meets the base, and a gold latch on the front.
+const CHEST = [
+  { box: [0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375] },
+  { box: [0.05, 0.56, 0.05, 0.95, 0.62, 0.95], color: 0x5e3d18 },
+  { box: [0.44, 0.44, 0.03, 0.56, 0.66, 0.07], color: 0xd4af37 },
+];
+
+const SHAPES = { workbench: WORKBENCH, furnace: FURNACE, chest: CHEST };
+
+// [{ box, color }] for a shaped block, turned to its facing.
 function shapeBoxes(id, def) {
-  if (def.shape === 'ladder') return LADDER_BOXES.map((b) => rotateBox(b, ladderFacing(id)));
-  const { facing, open, upper } = doorState(id);
-  const boxes = [open ? DOOR_OPEN : DOOR_CLOSED];
-  if (!open && !upper) boxes.push(DOOR_KNOB);
-  return boxes.map((b) => rotateBox(b, facing));
+  const turn = (parts, facing) => parts.map(({ box, color }) => ({ box: rotateBox(box, facing), color }));
+  if (def.shape === 'ladder') return turn(LADDER, ladderFacing(id));
+  if (def.shape === 'door') {
+    const { facing, open, upper } = doorState(id);
+    return turn((upper ? DOOR_UPPER : DOOR_LOWER).map((p) => doorBox(p, open)), facing);
+  }
+  return turn(SHAPES[def.shape], blockBase(id).facing);
 }
 
 function toGeometry(buf) {
@@ -124,7 +190,9 @@ export function meshChunk(world, chunk) {
         const j = jitter(x, y, z);
         // Thin shapes (ladders, doors) are drawn whole; nothing culls them.
         if (def.shape) {
-          for (const box of shapeBoxes(id, def)) pushBox(opaque, box, x, y, z, color, j);
+          for (const part of shapeBoxes(id, def)) {
+            pushBox(opaque, part.box, x, y, z, part.color === undefined ? color : hexColor(part.color), j);
+          }
           continue;
         }
         const buf = def.transparent ? transparent : opaque;

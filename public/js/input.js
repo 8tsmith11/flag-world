@@ -104,6 +104,7 @@ export class Input {
       forward: this.axis('KeyW', 'KeyS'),
       strafe: this.axis('KeyD', 'KeyA'),
       jump: this.keys.has('Space'),
+      crouch: this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'),
       yaw: this.yaw,
       pitch: this.pitch,
     };

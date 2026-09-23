@@ -36,9 +36,9 @@ const OUTER_WIDTH = [5, 15];
 const KEEP_ISLAND_WIDTH = [50, 70];
 // Islands per square block of zone area, and the minimum gap between islands.
 // (About 35% of the ring's area ends up island: big islands can't pack tighter at random.)
-const RING_DENSITY = 0.0002;
+const RING_DENSITY = 0.0003;
 const OUTER_DENSITY = 0.00008;
-const RING_GAP = 3;
+const RING_GAP = 1;
 const OUTER_GAP = 24;
 // Undersides never reach below this, so the void (y < VOID_Y) is always far below.
 const MIN_BOTTOM = 4;
@@ -52,13 +52,15 @@ const CENTER_BRIDGES = 2;
 const STONE_SPACING = 3;
 const CRUMB_CHANCE = 0.35;
 // Caves (see carveCaves). Noise scales are per block; radii are in noise units.
+// Nearly the same scale up and across keeps tunnels round in cross-section;
+// the slightly finer vertical scale keeps them from climbing too steeply.
 const CAVE_MIN_WIDTH = 25;
 const CAVE_SHELL = 3;
 // No carving this close to a keep's flattened area.
 const CAVE_KEEP_CLEARANCE = 6;
-const TUNNEL_SCALE = 1 / 40;
-const TUNNEL_SCALE_Y = 1 / 24;
-const TUNNEL_RADIUS = [0.12, 0.2];
+const TUNNEL_SCALE = 1 / 30;
+const TUNNEL_SCALE_Y = 1 / 26;
+const TUNNEL_RADIUS = [0.16, 0.26];
 const CHAMBER_SCALE = 1 / 32;
 const CHAMBER_SCALE_Y = 1 / 18;
 const CHAMBER_THRESHOLD = 0.6;
@@ -129,7 +131,7 @@ export function generateIslandWorld(seed, playerCount, layout) {
     const top = RING_TOP + (random() - 0.5) * RING_TOP_SPREAD;
     // Clustered where this is high, sparse (but not empty) where it's low.
     const density = noise(x / 140 + 300, z / 140 + 300) * 0.5 + 0.5;
-    if (random() > 0.3 + density * density * 1.2) continue;
+    if (random() > 0.45 + density * density * 1.2) continue;
     if (overlaps(islands, x, z, width / 2, RING_GAP)) continue;
     const island = makeIsland(random, 'ring', x, z, width, top);
     islands.push(island);

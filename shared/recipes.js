@@ -19,6 +19,7 @@ export const RECIPES = [
   { id: 'iron_hammer', station: 'workbench', output: ITEM.IRON_HAMMER, count: 1, inputs: needs([ITEM.IRON_INGOT, 3], [BLOCK.WOOD, 2]) },
   { id: 'door', station: 'workbench', output: ITEM.DOOR, count: 1, inputs: needs([BLOCK.PLANKS, 6]) },
   { id: 'furnace', station: 'workbench', output: BLOCK.FURNACE, count: 1, inputs: needs([BLOCK.STONE, 8]) },
+  { id: 'chest', station: 'workbench', output: BLOCK.CHEST, count: 1, inputs: needs([BLOCK.PLANKS, 8]) },
   { id: 'wood_sword', station: 'workbench', output: ITEM.WOOD_SWORD, count: 1, inputs: needs([BLOCK.PLANKS, 2], [BLOCK.WOOD, 1]) },
   { id: 'stone_sword', station: 'workbench', output: ITEM.STONE_SWORD, count: 1, inputs: needs([BLOCK.STONE, 2], [BLOCK.WOOD, 1]) },
   { id: 'iron_sword', station: 'workbench', output: ITEM.IRON_SWORD, count: 1, inputs: needs([ITEM.IRON_INGOT, 2], [BLOCK.WOOD, 1]) },

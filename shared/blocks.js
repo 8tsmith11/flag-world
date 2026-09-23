@@ -9,13 +9,17 @@
 //   hardness     - minimum tool strength needed to break it (bare hands are HAND_STRENGTH)
 //   breakTime    - seconds of holding the break button to mine it
 //   drops        - item id dropped when broken (default: the block's own id), or null
-//   shape        - null for a full cube, or 'ladder' / 'door' (drawn as thin boxes)
+//   shape        - null for a plain cube, or a name the mesher draws from boxes
+//                  ('ladder', 'door', 'workbench', 'furnace', 'chest')
 //
 // Ladders and doors keep their state in the block id:
 //   ladder: LADDER + facing, where facing is the side of the cell it hangs on
 //           (toward the block holding it up)
 //   door:   DOOR + facing + 4 * open + 8 * upper half, where facing is the
 //           way the placing player looked
+//   furnace, chest: one id per facing (FACED), where facing is the way the
+//           front faces (toward the player who placed it). The first id is
+//           the item, the drop, and the id used in recipes.
 // Facing: 0 north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
 //   tileEntity   - name of the tile entity type attached when placed (future: chests)
 
@@ -40,7 +44,36 @@ export const BLOCK = {
   SAND: 31,
   WORKBENCH: 32,
   FURNACE: 33,
+  CHEST: 34,
 };
+
+// Blocks with a front: their id for each facing. Furnace was a single id
+// before it had a front, so its other facings come later in the id space.
+export const FACED = {
+  [BLOCK.FURNACE]: [BLOCK.FURNACE, 38, 39, 40],
+  [BLOCK.CHEST]: [BLOCK.CHEST, 35, 36, 37],
+};
+
+const facedIds = new Map();
+for (const [base, ids] of Object.entries(FACED)) ids.forEach((id, facing) => facedIds.set(id, { base: Number(base), facing }));
+
+// The id to place for a faced block (its base id) facing `facing`; other blocks as is.
+export function facedBlock(base, facing) {
+  return FACED[base]?.[facing] ?? base;
+}
+
+// { base, facing } for any id (facing 0 for blocks without a front).
+export function blockBase(id) {
+  return facedIds.get(id) ?? { base: id, facing: 0 };
+}
+
+export function isFurnace(id) {
+  return blockBase(id).base === BLOCK.FURNACE;
+}
+
+export function isChest(id) {
+  return blockBase(id).base === BLOCK.CHEST;
+}
 
 // Unit X/Z steps for each facing.
 export const FACING_DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -107,10 +140,20 @@ define(BLOCK.LEAVES, 'leaves', { color: 0x3f8f3a, breakTime: 0.2, drops: null })
 define(BLOCK.PLANKS, 'planks', { color: 0xb58a55, breakTime: 0.8 });
 define(BLOCK.IRON_ORE, 'iron ore', { color: 0xb88a6a, hardness: 3, breakTime: 2 });
 define(BLOCK.SAND, 'sand', { color: 0xdccf8e, breakTime: 0.5 });
-// Right click opens a crafting screen.
-define(BLOCK.WORKBENCH, 'workbench', { color: 0xa0703f, breakTime: 1 });
-// Has its own inventory (server/furnace.js); breaking it drops what's inside.
-define(BLOCK.FURNACE, 'furnace', { color: 0x5e5e62, hardness: 2, breakTime: 1.5, tileEntity: 'furnace' });
+// Right click opens a crafting screen. Transparent: the table is inset from its cell.
+define(BLOCK.WORKBENCH, 'workbench', { color: 0xa0703f, breakTime: 1, shape: 'workbench', transparent: true });
+// Furnaces and chests have their own inventory (server/containers.js);
+// breaking one drops what's inside.
+for (const id of FACED[BLOCK.FURNACE]) {
+  define(id, 'furnace', {
+    color: 0x6e6e72, hardness: 2, breakTime: 1.5, tileEntity: 'furnace', shape: 'furnace', drops: BLOCK.FURNACE,
+  });
+}
+for (const id of FACED[BLOCK.CHEST]) {
+  define(id, 'chest', {
+    color: 0x9c6b30, breakTime: 1, tileEntity: 'chest', shape: 'chest', transparent: true, drops: BLOCK.CHEST,
+  });
+}
 // Thin shapes: neighbours draw their faces against them (transparent).
 for (let facing = 0; facing < 4; facing++) {
   define(ladderBlock(facing), 'ladder', {

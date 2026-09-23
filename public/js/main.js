@@ -8,11 +8,13 @@ import {
 } from '/shared/config.js';
 import { C2S, S2C, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT } from '/shared/protocol.js';
 import { generateWorld } from '/shared/worldgen.js';
-import { BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isDoor } from '/shared/blocks.js';
+import {
+  BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isDoor, isFurnace, isChest,
+} from '/shared/blocks.js';
 import { breakingStats } from '/shared/tools.js';
 import { getItemDef } from '/shared/items.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '/shared/raycast.js';
-import { PLAYER_BOX } from '/shared/physics.js';
+import { playerBoxOf, eyeHeight } from '/shared/physics.js';
 import { Connection } from './net.js';
 import { Input } from './input.js';
 import { LocalPlayer } from './localPlayer.js';
@@ -21,7 +23,7 @@ import { Hotbar } from './hotbar.js';
 import { LobbyScreen, MatchScreen, loadName } from './lobby.js';
 import { HealthBar, EventFeed, ProgressBar, Toast, Label } from './hud.js';
 import { FreeCamera } from './spectator.js';
-import { InventoryScreen } from './inventoryScreen.js';
+import { InventoryScreen, CONTAINERS } from './inventoryScreen.js';
 import { createScene, setViewDistance, setFogEnabled } from './render/scene.js';
 import { Clouds } from './render/clouds.js';
 import { Overview } from './render/overview.js';
@@ -105,6 +107,9 @@ let breaking = null;
 // Player id -> name, for the kill feed.
 const names = new Map();
 let shakeUntil = 0;
+// Camera height above the feet, eased toward eyeHeight() as the player crouches.
+let eyeOffset = PLAYER_EYE_HEIGHT;
+const EYE_EASE = 14;
 // On the death screen: when the click unlocks (performance.now() ms), whether
 // it leads to spectating (eliminated) or a respawn, and whether we've asked.
 let respawnAt = 0;
@@ -114,7 +119,9 @@ let respawnRequested = false;
 // One full-screen panel at a time: 'overlay' (connecting / click to play /
 // disconnected), 'lobby', 'match', 'death', 'end', or null while playing with
 // the mouse locked.
+let currentScreen = 'overlay';
 function showScreen(id) {
+  currentScreen = id;
   for (const el of document.querySelectorAll('.screen')) el.classList.toggle('hidden', el.id !== id);
 }
 
@@ -126,12 +133,19 @@ function lockable() {
 overlay.addEventListener('click', () => {
   if (lockable()) input.requestLock();
 });
+// After a menu closes with Esc (which can't recapture the mouse), a click on
+// the game itself resumes.
+renderer.domElement.addEventListener('click', () => {
+  if (lockable() && currentScreen === null) input.requestLock();
+});
+const resumeHint = document.getElementById('resume-hint');
 input.onLockChange = (locked) => {
   if (lockable()) showScreen(locked ? null : 'overlay');
 };
 
 // E opens the inventory (freeing the mouse); E closes it and goes back to
-// playing, Esc closes it to the click-to-play overlay.
+// playing. Esc closes it too, back to the game rather than the pause overlay,
+// but browsers don't let Esc recapture the mouse, so it waits for a click.
 input.onKey = (code) => {
   if (code === 'KeyE' && mode === MODE.PLAY) openInventory('inventory', null);
   if (code === 'KeyM' && DEBUG && world) toggleOverview();
@@ -171,7 +185,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'Escape') closeInventory(false);
 });
 
-// screen: 'inventory', 'workbench' or 'furnace'; at: the workbench or furnace block.
+// screen: 'inventory', 'workbench', 'furnace' or 'chest'; at: that block.
 function openInventory(screen, at) {
   // Visible first: the preview sizes itself from its canvas.
   showScreen('inventory');
@@ -179,26 +193,30 @@ function openInventory(screen, at) {
   document.exitPointerLock();
 }
 
-// A workbench or furnace screen closes if its block is gone or out of reach.
+// What kind of screen right-clicking this block opens, or null.
+function stationKind(id) {
+  if (id === BLOCK.WORKBENCH) return 'workbench';
+  if (isFurnace(id)) return 'furnace';
+  if (isChest(id)) return 'chest';
+  return null;
+}
+
+// A workbench, furnace or chest screen closes if its block is gone or out of reach.
 function checkContainer() {
   const at = inventoryScreen.open && inventoryScreen.at;
   if (!at) return;
-  const want = inventoryScreen.mode === 'furnace' ? BLOCK.FURNACE : BLOCK.WORKBENCH;
   const s = player.state;
-  const far = Math.hypot(at.x + 0.5 - s.x, at.y + 0.5 - (s.y + PLAYER_EYE_HEIGHT), at.z + 0.5 - s.z) > REACH_DISTANCE + 1;
-  if (far || world.getBlock(at.x, at.y, at.z) !== want) closeInventory(false);
+  const far = Math.hypot(at.x + 0.5 - s.x, at.y + 0.5 - (s.y + eyeHeight(s)), at.z + 0.5 - s.z) > REACH_DISTANCE + 1;
+  if (far || stationKind(world.getBlock(at.x, at.y, at.z)) !== inventoryScreen.mode) closeInventory(false);
 }
 
+// relock: capture the mouse again right away (only possible from a gesture
+// like the E key); otherwise the game shows "click to resume".
 function closeInventory(relock, tellServer = true) {
   if (!inventoryScreen.open) return;
   inventoryScreen.hide(tellServer);
-  if (!relock) {
-    showScreen('overlay');
-    return;
-  }
   showScreen(null);
-  // A key press counts as a user gesture, so the mouse can be captured again.
-  input.requestLock();
+  if (relock) input.requestLock();
 }
 
 function setInventory(inv) {
@@ -390,14 +408,14 @@ conn.on(S2C.ENTITY_SPAWN, (msg) => entities.add(msg.entity.id, msg.entity));
 conn.on(S2C.ENTITY_DESPAWN, (msg) => entities.remove(msg.id));
 conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor }));
 conn.on(S2C.SWING, (msg) => entities.swing(msg.id));
-conn.on(S2C.FURNACE, (msg) => {
+conn.on(S2C.CONTAINER, (msg) => {
   const at = inventoryScreen.at;
-  if (inventoryScreen.open && inventoryScreen.mode === 'furnace' && at.x === msg.x && at.y === msg.y && at.z === msg.z) {
-    inventoryScreen.setFurnace(msg);
+  if (inventoryScreen.open && inventoryScreen.mode === msg.kind && at.x === msg.x && at.y === msg.y && at.z === msg.z) {
+    inventoryScreen.setContainer(msg);
   }
 });
 conn.on(S2C.CONTAINER_CLOSE, () => {
-  if (inventoryScreen.open && inventoryScreen.mode === 'furnace') closeInventory(false);
+  if (inventoryScreen.open && CONTAINERS.includes(inventoryScreen.mode)) closeInventory(false);
 });
 
 conn.on(S2C.BLOCK_CHANGE, (msg) => {
@@ -491,12 +509,12 @@ function frame(now) {
     if (controls.attack) viewModel.swing();
     controls.attack = controls.attack && targetPlayer !== null;
     controls.breaking = breakTarget();
-    // Right click on a workbench or furnace opens its screen instead of placing.
-    const station = controls.place && target && (target.id === BLOCK.WORKBENCH || target.id === BLOCK.FURNACE);
+    // Right click on a workbench, furnace or chest opens its screen instead of placing.
+    const station = controls.place && target && stationKind(target.id);
     if (station) {
       const at = { x: target.x, y: target.y, z: target.z };
-      if (target.id === BLOCK.FURNACE) conn.send({ type: C2S.OPEN_FURNACE, ...at });
-      openInventory(target.id === BLOCK.FURNACE ? 'furnace' : 'workbench', at);
+      if (CONTAINERS.includes(station)) conn.send({ type: C2S.OPEN_CONTAINER, ...at });
+      openInventory(station, at);
       controls.place = false;
     }
     // Right click on a door opens or closes it instead of placing.
@@ -515,14 +533,16 @@ function frame(now) {
     const f = freeCamera.position;
     camera.position.set(f.x, f.y, f.z);
   } else {
-    camera.position.set(pos.x, pos.y + PLAYER_EYE_HEIGHT, pos.z);
+    // Ease the eyes down and up when crouching.
+    eyeOffset += (eyeHeight(player.state) - eyeOffset) * Math.min(1, dt * EYE_EASE);
+    camera.position.set(pos.x, pos.y + eyeOffset, pos.z);
   }
   camera.rotation.set(input.pitch, input.yaw, 0);
 
   const dir = lookDirection(input.yaw, input.pitch);
   const block = playing ? raycastBlock(world, camera.position, dir, REACH_DISTANCE, isTargetable) : null;
   const hit = playing ? raycastPlayers(camera.position, dir, block ? block.t : REACH_DISTANCE,
-    entities.playerTargets(), PLAYER_BOX) : null;
+    entities.playerTargets(), (p) => playerBoxOf(p.state)) : null;
   targetPlayer = hit ? hit.player.id : null;
   target = hit ? null : block;
   // Looking away (or the block breaking) resets progress, as on the server.
@@ -537,6 +557,7 @@ function frame(now) {
     camera.position.z += (Math.random() - 0.5) * 2 * amount;
   }
   if (mode === MODE.DEAD) updateDeathPrompt(now);
+  resumeHint.hidden = !(lockable() && currentScreen === null && !input.locked);
   updateFlagHud();
 
   hotbar.select(input.slot);

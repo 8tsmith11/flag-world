@@ -1,14 +1,21 @@
-// Inventory screen, in three modes. All show the 27-slot main grid and the
+// Inventory screen, in four modes. All show the 27-slot main grid and the
 // hotbar row. Clicks go to the server, which moves the stacks and answers with
-// the new inventory; nothing changes locally until then.
+// the new inventory (and container); nothing changes locally until then.
+// Shift-click moves a stack across: between a container and the inventory,
+// or with no container, between the hotbar and the main grid.
 //   inventory (E):  a slowly turning preview of your player model, and the
 //                   recipes you can afford right now that need no station
 //   workbench:      the same, plus workbench recipes
-//   furnace:        the furnace's input, fuel and output slots, a fuel flame
-//                   and a smelting arrow, updated live by the server
+//   furnace, chest: containers, updated live by the server for everyone who
+//                   has them open. Furnace: input, fuel and output slots with
+//                   a fuel flame and smelting arrow. Chest: 27 slots above the
+//                   inventory.
 
 import * as THREE from 'three';
 import { HOTBAR_SIZE, INVENTORY_SIZE } from '/shared/config.js';
+
+const CHEST_SIZE = 27;
+export const CONTAINERS = ['furnace', 'chest'];
 import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
 import { recipesAt, canAfford } from '/shared/recipes.js';
@@ -35,22 +42,23 @@ export class InventoryScreen {
     for (let i = 0; i < INVENTORY_SIZE; i++) {
       const slot = document.createElement('div');
       slot.className = 'slot';
-      slot.addEventListener('mousedown', (e) => {
-        if (e.button !== 0 && e.button !== 2) return;
-        e.preventDefault();
-        this.conn.send({ type: C2S.INVENTORY_CLICK, slot: i, button: e.button === 2 ? 'right' : 'left' });
-      });
+      this.onClick(slot, i, false);
       this.slotEls.push(slot);
     }
     main.append(...this.slotEls.slice(HOTBAR_SIZE));
     hotbar.append(...this.slotEls.slice(0, HOTBAR_SIZE));
 
     this.furnaceSlots = [...document.querySelectorAll('[data-furnace]')];
-    this.furnaceSlots.forEach((slot, i) => slot.addEventListener('mousedown', (e) => {
-      if (e.button !== 0 && e.button !== 2) return;
-      e.preventDefault();
-      this.conn.send({ type: C2S.INVENTORY_CLICK, container: 'furnace', slot: i, button: e.button === 2 ? 'right' : 'left' });
-    }));
+    this.furnaceSlots.forEach((slot, i) => this.onClick(slot, i, true));
+    this.chestSlots = [];
+    const chest = document.getElementById('inv-chest');
+    for (let i = 0; i < CHEST_SIZE; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'slot';
+      this.onClick(slot, i, true);
+      chest.append(slot);
+      this.chestSlots.push(slot);
+    }
     this.flame = document.querySelector('.furnace .flame .fill');
     this.arrow = document.querySelector('.furnace-arrow .fill');
 
@@ -60,6 +68,18 @@ export class InventoryScreen {
     });
 
     this.preview = null;
+  }
+
+  // Sends clicks on a slot element: index into the inventory, or (container)
+  // into the open container.
+  onClick(el, index, container) {
+    el.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 && e.button !== 2) return;
+      e.preventDefault();
+      this.conn.send({
+        type: C2S.INVENTORY_CLICK, slot: index, button: e.button === 2 ? 'right' : 'left', shift: e.shiftKey, container,
+      });
+    });
   }
 
   // Built on first open, once we know the player's color.
@@ -82,23 +102,30 @@ export class InventoryScreen {
   }
 
   // The caller shows and hides the #inventory screen element; these track state.
-  // mode: 'inventory', 'workbench' or 'furnace'; at: the block for the last two.
+  // mode: 'inventory', 'workbench', 'furnace' or 'chest'; at: the block for the last three.
   show(color, mode = 'inventory', at = null) {
     this.open = true;
     this.mode = mode;
     this.at = at;
-    const furnace = mode === 'furnace';
-    document.getElementById('inv-preview').hidden = furnace;
-    document.querySelector('.inv-crafting').hidden = furnace;
-    document.getElementById('inv-furnace').hidden = !furnace;
+    const container = CONTAINERS.includes(mode);
+    document.getElementById('inv-preview').hidden = container;
+    document.querySelector('.inv-crafting').hidden = container;
+    document.getElementById('inv-furnace').hidden = mode !== 'furnace';
+    document.getElementById('inv-chest-panel').hidden = mode !== 'chest';
     document.getElementById('inv-crafting-title').textContent = mode === 'workbench' ? 'Workbench' : 'Crafting';
-    if (furnace) this.setFurnace({ slots: [null, null, null], burn: 0, progress: 0 });
-    if (!furnace && !this.preview) this.createPreview(color);
+    // Empty until the server's first CONTAINER message arrives.
+    if (mode === 'furnace') this.setContainer({ kind: 'furnace', slots: [null, null, null], burn: 0, progress: 0 });
+    if (mode === 'chest') this.setContainer({ kind: 'chest', slots: new Array(CHEST_SIZE).fill(null) });
+    if (!container && !this.preview) this.createPreview(color);
     this.update(this.inventory);
   }
 
-  // view: { slots, burn, progress } from the server's FURNACE message.
-  setFurnace(view) {
+  // view: the server's CONTAINER message ({ kind, slots, ... }).
+  setContainer(view) {
+    if (view.kind === 'chest') {
+      this.chestSlots.forEach((el, i) => renderStack(el, view.slots[i]));
+      return;
+    }
     this.furnaceSlots.forEach((el, i) => renderStack(el, view.slots[i]));
     this.flame.style.height = `${view.burn * 100}%`;
     this.arrow.style.width = `${view.progress * 100}%`;
@@ -150,7 +177,7 @@ export class InventoryScreen {
 
   // Per frame while open: turn the preview and show what's in hand.
   render(dt, held) {
-    if (!this.open || !this.preview || this.mode === 'furnace') return;
+    if (!this.open || !this.preview || CONTAINERS.includes(this.mode)) return;
     const { renderer, scene, camera, model } = this.preview;
     // The canvas scales with the window; keep the drawing buffer matching it.
     const canvas = renderer.domElement;

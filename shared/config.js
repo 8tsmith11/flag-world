@@ -44,6 +44,13 @@ export const SWIM_SPEED_SCALE = 0.6;
 // 20 Hz) that reliably lifts the feet above the surface, so you can climb onto
 // shore blocks level with the water.
 export const SWIM_EXIT_VELOCITY = 4;
+// Crouching (Shift): walking speed scale (multiplies with carrying a flag),
+// collision height (fits under 1.5 blocks), how far the eyes drop, and the
+// biggest drop edge protection lets a crouched player walk off.
+export const CROUCH_SPEED_SCALE = 0.3;
+export const CROUCH_HEIGHT = 1.45;
+export const CROUCH_EYE_DROP = 0.3;
+export const CROUCH_MAX_DROP = 1;
 // Ladders: climbing speed up or down (blocks/s).
 export const CLIMB_SPEED = 3;
 

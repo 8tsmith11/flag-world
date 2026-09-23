@@ -92,6 +92,7 @@ export class Player {
       kx: s.kx, kz: s.kz,
       yaw: s.yaw, pitch: s.pitch,
       onGround: s.onGround,
+      crouching: s.crouching,
       hp: this.hp,
       dead: this.dead,
       eliminated: this.eliminated,

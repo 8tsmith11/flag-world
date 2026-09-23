@@ -82,10 +82,14 @@
         <p class="hint">Iron ore smelts into iron ingots. Fuel: wood (2 items) or planks (1).</p>
       </div>
       <div class="inv-grids">
+        <div id="inv-chest-panel" hidden>
+          <h2>Chest</h2>
+          <div id="inv-chest" class="grid"></div>
+        </div>
         <h2>Inventory</h2>
         <div id="inv-main" class="grid"></div>
         <div id="inv-hotbar" class="grid"></div>
-        <p class="hint">Click: pick up / put down · Right click: pick up half / put one · E: close</p>
+        <p class="hint">Click: pick up / put down · Right click: pick up half / put one · Shift-click: move across · E: close</p>
       </div>
       <div class="inv-crafting inv-side">
         <h2 id="inv-crafting-title">Crafting</h2>
@@ -95,6 +99,7 @@
     <div id="inv-cursor" class="slot"></div>
   </div>
   <div id="crosshair"></div>
+  <div id="resume-hint" hidden>Click to resume</div>
   <div id="grab"></div>
   <div id="toast" hidden></div>
   <div id="carry" hidden></div>
