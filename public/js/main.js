@@ -35,6 +35,7 @@ import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
 import { QuarryEffects } from './render/quarryEffects.js';
+import { GoblinEffects } from './render/goblinEffects.js';
 import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
 import { Sounds } from './sounds.js';
@@ -88,6 +89,7 @@ const toast = new Toast(document.getElementById('toast'));
 const carryLabel = new Label(document.getElementById('carry'));
 const entities = new EntityRenderer(scene);
 const portals = new PortalRenderer(scene);
+const goblinEffects = new GoblinEffects(scene);
 // The local player's grappling hook rope (remote players' are on their models).
 const grappleLine = new GrappleLine(scene);
 const sounds = new Sounds();
@@ -462,8 +464,12 @@ conn.on(S2C.DAMAGE, (msg) => {
     health.set(msg.hp, self?.maxHp);
   } else {
     entities.flash(msg.id);
+    entities.setHp(msg.id, msg.hp);
   }
 });
+
+conn.on(S2C.CHAT, (msg) => feed.add(msg.text, msg.kind === 'event' ? 'event' : ''));
+conn.on(S2C.GOBLIN_TOTEM_DESTROYED, (msg) => goblinEffects.totemBurst(msg.x, msg.y, msg.z));
 
 conn.on(S2C.DEATH, (msg) => {
   const colors = [msg.id, msg.killerId].filter((id) => id !== null).map((id) =>
@@ -761,6 +767,7 @@ function frame(now) {
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
   quarryEffects?.update(dt, camera.position, chunks.viewDistance);
   portals.update(dt, camera);
+  goblinEffects.update(dt);
   entities.update(dt);
   sounds.update(dt, camera.position, player.state, world, entities,
     input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'));

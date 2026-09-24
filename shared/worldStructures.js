@@ -271,8 +271,9 @@ function buildHanging(world, site, random) {
 // Structures, chests, dragon roosts (world.roosts) and Crawler spawn points
 // (world.mobSpawns.crawlers), all seeded. Mob spawns use their own random
 // stream so they don't move the structures.
-export function generateStructures(world, terrains, config, seed) {
-  const placed = [];
+// `reserved`: boxes already built (the Goblin Fortress) that nothing may overlap.
+export function generateStructures(world, terrains, config, seed, reserved = []) {
+  const placed = [...reserved];
   const settings = config.structures;
   const crawlers = config.crawlers;
   world.roosts = [];
@@ -430,6 +431,7 @@ export function generateStructures(world, terrains, config, seed) {
         const cell = caveFloor(world, terrain, mobRandom);
         if (!cell) break;
         if (terrain.getTop(cell.x, cell.z) - cell.y < 10) continue;
+        if (overlaps(world, placed, { x0: cell.x, x1: cell.x, z0: cell.z, z1: cell.z, y0: cell.y, y1: cell.y + 1 })) continue;
         addCrawlers(world, mobRandom, [cell], 1);
         break;
       }

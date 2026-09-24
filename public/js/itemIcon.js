@@ -92,6 +92,7 @@ function tooltipDetails(stack) {
     if (accessory.visual === 'orb') effects.push('Creative mode only: double-tap jump to toggle flight', 'Jump rises · Crouch descends · 2× walking speed');
   }
   if (stack.item === BLOCK.QUARRY_STONE) effects.push(`Each open face regrows stone every ${QUARRY_REGROW_TIME}s`, 'Requires tool strength 8 to break');
+  if (stack.item === BLOCK.GOBLIN_BRICKS) effects.push('Requires tool strength 8 to break');
   if (def.mobType) effects.push(`Right click a block to spawn a ${def.name.replace(' spawn egg', '')}`);
   if (stack.item === ITEM.RIFT_STONE) effects.push(`Creates a ${RIFT_STONE.durationSeconds}s portal back to your keep`, 'Use away from keeps; consumed on use');
   if (stack.item === ITEM.GOLDEN_BEEF) effects.push('Fully restores HP instantly when eaten');
@@ -198,6 +199,7 @@ export function itemIcon(item) {
   } else {
     icon.classList.add('block');
     if (item === BLOCK.QUARRY_STONE) icon.classList.add('quarry');
+    if (item === BLOCK.GOBLIN_BRICKS) icon.classList.add('goblin-bricks');
     icon.style.background = cssColor(def.color);
   }
   return icon;

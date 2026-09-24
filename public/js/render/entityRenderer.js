@@ -13,6 +13,8 @@ import {
   createCrawlerModel, createEelModel, animatePlayer, animateCow, animateDragon, animateCrawler, animateEel, swingPlayer,
 } from './models.js';
 import { GrappleLine } from './grappleLine.js';
+import { createGoblinModel, animateGoblin, swingGoblin, createTotemModel, animateTotem } from './goblinModels.js';
+import { GOBLINS } from '/shared/goblins.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
 const DRAGON_BOX = { halfW: 1.1, height: 2.8 };
@@ -22,7 +24,50 @@ const MOB_BOXES = {
   [ENTITY_TYPE.DRAGON]: DRAGON_BOX,
   [ENTITY_TYPE.CRAWLER]: { halfW: CRAWLER_WIDTH / 2, height: CRAWLER_HEIGHT },
   [ENTITY_TYPE.VOID_EEL]: { halfW: 0.6, height: 0.8 },
+  [ENTITY_TYPE.GOBLIN_WORKER]: { halfW: GOBLINS.worker.width / 2, height: GOBLINS.worker.height },
+  [ENTITY_TYPE.GOBLIN_KING]: { halfW: GOBLINS.king.width / 2, height: GOBLINS.king.height },
+  [ENTITY_TYPE.GOBLIN_TOTEM]: { halfW: GOBLINS.totem.width / 2, height: GOBLINS.totem.height },
 };
+
+// A health bar floating over an entity (the Goblin Totem while it's damaged):
+// a sprite redrawn when the HP changes.
+const BAR_WIDTH = 2, BAR_HEIGHT = 0.22;
+function createHealthBar() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 14;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
+  sprite.scale.set(BAR_WIDTH, BAR_HEIGHT, 1);
+  sprite.renderOrder = 3;
+  sprite.visible = false;
+  sprite.userData.bar = { canvas, texture, shown: null };
+  return sprite;
+}
+
+function drawHealthBar(sprite, hp, maxHp) {
+  const bar = sprite.userData.bar;
+  const fraction = Math.max(0, Math.min(1, hp / maxHp));
+  sprite.visible = fraction < 1;
+  if (bar.shown === hp) return;
+  bar.shown = hp;
+  const ctx = bar.canvas.getContext('2d');
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, 128, 14);
+  ctx.fillStyle = fraction > 0.5 ? '#6fd14a' : fraction > 0.25 ? '#e0b83a' : '#d8323c';
+  ctx.fillRect(2, 2, 124 * fraction, 10);
+  bar.texture.needsUpdate = true;
+}
+
+function createGoblinTotem() {
+  const group = createTotemModel();
+  const bar = createHealthBar();
+  bar.position.y = GOBLINS.totem.height + 0.6;
+  group.add(bar);
+  group.userData.healthBar = bar;
+  return group;
+}
 
 const INTERP_DELAY_MS = 100;
 const MAX_SNAPSHOTS = 20;
@@ -62,6 +107,9 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.DRAGON]: createDragonModel,
   [ENTITY_TYPE.CRAWLER]: createCrawlerModel,
   [ENTITY_TYPE.VOID_EEL]: createEelModel,
+  [ENTITY_TYPE.GOBLIN_WORKER]: createGoblinModel,
+  [ENTITY_TYPE.GOBLIN_KING]: createGoblinModel,
+  [ENTITY_TYPE.GOBLIN_TOTEM]: createGoblinTotem,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
     const arrow = createArrowModel();
@@ -98,7 +146,8 @@ export class EntityRenderer {
     if (!factory) return;
     const object = factory(info);
     this.scene.add(object);
-    this.entities.set(id, { object, info, snapshots: [], flashUntil: 0, flashing: false });
+    this.entities.set(id, { object, info, snapshots: [], flashUntil: 0, flashing: false,
+      hp: info.hp ?? null, maxHp: info.maxHp ?? null });
     this.pushSnapshot(id, info);
   }
 
@@ -114,6 +163,7 @@ export class EntityRenderer {
   pushSnapshot(id, snap) {
     const entity = this.entities.get(id);
     if (!entity) return;
+    if (snap.hp !== undefined) entity.hp = snap.hp;
     const dead = !!snap.dead;
     // Dying or respawning moves the player instantly; don't interpolate across it.
     const previous = entity.snapshots.at(-1);
@@ -126,7 +176,7 @@ export class EntityRenderer {
       orbActive: !!snap.orbActive,
       slowed: snap.slowTicks > 0, grapple: snap.grapple ?? null,
       gliding: !!snap.gliding, breathing: !!snap.breathing, walking: !!snap.walking, climbing: !!snap.climbing,
-      onGround: !!snap.onGround,
+      onGround: !!snap.onGround, mining: !!snap.mining,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
@@ -137,6 +187,13 @@ export class EntityRenderer {
   swing(id) {
     const entity = this.entities.get(id);
     if (entity?.object.userData.player) swingPlayer(entity.object);
+    if (entity?.object.userData.goblin) swingGoblin(entity.object);
+  }
+
+  // A mob's HP from a DAMAGE message (drives health bars).
+  setHp(id, hp) {
+    const entity = this.entities.get(id);
+    if (entity) entity.hp = hp;
   }
 
   flash(id) {
@@ -211,6 +268,9 @@ export class EntityRenderer {
       const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
       if (object.userData.cow) animateCow(object, dt, speed);
       if (object.userData.crawler) animateCrawler(object, dt, speed, b.climbing);
+      if (object.userData.goblin) animateGoblin(object, dt, speed, { mining: b.mining, climbing: b.climbing });
+      if (object.userData.totem) animateTotem(object, dt);
+      if (object.userData.healthBar && entity.maxHp) drawHealthBar(object.userData.healthBar, entity.hp ?? entity.maxHp, entity.maxHp);
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch);
       if (object.userData.player) {

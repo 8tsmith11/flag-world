@@ -41,6 +41,9 @@ export const S2C = {
   EMBER_BURST: 'emberBurst',
   QUARRY_PUFF: 'quarryPuff',
   CREATIVE: 'creative',
+  // A line for everyone's chat/event feed (e.g. the Goblin Totem falling).
+  CHAT: 'chat',
+  GOBLIN_TOTEM_DESTROYED: 'goblinTotemDestroyed',
 };
 
 // Where a flag is, in FlagState.
@@ -65,7 +68,7 @@ export const DEATH_CAUSE = {
   PLAYER: 'player',
   VOID: 'void',
   FALL: 'fall',
-  // A dragon, Crawler or Void Eel.
+  // A dragon, Crawler, Void Eel or goblin.
   MOB: 'mob',
 };
 
@@ -92,4 +95,7 @@ export const ENTITY_TYPE = {
   DRAGON: 'dragon',
   CRAWLER: 'crawler',
   VOID_EEL: 'voidEel',
+  GOBLIN_WORKER: 'goblinWorker',
+  GOBLIN_KING: 'goblinKing',
+  GOBLIN_TOTEM: 'goblinTotem',
 };

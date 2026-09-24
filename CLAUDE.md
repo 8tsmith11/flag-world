@@ -82,6 +82,15 @@ including the host, plays by opening `http://<host-ip>:3000`.
   All three share `server/provocation.js`: player damage makes them hunt the
   attacker until they lose sight of them for `PROVOKE_FORGET_TIME`. Worldgen
   picks Crawler spawn points (`world.mobSpawns`) and roosts (`world.roosts`).
+- Goblins: the Goblin Fortress is modules on a cell grid, all data in
+  `shared/goblinModules.js` (types, `addModule`, `connectModules`,
+  `autoConnect`, starting layout) and placed by `shared/goblinFortressGen.js`
+  inside the central island before caves (which avoid it). The graph lives in
+  `world.goblinFortress`. Every goblin number is in `shared/goblins.js`.
+  `server/goblins.js` (GoblinController) spawns the Totem, King and Workers
+  into `Game.mobs` and owns totem storage, respawns and crowding; mob classes
+  are in `server/goblin.js`, graph + local A* routing in `server/goblinNav.js`.
+  Client models share one base goblin (`render/goblinModels.js`, `GOBLIN_LOOKS`).
 - Day/night is visual only: the server sends `dayTime` in `welcome`, clients
   run the clock from `state` ticks and `render/sky.js` lights the scene.
 - Breaking a block needs the held item's tool strength (bare hands are
@@ -126,6 +135,9 @@ server/
   dragon.js                  Dragons: patrol, landing, leash, fire breath
   crawler.js                 Crawlers: wandering, hunting, wall climbing, bites
   eel.js                     Void Eels: patrol under an island, chase exposed players
+  goblins.js                 Goblin Fortress controller: spawns, totem storage, respawns, crowding, goblin damage
+  goblin.js                  Goblin Totem, Goblin King and Goblin Worker mobs
+  goblinNav.js               Goblin routing over the fortress module graph, ladder climbing
   provocation.js             Shared grudge (provoked target) and line-of-sight test
   flag.js                    A player's flag: home / carried / dropped / captured
   containers.js              Chest and furnace tile entities: slots, shift-click, smelting
@@ -141,6 +153,9 @@ shared/                      Runs on server and client
   worldgen.js                World sizes config, seed parsing, generateWorld, the Test world
   islands.js                 Floating-island world gen (center, middle ring, outer scatter, bridges)
   structures.js              Keeps, sand shores, trees, seeded PRNG shared by the generators
+  goblins.js                 Goblin tuning (fortress placement, totem, King, Workers)
+  goblinModules.js           Fortress module types, grid, building and connecting modules, starting layout
+  goblinFortressGen.js       Places and builds the starting fortress in the central island
   physics.js                 Deterministic player/item movement and voxel collision
   raycast.js                 Voxel raycast (crosshair block) and ray/box tests (punch targets)
   protocol.js                Message type names, phases, entity type names
@@ -171,6 +186,8 @@ public/
       blockHighlight.js      Targeted block outline and break progress overlay
       flagRenderer.js        Flags, carried flags on backs, light beams, return puffs
       grappleLine.js         Grappling hook rope and hook head while a pull is on
+      goblinModels.js        Base goblin model (Worker, King gear) and the Goblin Totem
+      goblinEffects.js       Goblin Totem destruction burst
 scripts/
   check.js                   `npm run check`
 PROTOCOL.md                  WebSocket message reference

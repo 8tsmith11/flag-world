@@ -7,6 +7,7 @@ import { CHUNK_SIZE, KEEP_HEIGHT } from './config.js';
 import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores, surfaceStats, growTree } from './structures.js';
 import { generateStructures } from './worldStructures.js';
 import { placeQuarries } from './quarryPlacement.js';
+import { planGoblinFortress, buildGoblinFortress, nearFortress } from './goblinFortressGen.js';
 
 const EDGE_SHELL = 3;
 const KEEP_CLEARANCE = KEEP_REACH + 6;
@@ -245,7 +246,8 @@ function terrainFor(world, island, noise, detail) {
 }
 
 // Winding root tunnels with tapering branches and occasional round chambers.
-function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea) {
+// `reserved(x, y, z)`: blocks caves must leave alone (the Goblin Fortress).
+function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea, reserved = () => false) {
   const { radius, x: cx, z: cz, getTop, getBottom, bounds } = terrain;
   const inside = (x, y, z, shell = EDGE_SHELL) => {
     if (x < bounds.x0 + shell || z < bounds.z0 + shell
@@ -263,6 +265,7 @@ function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea) {
         for (let y = Math.floor(py - r); y <= Math.ceil(py + r); y++) {
           if ((x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2 > r * r) continue;
           if (!entrance && !inside(x, y, z)) continue;
+          if (reserved(x, y, z)) continue;
           if (world.getBlock(x, y, z) !== BLOCK.AIR) world.setBlock(x, y, z, BLOCK.AIR);
         }
       }
@@ -431,11 +434,16 @@ export function generateIslandWorld(seed, teamCount, config) {
     }
     if (best) { site.cx = best.cx; site.cz = best.cz; }
   }
+  // The Goblin Fortress: planned before the caves so they go around it.
+  const fortressPlan = planGoblinFortress(world, terrains.find((terrain) => terrain.kind === 'center'), seed);
+  world.goblinFortress = null;
   for (const terrain of terrains) {
     if (terrain.kind === 'tiny') continue;
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x79b9d7f3));
-    carveCaves(world, terrain, rand, noise3, nearKeep, config.caveArea);
+    carveCaves(world, terrain, rand, noise3, nearKeep, config.caveArea,
+      terrain.kind === 'center' ? (x, y, z) => nearFortress(fortressPlan, x, y, z) : undefined);
   }
+  if (fortressPlan) buildGoblinFortress(world, fortressPlan);
 
   // One pass over the terrain's chunks keeps ore cost linear in world blocks.
   for (const chunk of world.chunks.values()) {
@@ -465,7 +473,12 @@ export function generateIslandWorld(seed, teamCount, config) {
     else plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
       { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop });
   }
-  generateStructures(world, terrains, config, seed);
+  const fortressBoxes = fortressPlan ? fortressPlan.boxes : [];
+  world.structures.push(...fortressBoxes.map((box) => ({ kind: 'goblinFortress', islandKind: 'center',
+    teamIndex: null, x: Math.floor((box.x0 + box.x1) / 2), y: box.y0, z: Math.floor((box.z0 + box.z1) / 2), box })));
+  generateStructures(world, terrains, config, seed, fortressBoxes);
   placeQuarries(world, terrains, seed, config.quarry);
+  const fortressQuarry = world.goblinFortress?.modules.find((module) => module.feature?.kind === 'quarry')?.feature;
+  if (fortressQuarry) world.quarries.push({ x: fortressQuarry.x, y: fortressQuarry.y, z: fortressQuarry.z });
   return world;
 }

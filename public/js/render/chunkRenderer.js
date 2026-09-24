@@ -41,6 +41,53 @@ function ironTexture() {
   return texture;
 }
 
+// Goblin Bricks: rough, dark greenish-brown bricks in staggered rows of
+// uneven lengths, deep mortar, pitted faces and flecks of moss.
+function goblinBrickTexture() {
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1f1e14';
+  ctx.fillRect(0, 0, size, size);
+  let seed = 0x6b1e5;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  const rows = [0, 8, 16, 24, 32];
+  for (let row = 0; row < 4; row++) {
+    const top = rows[row] + 1, bottom = rows[row + 1] - 1;
+    let x = row % 2 ? -6 : 0;
+    while (x < size) {
+      const length = 9 + Math.floor(random() * 7);
+      const r = 66 + Math.floor(random() * 22), g = 68 + Math.floor(random() * 20), b = 40 + Math.floor(random() * 12);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      // Chipped corners: each brick is inset a little differently.
+      const inset = random() < 0.5 ? 1 : 0;
+      ctx.fillRect(x + 1, top + inset, length - 1, bottom - top - inset + (random() < 0.3 ? 0 : 1));
+      if (x < 0) ctx.fillRect(x + 1 + size, top + inset, length - 1, bottom - top - inset);
+      // Darker lower edge, lighter upper edge for a rough bevel.
+      ctx.fillStyle = 'rgba(20,18,10,0.45)';
+      ctx.fillRect(x + 1, bottom - 1, length - 1, 1);
+      ctx.fillStyle = 'rgba(150,150,100,0.25)';
+      ctx.fillRect(x + 1, top + inset, length - 1, 1);
+      x += length;
+    }
+  }
+  for (let i = 0; i < 90; i++) {
+    const shade = random() < 0.6 ? 'rgba(25,22,12,0.5)' : 'rgba(120,118,80,0.35)';
+    ctx.fillStyle = shade;
+    ctx.fillRect(Math.floor(random() * size), Math.floor(random() * size), 1, 1);
+  }
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = i % 2 ? '#4d6a2a' : '#3d5a24';
+    ctx.fillRect(Math.floor(random() * size), rows[Math.floor(random() * 4) + 1] - 2, 2 + Math.floor(random() * 3), 1 + Math.floor(random() * 2));
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  return texture;
+}
+
 export class ChunkRenderer {
   constructor(scene, world, viewDistance) {
     this.scene = scene;
@@ -55,6 +102,7 @@ export class ChunkRenderer {
 
     this.opaqueMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.oreMaterial = new THREE.MeshLambertMaterial({ map: ironTexture() });
+    this.goblinMaterial = new THREE.MeshLambertMaterial({ map: goblinBrickTexture(), vertexColors: true });
     this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
       opacity: 0.75, depthWrite: false });
     this.transparentMaterial = new THREE.MeshLambertMaterial({
@@ -139,11 +187,13 @@ export class ChunkRenderer {
       chunk,
       opaque: geo.opaque && new THREE.Mesh(geo.opaque, this.opaqueMaterial),
       ore: geo.ore && new THREE.Mesh(geo.ore, this.oreMaterial),
+      goblin: geo.goblin && new THREE.Mesh(geo.goblin, this.goblinMaterial),
       glow: geo.glow && new THREE.Mesh(geo.glow, this.glowMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
     };
     if (entry.opaque) this.scene.add(entry.opaque);
     if (entry.ore) this.scene.add(entry.ore);
+    if (entry.goblin) this.scene.add(entry.goblin);
     if (entry.glow) { entry.glow.renderOrder = 2; this.scene.add(entry.glow); }
     if (entry.transparent) {
       entry.transparent.renderOrder = 1;
@@ -155,7 +205,7 @@ export class ChunkRenderer {
   unload(key) {
     const entry = this.meshes.get(key);
     if (!entry) return;
-    for (const mesh of [entry.opaque, entry.ore, entry.glow, entry.transparent]) {
+    for (const mesh of [entry.opaque, entry.ore, entry.goblin, entry.glow, entry.transparent]) {
       if (!mesh) continue;
       this.scene.remove(mesh);
       mesh.geometry.dispose();

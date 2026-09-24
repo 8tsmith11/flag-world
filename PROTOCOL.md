@@ -116,10 +116,11 @@ loot-only Wind Axe, Ice Sword, crossbow, Rope Bundle (stack size 8) and
 grappling hook. `287` Dragon Scale (dropped by dragons), `288` Silk (dropped by
 Crawlers, no use yet) and `289` Dragonscale Armor. Block `53` (anvil) is also
 its item.
-`290` is the creative-only Flight Orb accessory. `291`–`294` are Cow,
-Dragon, Crawler and Void Eel spawn eggs; their definitions live in
+`290` is the creative-only Flight Orb accessory. `291`–`296` are Cow,
+Dragon, Crawler, Void Eel, Goblin Worker and Goblin King spawn eggs; their definitions live in
 `shared/mobEggs.js`. All egg types are creative-only to obtain, but anyone
-holding one can use it. Grass and dirt both drop dirt.
+holding one can use it. Grass and dirt both drop dirt. Block `59` is Goblin
+Bricks (hardness 8, drops itself), the walls of the Goblin Fortress.
 Buckets, armor, accessories, gliders, hammers, swords, bows, crossbows, Wind
 Axes and grappling hooks have stack size 1;
 ordinary items stack to 64. What held tools do is in `shared/tools.js`.
@@ -175,6 +176,33 @@ then in `state` only on ticks it moved.
 | `x`,`y`,`z` | number | Feet position (box 0.9 wide, 0.6 tall) |
 | `yaw` | number | Facing (0 looks toward -Z) |
 | `climbing` | bool | Climbing a wall (drawn tipped up it) |
+
+**GoblinSnapshot** — a Goblin Worker or the Goblin King. Sent in
+`entitySpawn` / `welcome` (with `maxHp`), then in `state` on ticks it moved or
+its `climbing`, `mining` or `carrying` changed.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | Entity id |
+| `type` | string | `"goblinWorker"` or `"goblinKing"` |
+| `name` | string | `"Goblin Worker"` / `"Goblin King"`, used in the event feed |
+| `x`,`y`,`z` | number | Feet position (worker box 0.6 × 1.2, King 1.1 × 2.6) |
+| `yaw` | number | Facing (0 looks toward -Z) |
+| `hp` | number | Health (`maxHp` in `entitySpawn` / `welcome`) |
+| `walking`, `climbing` | bool | Walking; on a ladder |
+| `mining` | bool | Worker only: swinging its pick at a block |
+| `carrying` | int | Worker only: items it's carrying |
+
+**GoblinTotemSnapshot** — the Goblin Totem. Sent in `welcome` / `entitySpawn`
+(with `maxHp`), then in `state` on ticks its HP changes (whole HP).
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | Entity id |
+| `type` | string | `"goblinTotem"` |
+| `name` | string | `"Goblin Totem"` |
+| `x`,`y`,`z` | number | Base, in the middle of the Totem Hall's floor (box 1.6 × 4.2) |
+| `hp` | number | Health, 0..400; clients show a bar over it while below `maxHp` |
 
 **VoidEelSnapshot** — a Void Eel's head. Sent in `welcome` and in every
 `state` tick. Clients draw its body trailing along the path the head swam.
@@ -494,7 +522,7 @@ more than 30 blocks away, then swims home. 30 HP; a bite does 4 (every 1.2 s)
 within 1.2 blocks of the player's box. Clients draw a segmented body trailing
 along the head's path.
 
-Provocation: any damage from a player to a Crawler, Void Eel or dragon (a
+Provocation: any damage from a player to a Crawler, Void Eel, dragon or Goblin King (a
 punch, arrow, crossbow bolt or Thorns, at any range) provokes it. It hunts that
 player, ignoring its aggro range, leash and home zone, until the player dies,
 disconnects or is eliminated, or it has had no line of sight to them for 10 s.
@@ -609,7 +637,7 @@ reclaim.
 | `winnerId`| int \| null   | Set if the match is already over |
 | `winnerTeam` | int \| null | Winning team index, if over |
 | `winnerMembers` | string[] | Names on the winning team, if over |
-| `entities`| (ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | Dropped items, arrows, cows, dragons, Crawlers and Void Eels currently in the world |
+| `entities`| (ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | Dropped items, arrows, cows, dragons, Crawlers, Void Eels and goblins currently in the world |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
@@ -619,7 +647,7 @@ Broadcast every server tick (20/s).
 | Field      | Type             | Notes |
 |------------|------------------|-------|
 | `tick`     | int              | Server tick number |
-| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | All players, dragons and Void Eels, plus only the items, arrows, cows and Crawlers that moved this tick. One not listed stays where it was |
+| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | All players, dragons and Void Eels, plus only the items, arrows, cows, Crawlers and goblins that moved (or changed, see their snapshots) this tick. One not listed stays where it was |
 | `flags`    | FlagState[] | Every flag |
 
 ### `portalSpawn`, `portalDespawn`, `emberBurst`
@@ -659,7 +687,7 @@ A non-player entity appeared: a block drop, a thrown item, or an arrow.
 
 | Field    | Type     |
 |----------|----------|
-| `entity` | ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot |
+| `entity` | ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot |
 
 ### `entityDespawn`
 
@@ -690,16 +718,33 @@ passes. Whatever doesn't fit stays on the ground.
 
 ### `swing`
 
-Another player swung their arm (punch, mining, or placing a block). Not sent
-to the player who swung; their own first-person arm animates locally.
+Another player swung their arm (punch, mining, or placing a block), or the
+Goblin King swung its club. Not sent to the player who swung; their own
+first-person arm animates locally.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `id`  | int  | Player who swung |
+| `id`  | int  | Player (or Goblin King) who swung |
+
+### `chat`
+
+A line for everyone's event feed. So far only world events: the Goblin Totem
+being destroyed ("NAME destroyed the Goblin Totem!").
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `text` | string | The line |
+| `kind` | string | `"event"` (drawn as a highlighted world event) |
+
+### `goblinTotemDestroyed`
+
+`{x, y, z}`: the Goblin Totem at that base broke apart. Clients play a big
+particle burst; its `entityDespawn`, loot (`entitySpawn`s) and `chat` line
+arrive separately.
 
 ### `damage`
 
-A player, cow, dragon, Crawler or Void Eel took damage (a punch, an arrow, a bite, fire, Thorns or a fall). Broadcast to every
+A player, cow, dragon, Crawler, Void Eel or goblin (the Totem included) took damage (a punch, an arrow, a bite, fire, Thorns or a fall). Broadcast to every
 match player. Clients flash the
 target red, or shake the screen if they are the target.
 
@@ -707,7 +752,7 @@ target red, or shake the screen if they are the target.
 |--------------|------|-------|
 | `id`         | int  | Entity hit |
 | `attackerId` | int \| null | Player or mob who hit them; `null` for fall damage |
-| `hp`         | number | Their HP after the hit |
+| `hp`         | number | Their HP after the hit (clients use it for the Totem's health bar) |
 
 ### `death`
 
@@ -974,10 +1019,56 @@ is equipped, double-tap jump to toggle flight. Jump rises, crouch descends,
 horizontal flight is twice walking speed, and flight has no gravity or fall
 damage. The orb glows as it orbits the player.
 
-Spawn eggs exist for Cow, Dragon, Crawler and Void Eel. Right-clicking a solid
-block with one spawns its normal mob on top and consumes the egg. Cow, Dragon
-and Crawler use the spawn position as home or leash center; a Void Eel uses
-the nearest island. Anyone holding an egg can use it.
+Spawn eggs exist for Cow, Dragon, Crawler, Void Eel, Goblin Worker and Goblin
+King. Right-clicking a solid block with one spawns its normal mob on top and
+consumes the egg. Cow, Dragon and Crawler use the spawn position as home or
+leash center; a Void Eel uses the nearest island. A Goblin Worker hatched
+inside the Goblin Fortress joins the work (it isn't counted toward respawns);
+outside it, it potters about where it hatched and flees players. A Goblin King
+hatched in the Totem Hall guards it; anywhere else it guards a 16-block square
+around where it hatched. Anyone holding an egg can use it.
+
+## Goblin Fortress
+
+World gen builds one Goblin Fortress deep inside the central island
+(`shared/goblinFortressGen.js`), from modules on a 3D grid of cells
+(`shared/goblinModules.js`; tuning in `shared/goblins.js`). A cell is 7 × 6 × 7
+blocks with its own Goblin Brick walls, floor and ceiling; neighbouring modules
+connect through 2-wide, 3-tall doorways cut through both walls, or, between
+ladder shafts, a ladder through the floor and ceiling. Module types: room,
+hallway, corner, T and cross junctions, dead end, ladder shaft, the Totem Hall
+(2 × 2 cells, 2 levels tall) and the Quarry room. The starting fortress is the
+Totem Hall, 3–5 hallway/junction/corner/shaft modules and the Quarry room (a
+Quarry Stone in the middle), sometimes over two levels. It stands at a seeded
+angle and 30–62% of the radius from the island's center, at least 30% out,
+with natural stone at least 3 blocks under, 5 over and 3 beside it; where the
+island is too thin there, its underside is deepened under the fortress. Caves
+and structures keep clear of it. The graph (modules, connections and the
+points goblins walk through) is `world.goblinFortress`; later phases add
+modules at runtime with `addModule` + `connectModules` / `autoConnect`, whose
+blocks arrive as `blockChange`.
+
+The Goblin Totem stands in the middle of the Totem Hall: 400 HP, hurt only by
+players' melee and arrows/bolts, back to full at 4 HP/s after 30 s without
+damage. It holds the goblins' shared storage (a count per item; nobody can open
+it). Destroyed, it bursts (`goblinTotemDestroyed`), drops a `goblinTotem` loot
+pile, is announced (`chat`), and goblins stop spawning and respawning for the
+rest of the match; existing goblins carry on.
+
+The Goblin King (80 HP) stays in the Totem Hall, attacks players inside it (7
+damage, strong knockback, every 1.5 s), is provoked like other mobs but never
+leaves the hall, and returns beside the totem when it has no target. It drops
+`goblinKing` loot and doesn't respawn.
+
+Goblin Workers (4 / 5 / 6 on Small / Medium / Large, 10 HP) spawn by the totem,
+path over the module graph to the Quarry room, mine the stone the Quarry Stone
+regrows, and carry it to the totem once they hold 16 items (or have held some
+with nothing to mine for 15 s). They flee along the graph from any player
+within 8 blocks and go back to work once no player has been within 12 blocks
+of them, or 8 of where they're headed, for 3 s. A dead worker drops what it
+carried; it respawns by the totem after 60 s while the totem stands. Goblins
+steer apart when crowded, and goblins, Crawlers, dragons and Void Eels ignore
+each other.
 
 ## Day and night
 

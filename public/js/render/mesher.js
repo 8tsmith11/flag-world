@@ -40,6 +40,8 @@ function hexColor(hex) {
   return c;
 }
 
+const WHITE = new THREE.Color(1, 1, 1);
+
 // Small deterministic per-block brightness jitter so flat colors read as texture.
 function jitter(x, y, z) {
   let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(z, 2147483647);
@@ -319,6 +321,8 @@ export function meshChunk(world, chunk) {
   const transparent = createBuffers();
   const ore = createBuffers();
   const glow = createBuffers();
+  // Goblin Bricks: textured (chunkRenderer's goblinBrickTexture), tinted by light only.
+  const goblin = createBuffers();
   const ox = chunk.cx * CHUNK_SIZE, oy = chunk.cy * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
 
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
@@ -355,6 +359,15 @@ export function meshChunk(world, chunk) {
           continue;
         }
 
+        if (id === BLOCK.GOBLIN_BRICKS) {
+          for (const face of FACES) {
+            const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
+            if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
+            pushFace(goblin, face, x, y, z, WHITE, face.shade * j);
+          }
+          continue;
+        }
+
         if (id === BLOCK.QUARRY_STONE) {
           for (const face of FACES) {
             const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
@@ -384,5 +397,5 @@ export function meshChunk(world, chunk) {
   }
 
   return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), ore: toGeometry(ore),
-    glow: toGeometry(glow) };
+    glow: toGeometry(glow), goblin: toGeometry(goblin) };
 }

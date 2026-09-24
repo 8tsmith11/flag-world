@@ -68,6 +68,22 @@ export const LOOT_TABLES = {
     goldenBeef(6), { ...riftStone, weight: 6, max: 2 }, ...rareWeapons(3).map((entry) => ({ ...entry, modChance: 0.7 })),
     { ...uncommonGear[0], modChance: 0.6 }] },
   dungeonCentral: { rolls: [6, 8], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(5), ...accessoryEntries(5), riftStone, ...lootGear(5)] },
+  // The Goblin Totem's pile when it's destroyed: lots of iron, Golden Beef,
+  // accessories and Rift Stones, modded most of the time.
+  goblinTotem: { rolls: [16, 22], entries: [
+    { item: ITEM.IRON_INGOT, weight: 14, min: 3, max: 8 },
+    { item: BLOCK.IRON_ORE, weight: 6, min: 4, max: 10 },
+    ...ironGear(3, 0.75), goldenBeef(8),
+    ...accessoryEntries(4).map((entry) => ({ ...entry, modChance: 0.8 })),
+    { ...riftStone, weight: 6, max: 2 },
+    ...rareWeapons(2).map((entry) => ({ ...entry, modChance: 0.8 })),
+    { ...uncommonGear[0], modChance: 0.75 }] },
+  // The Goblin King's drop.
+  goblinKing: { rolls: [4, 6], entries: [
+    { item: ITEM.IRON_INGOT, weight: 10, min: 2, max: 5 },
+    ...ironGear(3, 0.6), goldenBeef(5),
+    ...accessoryEntries(2).map((entry) => ({ ...entry, modChance: 0.6 })),
+    { ...riftStone, weight: 3 }] },
 };
 
 export function rollLoot(tableName, seed, x, y, z, slotCount = 27) {

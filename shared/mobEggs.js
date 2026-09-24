@@ -8,6 +8,8 @@ export const MOB_EGGS = [
   { item: ITEM.DRAGON_EGG, type: ENTITY_TYPE.DRAGON, name: 'Dragon', color: 0xb84f45, spots: 0x713027 },
   { item: ITEM.CRAWLER_EGG, type: ENTITY_TYPE.CRAWLER, name: 'Crawler', color: 0x59675e, spots: 0x242e29 },
   { item: ITEM.VOID_EEL_EGG, type: ENTITY_TYPE.VOID_EEL, name: 'Void Eel', color: 0x5a6dac, spots: 0x23315b },
+  { item: ITEM.GOBLIN_WORKER_EGG, type: ENTITY_TYPE.GOBLIN_WORKER, name: 'Goblin Worker', color: 0x5f8a3a, spots: 0x7a5a32 },
+  { item: ITEM.GOBLIN_KING_EGG, type: ENTITY_TYPE.GOBLIN_KING, name: 'Goblin King', color: 0x3f6a2a, spots: 0xe0b83a },
 ];
 
 export function eggForItem(item) {

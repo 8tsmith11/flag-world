@@ -52,6 +52,8 @@ import { WaterSimulation } from './water.js';
 import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
+import { GoblinController } from './goblins.js';
+import { TOTEM_BOX, KING_BOX, WORKER_BOX } from './goblin.js';
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -134,6 +136,7 @@ export class Game {
     this.leafDecay = null;
     this.saplings = null;
     this.quarry = null;
+    this.goblins = null;
     // Flags by owner id, and the last player standing once the match is decided.
     this.flags = new Map();
     this.winnerId = null;
@@ -378,6 +381,8 @@ export class Game {
     this.spawnDragons();
     this.spawnCrawlers();
     this.spawnEels();
+    this.goblins = new GoblinController(this);
+    this.goblins.spawnAll();
     for (const player of this.players.values()) this.sendWelcome(player);
   }
 
@@ -708,7 +713,8 @@ export class Game {
     const egg = eggForItem(player.inventory.get(slot)?.item);
     if (!egg || !pos || !this.inReach(player, pos) || !isSolid(this.world.getBlock(pos.x, pos.y, pos.z))) return;
     const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
-    const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX };
+    const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX,
+      goblinWorker: WORKER_BOX, goblinKing: KING_BOX };
     const box = boxes[egg.type];
     if (!box || !playerFitsAt(this.world, { x, y, z, box }, y)) return;
     const island = this.world.islands?.length ? this.world.islands.reduce((best, candidate) =>
@@ -739,6 +745,11 @@ export class Game {
         this.mobs.set(mob.id, mob);
         break;
       }
+      case 'goblinWorker':
+      case 'goblinKing':
+        mob = this.goblins.hatch(egg.type, x, y, z);
+        this.mobs.set(mob.id, mob);
+        break;
       default: return;
     }
     player.inventory.takeOne(slot);
@@ -1285,32 +1296,39 @@ export class Game {
     const moved = [];
     for (const mob of this.mobs.values()) {
       const s = mob.state;
-      const before = `${s.x},${s.y},${s.z},${s.yaw}`;
+      const before = `${s.x},${s.y},${s.z},${s.yaw},${mob.extraKey?.() ?? ''}`;
       const bitten = mob.step(this.world, players, this.tick);
       if (s.y < this.world.voidY) {
         this.removeMob(mob);
         continue;
       }
-      if (bitten) this.meleeHit(bitten, mob instanceof Crawler ? CRAWLER_DAMAGE : EEL_DAMAGE, mob);
-      if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(mob);
+      if (bitten) {
+        if (mob.biteKnockback) this.swing(mob);
+        this.meleeHit(bitten, mob.biteDamage ?? (mob instanceof Crawler ? CRAWLER_DAMAGE : EEL_DAMAGE), mob,
+          mob.biteKnockback ?? 0.6);
+      }
+      if (`${s.x},${s.y},${s.z},${s.yaw},${mob.extraKey?.() ?? ''}` !== before) moved.push(mob);
     }
     return moved;
   }
 
   removeMob(mob) {
+    if (mob.dead) return;
+    if (mob.goblin) this.goblins.removed(mob);
     mob.dead = true;
     this.mobs.delete(mob.id);
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: mob.id });
   }
 
-  // A mob bite: damage and a small shove away from the mob, and Thorns hurts it back.
-  meleeHit(target, amount, mob) {
+  // A mob bite: damage and a shove away from the mob (knockback: a scale on
+  // KNOCKBACK_SPEED), and Thorns hurts it back.
+  meleeHit(target, amount, mob, knockback = 0.6) {
     const t = target.state, s = mob.state;
     let dx = t.x - s.x, dz = t.z - s.z;
     const len = Math.hypot(dx, dz) || 1;
-    t.kx = dx / len * KNOCKBACK_SPEED * 0.6;
-    t.kz = dz / len * KNOCKBACK_SPEED * 0.6;
-    t.vy = Math.max(t.vy, KNOCKBACK_UP * 0.6);
+    t.kx = dx / len * KNOCKBACK_SPEED * knockback;
+    t.kz = dz / len * KNOCKBACK_SPEED * knockback;
+    t.vy = Math.max(t.vy, KNOCKBACK_UP * Math.min(1, knockback));
     t.onGround = false;
     this.damage(target, amount, mob, DEATH_CAUSE.MOB);
     const thorns = target.thorns?.() ?? 0;
@@ -1332,9 +1350,10 @@ export class Game {
     this.removeMob(mob);
   }
 
-  // Damage to anything a player can hit: a player, cow, dragon, Crawler or Eel.
+  // Damage to anything a player can hit: a player, cow, dragon, Crawler, Eel or goblin.
   hurt(target, amount, attacker) {
-    if (target instanceof Cow) this.hurtCow(target, amount, attacker);
+    if (target.goblin) this.goblins.hurt(target, amount, attacker, attacker instanceof Player);
+    else if (target instanceof Cow) this.hurtCow(target, amount, attacker);
     else if (target instanceof Dragon) this.hurtDragon(target, amount, attacker);
     else if (target instanceof Crawler || target instanceof VoidEel) this.hurtMob(target, amount, attacker);
     else this.damage(target, amount, attacker);
@@ -1737,6 +1756,7 @@ export class Game {
     this.leafDecay.tick();
     this.saplings.tick(this.tick);
     this.quarry.tick(this.tick);
+    this.goblins.update(this.tick);
 
     this.updateFlags();
     this.updatePortals();
