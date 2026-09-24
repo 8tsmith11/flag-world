@@ -34,6 +34,7 @@ import { BlockHighlight } from './render/blockHighlight.js';
 import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
+import { PortalRenderer } from './render/portalRenderer.js';
 import { Sounds } from './sounds.js';
 
 // Cap on ticks simulated in one frame so a long stall doesn't burst-send inputs.
@@ -78,6 +79,7 @@ const grabBar = new ProgressBar(document.getElementById('grab'));
 const toast = new Toast(document.getElementById('toast'));
 const carryLabel = new Label(document.getElementById('carry'));
 const entities = new EntityRenderer(scene);
+const portals = new PortalRenderer(scene);
 const sounds = new Sounds();
 document.addEventListener('pointerdown', () => sounds.unlock());
 const flags = new FlagRenderer(scene, entities);
@@ -240,6 +242,7 @@ function closeInventory(relock, tellServer = true) {
 
 function setInventory(inv) {
   inventory = inv;
+  if (player) player.state.accessory = inv.accessory?.item ?? null;
   hotbar.setInventory(inv.slots);
   inventoryScreen.update(inv);
 }
@@ -367,6 +370,7 @@ function startGame(msg) {
   clouds = new Clouds(scene, world);
   furnaceEffects = new FurnaceEffects(scene, world);
   for (const { x, y, z } of msg.litFurnaces ?? []) furnaceEffects.setLit(x, y, z, true);
+  for (const portal of msg.portals ?? []) portals.add(portal);
   self = msg.players.find((p) => p.id === msg.id);
   player = new LocalPlayer(msg.id, msg.color, self, world);
   for (const p of msg.players) {
@@ -375,7 +379,7 @@ function startGame(msg) {
     if (p.id !== msg.id) entities.add(p.id, p);
   }
   for (const f of msg.flags) { flags.add(f); flagTeams.set(f.id, f.team); }
-  health.set(self.hp);
+  health.set(self.hp, self.maxHp);
   for (const e of msg.entities) {
     if (e.name) names.set(e.id, e.name);
     entities.add(e.id, e);
@@ -394,7 +398,7 @@ function startGame(msg) {
 conn.on(S2C.DAMAGE, (msg) => {
   if (msg.id === player?.id) {
     shakeUntil = performance.now() + SHAKE_MS;
-    health.set(msg.hp);
+    health.set(msg.hp, self?.maxHp);
   } else {
     entities.flash(msg.id);
   }
@@ -435,7 +439,11 @@ conn.on(S2C.ENTITY_SPAWN, (msg) => {
   entities.add(msg.entity.id, msg.entity);
 });
 conn.on(S2C.ENTITY_DESPAWN, (msg) => entities.remove(msg.id));
-conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor, armor: msg.armor }));
+conn.on(S2C.PORTAL_SPAWN, (msg) => portals.add(msg.portal));
+conn.on(S2C.PORTAL_DESPAWN, (msg) => portals.remove(msg.id));
+conn.on(S2C.EMBER_BURST, (msg) => portals.burst(msg.x, msg.y, msg.z));
+conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor,
+  armor: msg.armor, accessory: msg.accessory }));
 conn.on(S2C.SWING, (msg) => entities.swing(msg.id));
 conn.on(S2C.CONTAINER, (msg) => {
   const at = inventoryScreen.at;
@@ -468,9 +476,12 @@ conn.on(S2C.STATE, (msg) => {
       continue;
     }
     self = e;
-    health.set(e.hp);
+    health.set(e.hp, e.maxHp);
     if (mode === MODE.DEAD && !e.dead) leaveDeath(e);
-    else if (mode === MODE.PLAY) player.reconcile(e);
+    else if (mode === MODE.PLAY) {
+      if (Math.hypot(e.x - player.state.x, e.y - player.state.y, e.z - player.state.z) > 8) player.teleport(e);
+      else player.reconcile(e);
+    }
   }
 });
 
@@ -552,6 +563,8 @@ function frame(now) {
     if (controls.eat) controls.place = false;
     controls.glide = heldItem() === ITEM.GLIDER && input.secondaryDown;
     if (controls.glide) controls.place = false;
+    controls.rift = heldItem() === ITEM.RIFT_STONE && controls.place;
+    if (controls.rift) { controls.place = false; viewModel.push(); }
     if (controls.draw) {
       if (localTick >= drawReadyAt) drawTicks++;
     } else {
@@ -629,6 +642,7 @@ function frame(now) {
   else chunks.update(camera.position.x, camera.position.z);
   clouds?.update(dt);
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
+  portals.update(dt, camera);
   entities.update(dt);
   sounds.update(dt, camera.position, player.state, world, entities,
     input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'));

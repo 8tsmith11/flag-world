@@ -61,6 +61,73 @@ function pushFace(buf, face, x, y, z, color, light) {
   buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
 }
 
+function pushFaceRect(buf, face, x, y, z, u0, v0, u1, v1, color, light, offset = 0.002) {
+  const base = buf.positions.length / 3;
+  for (const [u, v] of [[u0, v0], [u0, v1], [u1, v0], [u1, v1]]) {
+    const left = face.corners[0], lowerLeft = face.corners[1];
+    const right = face.corners[2], lowerRight = face.corners[3];
+    for (let axis = 0; axis < 3; axis++) {
+      const position = left[axis] * (1 - u) * (1 - v)
+        + lowerLeft[axis] * (1 - u) * v
+        + right[axis] * u * (1 - v) + lowerRight[axis] * u * v;
+      buf.positions.push([x, y, z][axis] + position + face.dir[axis] * offset);
+      buf.normals.push(face.dir[axis]);
+      buf.colors.push([color.r, color.g, color.b][axis] * light);
+    }
+  }
+  buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+}
+
+function pushPatternedFace(buf, face, x, y, z, id, light) {
+  const brick = id === BLOCK.STONE_BRICKS || id === BLOCK.MOSSY_STONE_BRICKS
+    || id === BLOCK.CRACKED_STONE_BRICKS;
+  const base = brick ? 0x555752 : id === BLOCK.WOOD ? 0x4c331f : 0x7b5731;
+  pushFace(buf, face, x, y, z, hexColor(base), light);
+  if (brick) {
+    const tile = blockColor(id);
+    for (let row = 0; row < 3; row++) {
+      for (let column = -1; column < 3; column++) {
+        const shift = row % 2 ? 0.22 : 0;
+        const u0 = Math.max(0.012, column * 0.5 + shift + 0.014);
+        const u1 = Math.min(0.988, (column + 1) * 0.5 + shift - 0.014);
+        if (u1 <= u0) continue;
+        const v0 = row / 3 + 0.016, v1 = (row + 1) / 3 - 0.016;
+        pushFaceRect(buf, face, x, y, z, u0, v0, u1, v1, tile, light * (0.94 + row * 0.03));
+        if (id === BLOCK.MOSSY_STONE_BRICKS && (row + column + x + z) % 3 === 0) {
+          pushFaceRect(buf, face, x, y, z, u0 + 0.04, v1 - 0.06,
+            Math.min(u1, u0 + 0.2), v1 - 0.02, hexColor(0x466b40), light, 0.004);
+        }
+        if (id === BLOCK.CRACKED_STONE_BRICKS && (row + column + x + y) % 2 === 0) {
+          const middle = (u0 + u1) / 2;
+          pushFaceRect(buf, face, x, y, z, middle, v0 + 0.03,
+            middle + 0.018, v1 - 0.03, hexColor(0x424541), light, 0.004);
+        }
+      }
+    }
+  } else if (id === BLOCK.PLANKS) {
+    for (let row = 0; row < 4; row++) {
+      const color = hexColor(row % 2 ? 0xb58a55 : 0xa87c48);
+      pushFaceRect(buf, face, x, y, z, 0.01, row / 4 + 0.012,
+        0.99, (row + 1) / 4 - 0.012, color, light);
+      const seam = row % 2 ? 0.35 : 0.68;
+      pushFaceRect(buf, face, x, y, z, seam, row / 4 + 0.015,
+        seam + 0.012, (row + 1) / 4 - 0.015, hexColor(0x704b2c), light, 0.004);
+    }
+  } else if (face.dir[1] !== 0) {
+    for (let ring = 0; ring < 3; ring++) {
+      const inset = 0.1 + ring * 0.13;
+      pushFaceRect(buf, face, x, y, z, inset, inset, 1 - inset, 1 - inset,
+        hexColor(ring % 2 ? 0xb18857 : 0x9b7245), light, 0.002 + ring * 0.002);
+    }
+  } else {
+    for (let stripe = 0; stripe < 5; stripe++) {
+      const u = 0.08 + stripe * 0.19;
+      pushFaceRect(buf, face, x, y, z, u, 0.02, u + 0.04, 0.98,
+        hexColor(stripe % 2 ? 0x805634 : 0x694528), light);
+    }
+  }
+}
+
 function pushWaterFace(buf, face, x, y, z, color, light, heights) {
   const base = buf.positions.length / 3;
   for (const [cx, cy, cz] of face.corners) {
@@ -255,6 +322,16 @@ export function meshChunk(world, chunk) {
             waterCornerHeight(world, x, y, z, 1, 1),
           ];
           for (const face of visibleFaces) pushWaterFace(buf, face, x, y, z, color, face.shade * j, heights);
+          continue;
+        }
+
+        if (id === BLOCK.STONE_BRICKS || id === BLOCK.MOSSY_STONE_BRICKS
+          || id === BLOCK.CRACKED_STONE_BRICKS || id === BLOCK.WOOD || id === BLOCK.PLANKS) {
+          for (const face of FACES) {
+            const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
+            if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
+            pushPatternedFace(buf, face, x, y, z, id, face.shade * j);
+          }
           continue;
         }
 

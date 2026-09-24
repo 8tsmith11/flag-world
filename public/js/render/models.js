@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { PLAYER_HEIGHT } from '/shared/config.js';
 import { getItemDef } from '/shared/items.js';
+import { ITEM } from '/shared/itemIds.js';
 
 const BODY_RADIUS = 0.26;
 const BODY_HEIGHT = 1.25;
@@ -423,7 +424,42 @@ export function createPlayerModel({ color }) {
   torso.add(glider);
   chest.visible = helmet.visible = sleeve.visible = false;
 
-  group.userData.player = { torso, head, shoulder, hand, armorParts: [chest, helmet, sleeve], armorMaterial, glider, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
+  const accessoryParts = new Map();
+  const addAccessory = (item, part) => {
+    part.visible = false;
+    torso.add(part);
+    accessoryParts.set(item, part);
+  };
+  const wind = new THREE.Group();
+  const spring = new THREE.Group();
+  for (const side of [-1, 1]) {
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.34), lambert(0xd9edf0));
+    shell.position.set(side * 0.16, 0.13, -0.08);
+    const fin = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.26, 5), lambert(0xa8dce7));
+    fin.position.set(side * 0.28, 0.25, 0.03);
+    fin.rotation.z = side * 0.7;
+    wind.add(shell, fin);
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.105, 0.025, 6, 12), lambert(0xc9a466));
+    coil.rotation.x = Math.PI / 2;
+    coil.position.set(side * 0.17, 0.16, -0.06);
+    spring.add(coil);
+  }
+  addAccessory(ITEM.WIND_BOOTS, wind);
+  addAccessory(ITEM.SPRING_BOOTS, spring);
+  const heart = new THREE.Mesh(new THREE.OctahedronGeometry(0.15), lambert(0xdb3449));
+  heart.position.set(0, 0.83, -BODY_RADIUS - 0.07);
+  addAccessory(ITEM.HEART_AMULET, heart);
+  const mending = new THREE.Mesh(new THREE.OctahedronGeometry(0.11),
+    new THREE.MeshBasicMaterial({ color: 0x79ebbb }));
+  mending.position.set(0.15, 0.29, -BODY_RADIUS - 0.03);
+  addAccessory(ITEM.MENDING_CHARM, mending);
+  const ember = new THREE.Mesh(new THREE.OctahedronGeometry(0.17),
+    new THREE.MeshBasicMaterial({ color: 0xff842b }));
+  ember.position.set(0, 0.84, -BODY_RADIUS - 0.08);
+  addAccessory(ITEM.EMBER_HEART, ember);
+
+  group.userData.player = { torso, head, shoulder, hand, armorParts: [chest, helmet, sleeve], armorMaterial, glider,
+    accessoryParts, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
   return group;
 }
 
@@ -438,11 +474,13 @@ export function handItem(hand) {
 
 // Per frame. speed: horizontal blocks/s; pitch: look pitch; crouching: squash
 // and lean; draw: how far a bow is drawn (0..1), which raises the arm forward.
-export function animatePlayer(model, { dt, speed, pitch, held, armor = null, crouching = false, draw = 0, gliding = false }) {
+export function animatePlayer(model, { dt, speed, pitch, held, armor = null, accessory = null,
+  crouching = false, draw = 0, gliding = false }) {
   const p = model.userData.player;
   p.glider.visible = gliding;
   p.armorParts.forEach((part) => { part.visible = armor !== null; });
   if (armor !== null) p.armorMaterial.color.setHex(getItemDef(armor).color);
+  for (const [item, part] of p.accessoryParts) part.visible = item === accessory;
   p.crouch += ((crouching ? 1 : 0) - p.crouch) * Math.min(1, dt * CROUCH_EASE);
   p.torso.scale.y = 1 - CROUCH_SQUASH * p.crouch;
   // Negative X rotation tips the top toward the front (-Z).

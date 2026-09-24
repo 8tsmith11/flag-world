@@ -47,13 +47,17 @@ unique within the lobby (ignoring case).
 | `yaw`,`pitch` | number | Look direction |
 | `onGround` | bool    | Standing on a solid block |
 | `crouching` | bool   | Crouched (drawn shorter and leaning forward); the client copies it into its physics state |
-| `hp`       | number  | Health, 0..20; armor can cause fractional damage |
+| `hp`       | number  | Health, 0..`maxHp`; armor can cause fractional damage |
+| `maxHp`    | number  | 20, or 25 while wearing a Heart Amulet |
 | `dead`     | bool    | Dead and waiting to respawn (or eliminated); not drawn, can't be hit, sends no inputs |
 | `eliminated` | bool  | Died while flagless; out of the match for good and spectating |
 | `carrying` | int \| null | Id of the flag they hold. Carriers walk at 60% speed (the client copies this into its physics state) |
 | `grab`     | number  | 0..1 progress toward taking the enemy flag they're standing on; 0 when not |
 | `held`     | int \| null | Item id in hand, drawn in their fist |
 | `armor`    | int \| null | Worn armor item id |
+| `accessory` | int \| null | Worn accessory item id; drives player visual and predicted movement |
+| `springCharge` | int | Spring Boots charge in simulation ticks, 0..20 |
+| `springBouncing` | bool | Whether a Spring Boots landing can continue bouncing |
 | `gliding`  | bool | Glider open; also part of predicted movement state |
 | `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back |
 | `lastSeq`  | int     | Last input `seq` the server has simulated for this player |
@@ -90,13 +94,18 @@ are other items: `256` wood hammer, `257` ladder, `258` door, `259` iron ingot,
 `265` bow, `266` leather, `267` raw beef, `268` empty bucket, `269` water
 bucket, `270` cooked beef, `271` leather armor, `272` iron armor, `273`
 glider, `274` tree seeds. Block id `48` is a sapling.
+`275` is loot-only golden beef (stack size 4). Block ids `49`–`51` are stone
+bricks, mossy stone bricks, and cracked stone bricks. All three require an
+iron hammer to break. One stone crafts into one stone brick. `276`–`280`
+are loot-only Wind Boots, Spring Boots, Heart Amulet, Mending Charm and Ember
+Heart; `281` is a loot-only Rift Stone (stack size 4).
 Buckets, armor, gliders, hammers, swords and bows have stack size 1;
 ordinary items stack to 64. What held tools do is in `shared/tools.js`.
 
-**InventoryState** — `{ slots, cursor, armor }`: `slots` is 36 × (ItemStack \| null).
+**InventoryState** — `{ slots, cursor, armor, accessory }`: `slots` is 36 × (ItemStack \| null).
 Slots 0–8 are the hotbar and 9–35 the main grid. `cursor` is the ItemStack
 held on the mouse in the inventory screen, or `null`. `armor` is one worn
-armor stack or `null`.
+armor stack or `null`. `accessory` is one worn accessory stack or `null`.
 
 **ItemSnapshot** — a dropped item's position at one server tick.
 
@@ -228,6 +237,7 @@ gets the stack and the second finds the slot empty.
 |----------|--------|-------|
 | `container` | bool? | true: a slot of the container you opened (it must still exist and be in reach). Otherwise your inventory |
 | `armor` | bool? | true: the single armor slot. It accepts only armor; shift-click removes worn armor to inventory |
+| `accessory` | bool? | true: the single accessory slot. It accepts only accessories; shift-click removes it to inventory |
 | `slot`   | int    | Your inventory: 0..35. Chest: 0..26. Furnace: 0 input (smeltables only), 1 fuel (fuels only), 2 output (take only; a left click can add it to a matching cursor stack) |
 | `shift`  | bool?  | Shift-click: move the whole stack across instead, as much as fits. Container slot → your inventory. Inventory slot → the open container (a furnace takes smeltables into the input and fuel into the fuel slot). With no container open, armor equips if the slot is free; otherwise hotbar ↔ main grid. `button` is ignored |
 | `button` | string | `"left"`: pick up the whole stack, or put the cursor down (merging into the same item up to its max, or swapping with a different one). `"right"`: pick up half (rounded up), or put one item from the cursor down |
@@ -287,8 +297,9 @@ Match players only. Sent once per simulation tick (20/s). Each input advances th
 | `jump`    | bool   | Jump held (swim up in water, jump out at the surface) |
 | `crouch`  | bool   | Crouch held (Shift, only while no screen is open) |
 | `draw`    | bool   | Right mouse held with a bow in hand (the client sends it only then; the server ignores it without a bow) |
-| `eat`     | bool   | Right mouse held with food in hand; 30 uninterrupted input ticks consume one item and begin gradual healing |
+| `eat`     | bool   | Right mouse held with food in hand; raw/cooked beef takes 30 uninterrupted ticks and heals gradually, while golden beef heals to full immediately on press |
 | `glide`   | bool   | Right mouse held with a glider in hand; in the air it caps falling speed and drives forward motion |
+| `rift`    | bool   | Right-click edge with a Rift Stone selected; the server consumes one and opens a portal if outside every keep's no-build zone |
 | `yaw`     | number | Look yaw |
 | `pitch`   | number | Look pitch, clamped to ±π/2 |
 | `slot`    | int    | Selected hotbar slot, 0..8: the item in hand (tool strength, placing, dropping, `held`) |
@@ -372,8 +383,12 @@ blocks (steps of one up or down, no water). Punches and arrows hit them (10 HP,
 knockback like players). When one is hurt, its whole herd runs away from the
 attacker for 5 s. A dead cow drops 0-2 leather and 1-3 beef.
 
-Dragons: one spawns in Small and Medium worlds, and two in Large worlds,
-above open grass away from keeps. They wander around their spawn when no live,
+Dragons: one spawns on the central island in Small and Medium worlds, and two
+in Large worlds. Medium and Large also spawn one on each team island, at least
+25 blocks from the keep and team spawn, preferably on the far side. Team dragons
+stay within 15 blocks beyond their island's radius unless chasing a player, and
+return home after losing a target. All dragons spawn above open grass away from
+keeps. They wander around their spawn when no live,
 connected player is within 45 blocks, occasionally landing and walking on
 grass. In range, they take off, fly toward the nearest player, and breathe
 fire through a 14-block cone aimed at that player's center when they have
@@ -459,6 +474,7 @@ reclaim.
 | `tick`    | int           | Current server tick |
 | `blocks`  | BlockChange[] | Every block changed since generation; apply after `generateWorld` |
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
+| `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Stone portals; `expiresTick` is a server tick |
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
 | `flags`   | FlagInfo[]    | One flag per occupied team |
 | `winnerId`| int \| null   | Set if the match is already over |
@@ -476,6 +492,13 @@ Broadcast every server tick (20/s).
 | `tick`     | int              | Server tick number |
 | `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot)[] | All players and dragons, plus only the items, arrows and cows that moved this tick. One not listed stays where it was |
 | `flags`    | FlagState[] | Every flag |
+
+### `portalSpawn`, `portalDespawn`, `emberBurst`
+
+`portalSpawn` broadcasts `{portal: {id,x,y,z,expiresTick}}` when a Rift Stone
+creates a portal. `portalDespawn` broadcasts `{id}` when it expires.
+`emberBurst` broadcasts `{id,x,y,z}` when a player's Ember Heart breaks;
+clients render a burst of ember particles at that player.
 
 ### `blockChange`
 
@@ -665,6 +688,8 @@ Mining, placement, and attack rays pass through water; buckets target water.
 Food is eaten by holding `eat` for 1.5 s with raw or cooked beef selected;
 releasing it cancels progress. Eating slows movement and consumes one item.
 Raw beef restores 3 HP and cooked beef restores 8 HP over roughly 3 s.
+Golden beef is loot-only, restores full HP immediately on right-click, and
+consumes one item. Holding the button does not consume another golden beef.
 This healing is separate from natural regeneration, which starts 12 s after
 the last damage and restores 1 HP every 3 s. Furnaces cook raw beef in 5 s.
 
@@ -673,6 +698,22 @@ Holding `glide` with a glider selected while airborne caps falling speed at
 stops gliding on the next input tick. A gliding landing takes no fall damage.
 The `gliding` snapshot field drives first and third person canopy rendering.
 
+Wind Boots multiply move speed by 1.25, including sprinting and flag-carrier
+slowdown. With Spring Boots, hold jump on the ground for up to 1 s and release
+for a charged jump up to about five blocks high. Falls over three blocks
+bounce at half impact speed, repeatedly until the bounce would be under one
+block; crouching on landing cancels the bounce. Spring movement is predicted
+with the shared physics and checked by the server. Heart Amulet raises maximum
+HP to 25. Mending Charm begins regeneration after five seconds without damage
+and heals one HP every two seconds. Ember Heart breaks on the first otherwise
+fatal non-void hit, leaving 10 HP and one second of invulnerability; the
+server broadcasts `emberBurst`. All worn accessories drop on death.
+
+Rift Stone opens a glowing oval portal at the user's feet for 10 seconds.
+Any player entering it, except a flag carrier, teleports to safe ground outside
+the portal owner's team keep. A Rift Stone cannot be used in a keep's no-build
+zone. The server owns portal collision, expiry, and destination.
+
 The only world sizes are Small, Medium and Large. `WORLD_SIZES` in
 `shared/worldgen.js` holds the layout values for each size. The seed,
 occupied team count and world size determine one central island, one raised
@@ -680,6 +721,22 @@ island per occupied team, and tiny islands distributed in rings, farther out,
 and above or below larger islands. Island planning finishes before terrain
 generation; each island has seeded terrain, while the larger islands have
 caves, ore, ponds and trees. Team islands have keeps and spawn points.
+Team island centers are `centralRadius + gap + teamRadius` blocks from the
+world center. Small, Medium and Large use central radii 110, 155 and 210;
+team radii 45, 65 and 90; and island spacing 12, 20 and 20 blocks.
+World generation also places cave chests, abandoned houses,
+stone-brick towers, underside ruins, and cave-connected dungeons.
+Tiny islands can have a single loose chest but no other structure. There are no
+loose surface chests on main islands. The counts and
+chances are in each `WORLD_SIZES` preset. Keeps and surface structures use
+median terrain height, filled foundations, and sloped margins; only keeps are
+indestructible. Underside ruins are either cliffside rooms embedded near the
+lower island wall, with outward balconies, or hanging rooms built into the
+roots. They have no built-in ladder or route from the surface. Ruins have
+missing and weathered blocks. Generated chests use
+the tables in `shared/loot.js`; the server rolls their slots on first open from
+the world seed and chest position. Breaking one before opening it drops its
+seeded contents. Player-placed chests start empty.
 When wood is removed, the server checks nearby leaves in bounded batches.
 Leaves without a path to wood through at most six adjacent leaves decay and
 are sent as ordinary `blockChange` messages. Each decayed leaf has an 8%

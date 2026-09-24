@@ -103,10 +103,13 @@ export class EntityRenderer {
     if (!entity) return;
     const dead = !!snap.dead;
     // Dying or respawning moves the player instantly; don't interpolate across it.
-    if (entity.snapshots.at(-1)?.dead !== dead) entity.snapshots.length = 0;
+    const previous = entity.snapshots.at(-1);
+    if (previous && (previous.dead !== dead || Math.hypot(previous.x - snap.x, previous.y - snap.y,
+      previous.z - snap.z) > 8)) entity.snapshots.length = 0;
     entity.snapshots.push({
       time: performance.now(), x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
       crouching: !!snap.crouching, draw: snap.draw ?? 0, armor: snap.armor ?? null,
+      accessory: snap.accessory ?? null,
       gliding: !!snap.gliding, breathing: !!snap.breathing, walking: !!snap.walking,
       onGround: !!snap.onGround,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
@@ -192,7 +195,8 @@ export class EntityRenderer {
         b.aimYaw, b.aimPitch);
       if (object.userData.player) {
         animatePlayer(object, {
-          dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, armor: b.armor, crouching: b.crouching, draw: b.draw, gliding: b.gliding,
+          dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, armor: b.armor,
+          accessory: b.accessory, crouching: b.crouching, draw: b.draw, gliding: b.gliding,
         });
       }
     }

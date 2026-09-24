@@ -11,13 +11,15 @@ export class HealthBar {
     this.label.className = 'label';
     element.append(this.fill, this.label);
     this.hp = null;
+    this.maximum = null;
   }
 
-  set(hp) {
-    if (hp === this.hp) return;
+  set(hp, maximum = MAX_HP) {
+    if (hp === this.hp && maximum === this.maximum) return;
     this.hp = hp;
-    this.fill.style.width = `${(hp / MAX_HP) * 100}%`;
-    this.label.textContent = `${Math.round(hp * 10) / 10} / ${MAX_HP}`;
+    this.maximum = maximum;
+    this.fill.style.width = `${(hp / maximum) * 100}%`;
+    this.label.textContent = `${Math.round(hp * 10) / 10} / ${maximum}`;
   }
 }
 

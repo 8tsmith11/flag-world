@@ -19,15 +19,17 @@ import {
   ladderBlock, isLadder, ladderFacing, doorBlock, isDoor, doorState,
 } from '../shared/blocks.js';
 import { getItemDef, ITEM } from '../shared/items.js';
+import { accessoryDef } from '../shared/accessories.js';
+import { RIFT_STONE } from '../shared/accessories.js';
 import { getRecipe } from '../shared/recipes.js';
-import { createContainer } from './containers.js';
+import { Chest, createContainer } from './containers.js';
 import { clickSlot } from './inventory.js';
 import { Arrow } from './arrow.js';
 import { Cow, Herd } from './cow.js';
 import { Dragon } from './dragon.js';
 import { canStand } from './pathfind.js';
 import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../shared/worldgen.js';
-import { keepAt, flagHome, mulberry32 } from '../shared/structures.js';
+import { keepAt, flagHome, mulberry32, KEEP_REACH } from '../shared/structures.js';
 import {
   stepPlayer, stepItem, playerOverlapsBlock, createPlayerState, playerBoxOf, eyeHeight, isOnLadder, isInWater,
   playerFitsAt,
@@ -51,8 +53,6 @@ const REACH_SLACK = 1.5;
 const MAX_SEED_LENGTH = 64;
 
 const ticks = (seconds) => Math.round(seconds * TICK_RATE);
-const REGEN_DELAY_TICKS = ticks(REGEN_DELAY);
-const REGEN_INTERVAL_TICKS = ticks(REGEN_INTERVAL);
 const EAT_TICKS = ticks(EAT_TIME);
 const RESPAWN_DELAY_TICKS = ticks(RESPAWN_DELAY);
 const KILL_CREDIT_TICKS = ticks(KILL_CREDIT_TIME);
@@ -61,6 +61,7 @@ const BOW_MIN_TICKS = ticks(BOW_MIN_DRAW);
 const BOW_COOLDOWN_TICKS = ticks(BOW_COOLDOWN);
 const COW_PANIC_TICKS = ticks(COW_PANIC_TIME);
 const FLAG_RETURN_TICKS = ticks(FLAG_RETURN_TIME);
+const maxHp = (player) => MAX_HP + (accessoryDef(player.inventory.accessory?.item)?.maxHpBonus ?? 0);
 // While mining, other players see a swing this often.
 const BREAK_SWING_TICKS = 5;
 
@@ -135,6 +136,7 @@ export class Game {
     this.arrows = new Map();
     this.cows = new Map();
     this.dragons = new Map();
+    this.portals = new Map();
     // Sessions on the "match in progress" screen.
     this.spectators = new Set();
   }
@@ -312,6 +314,9 @@ export class Game {
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
       if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
     };
+    for (const [key, table] of this.world.lootChests) {
+      this.world.tileEntities.set(key, new Chest(table));
+    }
 
     const teamFlags = new Map();
     [...this.members.values()].forEach((m) => {
@@ -402,6 +407,7 @@ export class Game {
       entities: [...this.items.values(), ...this.arrows.values(), ...this.cows.values(), ...this.dragons.values()].map((e) => e.describe()),
       inventory: player.inventory,
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
+      portals: [...this.portals.values()].map(({ id, x, y, z, expiresTick }) => ({ id, x, y, z, expiresTick })),
       winnerId: this.winnerId,
       winnerTeam: this.winnerId === null ? null : this.flags.get(this.winnerId)?.team,
       winnerMembers: this.winnerId === null ? [] : [...this.players.values()].filter((p) => p.team === this.flags.get(this.winnerId)?.team).map((p) => p.name),
@@ -429,7 +435,68 @@ export class Game {
       draw: !!msg.draw,
       eat: !!msg.eat,
       glide: !!msg.glide,
+      rift: !!msg.rift,
     });
+  }
+
+  portalDestination(keep, player) {
+    const origin = keep.cx + 0.5;
+    const centerZ = keep.cz + 0.5;
+    for (let radius = KEEP_REACH + 2; radius <= KEEP_REACH + 10; radius++) {
+      for (let step = 0; step < 24; step++) {
+        const angle = step * Math.PI / 12;
+        const x = Math.floor(origin + Math.cos(angle) * radius);
+        const z = Math.floor(centerZ + Math.sin(angle) * radius);
+        if (!this.world.inBounds(x, keep.floorY, z)) continue;
+        const ground = this.world.getSurfaceY(x, z, isSolid);
+        if (Math.abs(ground - keep.floorY) > 5) continue;
+        if (keepAt(this.world, x, ground + 1, z)) continue;
+        const state = { ...player.state, x: x + 0.5, y: ground + 1, z: z + 0.5, crouching: false };
+        if (playerFitsAt(this.world, state, state.y)) return state;
+      }
+    }
+    return null;
+  }
+
+  stepRift(player) {
+    if (player.held() !== ITEM.RIFT_STONE) return;
+    const state = player.state;
+    const blockX = Math.floor(state.x), blockZ = Math.floor(state.z);
+    if (this.world.keeps.some((keep) => Math.abs(blockX - keep.cx) <= KEEP_REACH
+      && Math.abs(blockZ - keep.cz) <= KEEP_REACH)) return;
+    if (!this.portalDestination(player.keep, player)) return;
+    player.inventory.takeOne(player.selected);
+    player.inventoryDirty = true;
+    const portal = { id: this.nextId++, x: state.x, y: state.y + 0.9, z: state.z,
+      keep: player.keep, expiresTick: this.tick + ticks(RIFT_STONE.durationSeconds), inside: new Set([player.id]) };
+    this.portals.set(portal.id, portal);
+    this.broadcast({ type: S2C.PORTAL_SPAWN, portal: { id: portal.id, x: portal.x, y: portal.y,
+      z: portal.z, expiresTick: portal.expiresTick } });
+  }
+
+  updatePortals() {
+    for (const portal of this.portals.values()) {
+      if (this.tick >= portal.expiresTick) {
+        this.portals.delete(portal.id);
+        this.broadcast({ type: S2C.PORTAL_DESPAWN, id: portal.id });
+        continue;
+      }
+      for (const player of this.players.values()) {
+        if (player.dead) continue;
+        const state = player.state;
+        const inside = Math.hypot(state.x - portal.x, state.z - portal.z) < 0.85
+          && Math.abs(state.y + 0.9 - portal.y) < 1.3;
+        if (!inside) { portal.inside.delete(player.id); continue; }
+        if (portal.inside.has(player.id) || player.carrying || this.tick < (player.portalCooldownTick ?? 0)) continue;
+        const destination = this.portalDestination(portal.keep, player);
+        if (!destination) continue;
+        Object.assign(state, destination, { vx: 0, vy: 0, vz: 0, kx: 0, kz: 0,
+          onGround: false, springCharge: 0, springBouncing: false });
+        player.fallTop = null;
+        player.portalCooldownTick = this.tick + ticks(1);
+        portal.inside.add(player.id);
+      }
+    }
   }
 
   // One tick of holding the break button. Progress only accumulates while the
@@ -467,6 +534,7 @@ export class Game {
       const key = `${x},${y},${z}`;
       const container = this.world.tileEntities.get(key);
       if (container) {
+        container.populate?.(this.seed, x, y, z);
         if (container.kind === 'furnace' && container.burn > 0) {
           this.broadcast({ type: S2C.FURNACE_LIT, x, y, z, lit: false });
         }
@@ -610,13 +678,16 @@ export class Game {
     if ((button !== 'left' && button !== 'right') || !Number.isInteger(slot)) return;
     const container = this.viewedContainer(player);
     const inv = player.inventory;
-    if (msg.armor) {
-      const armorSlots = [inv.armor];
+    if (msg.armor || msg.accessory) {
+      const field = msg.accessory ? 'accessory' : 'armor';
+      const equipmentSlots = [inv[field]];
       if (msg.shift) {
-        if (!inv.armor || inv.add(inv.armor.item, 1) !== 0) return;
-        inv.armor = null;
-      } else if (!clickSlot(armorSlots, 0, inv, button, { accepts: (item) => !!getItemDef(item).armorPoints })) return;
-      else inv.armor = armorSlots[0];
+        if (!inv[field] || inv.add(inv[field].item, 1) !== 0) return;
+        inv[field] = null;
+      } else if (!clickSlot(equipmentSlots, 0, inv, button, {
+        accepts: (item) => field === 'accessory' ? !!getItemDef(item).accessory : !!getItemDef(item).armorPoints,
+      })) return;
+      else inv[field] = equipmentSlots[0];
       player.inventoryDirty = true;
       return;
     }
@@ -653,6 +724,10 @@ export class Game {
       inv.armor = inv.slots[slot];
       inv.slots[slot] = null;
       player.inventoryDirty = true;
+    } else if (getItemDef(inv.slots[slot]?.item).accessory && !inv.accessory) {
+      inv.accessory = inv.slots[slot];
+      inv.slots[slot] = null;
+      player.inventoryDirty = true;
     } else if (inv.shiftMove(slot)) {
       player.inventoryDirty = true;
     }
@@ -665,6 +740,7 @@ export class Game {
     const key = `${pos.x},${pos.y},${pos.z}`;
     const container = this.world.tileEntities.get(key);
     if (!container) return;
+    container.populate?.(this.seed, pos.x, pos.y, pos.z);
     player.viewing = key;
     this.send(player, { type: S2C.CONTAINER, ...pos, ...container.view() });
   }
@@ -941,8 +1017,9 @@ export class Game {
 
   // Rare dragons enter the match above grassy ground, clear of team keeps.
   spawnDragons() {
+    const config = WORLD_SIZES[this.worldSize];
     const count = this.worldSize === 'large' ? 2 : 1;
-    const radius = WORLD_SIZES[this.worldSize].centralRadius;
+    const radius = config.centralRadius;
     const rand = mulberry32(this.seed ^ 0x8a7f219d);
     const rotation = rand() * Math.PI * 2;
     for (let i = 0; i < count; i++) {
@@ -957,6 +1034,45 @@ export class Game {
         const dragon = new Dragon(this.nextId++, x + 0.5, Math.min(this.world.sizeY - 6, ground + 10), z + 0.5);
         this.dragons.set(dragon.id, dragon);
         break;
+      }
+    }
+    for (const island of this.world.islands.filter((entry) => entry.kind === 'team')) {
+      const keep = this.world.keeps[island.teamIndex];
+      const spawn = this.keepSpawn(keep);
+      const awayAngle = Math.atan2(island.z - keep.cz, island.x - keep.cx);
+      for (let dragonIndex = 0; dragonIndex < config.teamDragons; dragonIndex++) {
+        let site = null;
+        const validSite = (x, z) => {
+          if (Math.hypot(x - keep.cx, z - keep.cz) < 25
+            || Math.hypot(x + 0.5 - spawn.x, z + 0.5 - spawn.z) < 25) return null;
+          const ground = this.world.getSurfaceY(x, z, isSolid);
+          return ground >= 0 && this.world.getBlock(x, ground, z) === BLOCK.GRASS
+            ? { x, z, ground } : null;
+        };
+        for (let tries = 0; tries < 120; tries++) {
+          const angle = awayAngle + (rand() - 0.5) * Math.PI;
+          const distance = island.radius * (0.5 + rand() * 0.3);
+          const x = Math.floor(island.x + Math.cos(angle) * distance);
+          const z = Math.floor(island.z + Math.sin(angle) * distance);
+          site = validSite(x, z);
+          if (site) break;
+        }
+        if (!site) {
+          for (let z = Math.floor(island.z - island.radius); z <= island.z + island.radius; z += 2) {
+            for (let x = Math.floor(island.x - island.radius); x <= island.x + island.radius; x += 2) {
+              if (Math.hypot(x - island.x, z - island.z) > island.radius * 0.85) continue;
+              const candidate = validSite(x, z);
+              if (candidate && (!site || Math.hypot(x - keep.cx, z - keep.cz)
+                > Math.hypot(site.x - keep.cx, site.z - keep.cz))) site = candidate;
+            }
+          }
+        }
+        if (!site) continue;
+        const { x, z, ground } = site;
+        const dragon = new Dragon(this.nextId++, x + 0.5,
+          Math.min(this.world.sizeY - 6, ground + 10), z + 0.5,
+          { x: island.x, z: island.z, radius: island.radius });
+        this.dragons.set(dragon.id, dragon);
       }
     }
   }
@@ -1024,13 +1140,27 @@ export class Game {
   damage(target, amount, attacker, cause = DEATH_CAUSE.PLAYER) {
     if (target.dead) return;
     if (attacker && attacker.team === target.team) return;
+    if (this.tick < target.invulnerableUntilTick) return;
     if (cause !== DEATH_CAUSE.FALL && cause !== DEATH_CAUSE.VOID) {
       const points = getItemDef(target.inventory.armor?.item).armorPoints || 0;
       amount = amount * 10 / (10 + points);
     }
-    target.hp = Math.max(0, target.hp - amount);
+    const hp = Math.max(0, target.hp - amount);
     target.lastDamageTick = this.tick;
     if (attacker) target.lastAttacker = { id: attacker.id, tick: this.tick };
+    const ember = accessoryDef(target.inventory.accessory?.item);
+    if (hp === 0 && ember?.visual === 'ember' && cause !== DEATH_CAUSE.VOID) {
+      target.inventory.accessory = null;
+      target.state.accessory = null;
+      target.inventoryDirty = true;
+      target.hp = ember.rescueHp;
+      target.invulnerableUntilTick = this.tick + ticks(ember.invulnerableSeconds);
+      this.broadcast({ type: S2C.EMBER_BURST, id: target.id,
+        x: target.state.x, y: target.state.y, z: target.state.z });
+      this.broadcast({ type: S2C.DAMAGE, id: target.id, attackerId: attacker?.id ?? null, hp: target.hp });
+      return;
+    }
+    target.hp = hp;
     this.broadcast({ type: S2C.DAMAGE, id: target.id, attackerId: attacker?.id ?? null, hp: target.hp });
     if (target.hp === 0) this.kill(target, attacker ?? this.recentAttacker(target), cause);
   }
@@ -1047,6 +1177,7 @@ export class Game {
   // tick's move, so a fall counts from the ledge, not a tick below it.
   trackFall(player, prevY) {
     const s = player.state;
+    if (s.accessory === ITEM.SPRING_BOOTS) { player.fallTop = null; return; }
     let crossedWater = false;
     if (s.y < prevY) {
       const halfW = playerBoxOf(s).halfW;
@@ -1126,7 +1257,7 @@ export class Game {
     const spawn = this.keepSpawn(player.keep);
     player.state = createPlayerState(spawn.x, spawn.y, spawn.z);
     Object.assign(player.state, { yaw, pitch });
-    player.hp = MAX_HP;
+    player.hp = maxHp(player);
     player.dead = false;
     player.lastAttacker = null;
     player.lastDamageTick = -Infinity;
@@ -1136,24 +1267,29 @@ export class Game {
   // 1 HP every REGEN_INTERVAL (on the game clock) once REGEN_DELAY has passed since the last hit.
   regen(player) {
     if (player.dead) return;
+    const maximum = maxHp(player);
+    const accessory = accessoryDef(player.inventory.accessory?.item);
+    const delayTicks = ticks(accessory?.regenDelay ?? REGEN_DELAY);
+    const intervalTicks = ticks(accessory?.regenInterval ?? REGEN_INTERVAL);
     for (const dose of player.foodHealing) {
       if (this.tick < dose.nextTick) continue;
-      if (player.hp < MAX_HP) player.hp = Math.min(MAX_HP, player.hp + 1);
+      if (player.hp < maximum) player.hp = Math.min(maximum, player.hp + 1);
       dose.remaining--;
       dose.nextTick += dose.interval;
     }
-    player.foodHealing = player.foodHealing.filter((dose) => dose.remaining > 0 && player.hp < MAX_HP);
-    if (player.hp >= MAX_HP) return;
+    player.foodHealing = player.foodHealing.filter((dose) => dose.remaining > 0 && player.hp < maximum);
+    if (player.hp >= maximum) return;
     const sinceDamage = this.tick - player.lastDamageTick;
-    if (sinceDamage < REGEN_DELAY_TICKS) return;
+    if (sinceDamage < delayTicks) return;
     if (Number.isFinite(sinceDamage)) {
-      if ((sinceDamage - REGEN_DELAY_TICKS) % REGEN_INTERVAL_TICKS === 0) player.hp++;
-    } else if (this.tick % REGEN_INTERVAL_TICKS === 0) player.hp++;
+      if ((sinceDamage - delayTicks) % intervalTicks === 0) player.hp++;
+    } else if (this.tick % intervalTicks === 0) player.hp++;
   }
 
   stepEating(player, eat) {
     const held = player.held();
-    const food = getItemDef(held).food;
+    const item = getItemDef(held);
+    const food = item.food;
     if (!eat || !food) {
       player.eatTicks = 0;
       player.eatingItem = null;
@@ -1161,6 +1297,16 @@ export class Game {
     }
     if (player.eatingItem !== held) player.eatTicks = 0;
     player.eatingItem = held;
+    if (item.instantHeal) {
+      if (player.eatTicks === 0 && player.hp < maxHp(player)) {
+        player.inventory.takeOne(player.selected);
+        player.inventoryDirty = true;
+        player.hp = maxHp(player);
+        player.foodHealing.length = 0;
+      }
+      player.eatTicks = 1;
+      return;
+    }
     if (++player.eatTicks < EAT_TICKS) return;
     player.eatTicks = 0;
     player.inventory.takeOne(player.selected);
@@ -1229,6 +1375,13 @@ export class Game {
     }
 
     for (const player of this.players.values()) {
+      const accessory = player.inventory.accessory?.item ?? null;
+      if (player.state.accessory !== accessory) {
+        player.state.accessory = accessory;
+        player.state.springCharge = 0;
+        player.state.springBouncing = false;
+      }
+      player.hp = Math.min(player.hp, maxHp(player));
       if (player.dead || !player.connected) {
         player.grab = null;
         continue;
@@ -1271,6 +1424,12 @@ export class Game {
         player.lastSeq = input.seq;
         if (player.dead) continue;
         player.selected = input.slot;
+        const accessory = player.inventory.accessory?.item ?? null;
+        if (player.state.accessory !== accessory) {
+          player.state.accessory = accessory;
+          player.state.springCharge = 0;
+          player.state.springBouncing = false;
+        }
         // Drawing (and its slowdown) only counts with a bow in hand.
         if (input.draw && player.held() !== ITEM.BOW) input.draw = false;
         if (input.eat && !getItemDef(player.held()).food) input.eat = false;
@@ -1284,6 +1443,7 @@ export class Game {
         this.stepBreaking(player, input.breaking);
         if (input.use) this.stepUse(player, input.use);
         else if (input.place) this.stepPlace(player, input.place, input.slot);
+        if (input.rift) this.stepRift(player);
         if (input.drop) this.stepDrop(player, input.slot);
         this.stepBow(player, input.draw);
         this.stepEating(player, input.eat);
@@ -1296,6 +1456,7 @@ export class Game {
     this.saplings.tick(this.tick);
 
     this.updateFlags();
+    this.updatePortals();
     this.updateContainers();
 
     const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateCows(), ...this.updateDragons()];

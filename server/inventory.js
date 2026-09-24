@@ -63,6 +63,7 @@ export class Inventory {
     this.slots = new Array(size).fill(null);
     this.cursor = null;
     this.armor = null;
+    this.accessory = null;
   }
 
   // Adds up to `count` of `item`, topping up matching stacks before using empty
@@ -161,14 +162,15 @@ export class Inventory {
 
   // Everything held, slots and cursor, emptied out (for dropping on death).
   takeAll() {
-    const stacks = [...this.slots, this.cursor, this.armor].filter(Boolean);
+    const stacks = [...this.slots, this.cursor, this.armor, this.accessory].filter(Boolean);
     this.slots.fill(null);
     this.cursor = null;
     this.armor = null;
+    this.accessory = null;
     return stacks;
   }
 
   toJSON() {
-    return { slots: this.slots, cursor: this.cursor, armor: this.armor };
+    return { slots: this.slots, cursor: this.cursor, armor: this.armor, accessory: this.accessory };
   }
 }

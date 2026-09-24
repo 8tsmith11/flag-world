@@ -3,6 +3,7 @@ import { createPlayerState } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { breakingStats, attackStats } from '../shared/tools.js';
 import { Inventory } from './inventory.js';
+import { accessoryDef } from '../shared/accessories.js';
 
 // A player in the current match. Outlives its connection: on disconnect the
 // socket is set to null and the player stays in the world (position,
@@ -49,6 +50,7 @@ export class Player {
     this.eatTicks = 0;
     this.eatingItem = null;
     this.foodHealing = [];
+    this.invulnerableUntilTick = 0;
     // "x,y,z" of the furnace whose screen is open, or null.
     this.viewing = null;
     // Hotbar slot in hand, from the latest input.
@@ -104,11 +106,15 @@ export class Player {
       crouching: s.crouching,
       gliding: s.gliding,
       hp: this.hp,
+      maxHp: MAX_HP + (accessoryDef(this.inventory.accessory?.item)?.maxHpBonus ?? 0),
       dead: this.dead,
       eliminated: this.eliminated,
       carrying: this.carrying?.id ?? null,
       held: this.held(),
       armor: this.inventory.armor?.item ?? null,
+      accessory: this.inventory.accessory?.item ?? null,
+      springCharge: s.springCharge,
+      springBouncing: s.springBouncing,
       grab: this.grab ? this.grab.ticks / GRAB_TICKS : 0,
       // How far a bow is drawn, 0..1.
       draw: Math.min(1, this.drawTicks / BOW_FULL_TICKS),

@@ -55,6 +55,8 @@ export class World {
     this.chunks = new Map();
     // Keeps built by world gen: [{ cx, cz, floorY }].
     this.keeps = [];
+    this.structures = [];
+    this.lootChests = new Map();
     // Block-attached state (e.g. chest contents), keyed by "x,y,z".
     this.tileEntities = new Map();
     // Called with (x, y, z, id, oldId) after setBlock; used to dirty

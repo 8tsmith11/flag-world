@@ -21,6 +21,37 @@ export const KEEP_HALF = Math.floor(KEEP_SIZE / 2);
 // Half-width of the area a keep flattens: the keep plus its margin.
 export const KEEP_REACH = KEEP_HALF + KEEP_MARGIN;
 
+export function surfaceStats(surfaceAt, x0, z0, x1, z1) {
+  const heights = [];
+  for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+    const height = surfaceAt(x, z);
+    if (height === -32768 || height < 0) return null;
+    heights.push(height);
+  }
+  heights.sort((a, b) => a - b);
+  return { median: heights[Math.floor(heights.length / 2)],
+    variance: heights.at(-1) - heights[0] };
+}
+
+export function prepareSurface(world, x0, z0, x1, z1, floorY, surfaceAt,
+  { margin = 4, clearTo = floorY + 8, foundation = BLOCK.DIRT } = {}) {
+  for (let z = z0 - margin; z <= z1 + margin; z++) for (let x = x0 - margin; x <= x1 + margin; x++) {
+    const natural = surfaceAt(x, z);
+    if (natural === -32768 || natural < 0) continue;
+    const outside = Math.max(x0 - x, x - x1, z0 - z, z - z1, 0);
+    const level = outside === 0 ? floorY
+      : Math.round(floorY + (natural - floorY) * outside / (margin + 1));
+    for (let y = natural + 1; y <= Math.max(clearTo, level); y++) {
+      if (world.getBlock(x, y, z) !== BLOCK.AIR) world.setBlock(x, y, z, BLOCK.AIR);
+    }
+    for (let y = natural; y > level; y--) world.setBlock(x, y, z, BLOCK.AIR);
+    for (let y = level - 1; y >= world.minY && !isSolid(world.getBlock(x, y, z)); y--) {
+      world.setBlock(x, y, z, foundation);
+    }
+    if (outside > 0) world.setBlock(x, level, z, BLOCK.GRASS);
+  }
+}
+
 // The keep whose volume (the floor up to the top of the frame) contains the block, or null.
 export function keepAt(world, x, y, z) {
   for (const keep of world.keeps) {
@@ -35,24 +66,13 @@ export function flagHome(keep) {
   return { x: keep.cx + 0.5, y: keep.floorY + 1, z: keep.cz + 0.5 };
 }
 
-// Builds a keep and flattens the ground around it: below the floor (and the
-// grass margin, flush with the top of the floor) gaps are filled with dirt
-// down to the first solid block, at most `fillDepth` deep; above, everything
-// up to `clearTo` is cleared.
-export function buildKeep(world, { cx, cz, floorY }, { fillDepth = Infinity, clearTo = world.sizeY } = {}) {
-  for (let z = cz - KEEP_REACH; z <= cz + KEEP_REACH; z++) {
-    for (let x = cx - KEEP_REACH; x <= cx + KEEP_REACH; x++) {
-      const inside = Math.abs(x - cx) <= KEEP_HALF && Math.abs(z - cz) <= KEEP_HALF;
-      let top = inside ? floorY - 1 : floorY;
-      if (!inside) world.setBlock(x, top--, z, BLOCK.GRASS);
-      for (let y = top; y >= 0 && top - y < fillDepth; y--) {
-        if (isSolid(world.getBlock(x, y, z))) break;
-        world.setBlock(x, y, z, BLOCK.DIRT);
-      }
-      const above = inside ? floorY : floorY + 1;
-      for (let y = above; y < clearTo; y++) world.setBlock(x, y, z, BLOCK.AIR);
-      if (!inside) continue;
-
+// Builds a keep on a filled foundation with a sloped grass margin.
+export function buildKeep(world, { cx, cz, floorY }, { clearTo = world.sizeY,
+  surfaceAt = (x, z) => world.getSurfaceY(x, z, isSolid) } = {}) {
+  prepareSurface(world, cx - KEEP_HALF, cz - KEEP_HALF, cx + KEEP_HALF, cz + KEEP_HALF,
+    floorY, surfaceAt, { margin: 4, clearTo });
+  for (let z = cz - KEEP_HALF; z <= cz + KEEP_HALF; z++) {
+    for (let x = cx - KEEP_HALF; x <= cx + KEEP_HALF; x++) {
       const edgeX = Math.abs(x - cx) === KEEP_HALF, edgeZ = Math.abs(z - cz) === KEEP_HALF;
       world.setBlock(x, floorY, z, x === cx && z === cz ? BLOCK.PEDESTAL : BLOCK.KEEP);
       // Corner pillars, and beams along the top edges.

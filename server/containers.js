@@ -13,6 +13,7 @@
 import { TICK_RATE, SMELT_TIME } from '../shared/config.js';
 import { SMELTING, FUEL } from '../shared/recipes.js';
 import { clickSlot, maxStack } from './inventory.js';
+import { rollLoot } from '../shared/loot.js';
 
 // Moves as much of `stack` as fits into slots[index] (empty, or the same item
 // with room). Returns whether anything moved.
@@ -31,9 +32,17 @@ function mergeInto(slots, index, stack) {
 export const CHEST_SIZE = 27;
 
 export class Chest {
-  constructor() {
+  constructor(lootTable = null) {
     this.kind = 'chest';
     this.slots = new Array(CHEST_SIZE).fill(null);
+    this.lootTable = lootTable;
+  }
+
+  populate(seed, x, y, z) {
+    if (!this.lootTable) return;
+    this.slots = rollLoot(this.lootTable, seed, x, y, z, CHEST_SIZE);
+    this.lootTable = null;
+    this.dirty = true;
   }
 
   click(slot, button, holder) {

@@ -26,11 +26,12 @@ function turnToward(current, wanted) {
 }
 
 export class Dragon {
-  constructor(id, x, y, z) {
+  constructor(id, x, y, z, homeIsland = null) {
     this.id = id;
     this.type = ENTITY_TYPE.DRAGON;
     this.name = 'Dragon';
     this.home = { x, y, z };
+    this.homeIsland = homeIsland;
     this.state = { x, y, z, yaw: Math.random() * Math.PI * 2, pitch: 0, box: DRAGON_BOX };
     this.hp = DRAGON_HP;
     this.dead = false;
@@ -63,8 +64,12 @@ export class Dragon {
   chooseWalkGoal() {
     const angle = Math.random() * Math.PI * 2;
     const distance = 3 + Math.random() * 8;
-    this.walkGoal = { x: this.state.x + Math.cos(angle) * distance,
-      z: this.state.z + Math.sin(angle) * distance };
+    const x = this.state.x + Math.cos(angle) * distance;
+    const z = this.state.z + Math.sin(angle) * distance;
+    if (this.homeIsland && Math.hypot(x - this.homeIsland.x, z - this.homeIsland.z)
+      > this.homeIsland.radius + 15) {
+      this.walkGoal = { x: this.home.x, z: this.home.z };
+    } else this.walkGoal = { x, z };
   }
 
   // Returns players hit by this tick's fire pulse. The game applies damage.
@@ -74,12 +79,18 @@ export class Dragon {
       .map((p) => ({ player: p, distance: Math.hypot(p.state.x - s.x, p.state.y - s.y, p.state.z - s.z) }))
       .filter(({ distance }) => distance < DRAGON_SIGHT)
       .sort((a, b) => a.distance - b.distance)[0]?.player ?? null;
+    const returning = !target && this.homeIsland
+      && Math.hypot(s.x - this.home.x, s.z - this.home.z) > 20;
+    if (returning) {
+      this.walking = false;
+      this.landing = false;
+    }
     if (target && (this.walking || this.landing)) {
       this.walking = false;
       this.landing = false;
       this.nextLandTick = tick + 12 * TICK_RATE;
     }
-    if (!target && !this.walking && !this.landing && tick >= this.nextLandTick) {
+    if (!target && !returning && !this.walking && !this.landing && tick >= this.nextLandTick) {
       if (this.groundAt(world, s.x, s.z) >= 0) this.landing = true;
       else this.nextLandTick = tick + 3 * TICK_RATE;
     }
@@ -99,7 +110,9 @@ export class Dragon {
         const nx = s.x - Math.sin(s.yaw) * WALK_SPEED * TICK_DT;
         const nz = s.z - Math.cos(s.yaw) * WALK_SPEED * TICK_DT;
         const nextGround = this.groundAt(world, nx, nz);
-        if (nextGround >= 0 && Math.abs(nextGround - ground) <= 1) {
+        if (nextGround >= 0 && Math.abs(nextGround - ground) <= 1
+          && (!this.homeIsland || Math.hypot(nx - this.homeIsland.x, nz - this.homeIsland.z)
+            <= this.homeIsland.radius + 15)) {
           s.x = nx;
           s.z = nz;
           s.y = nextGround + WALK_HEIGHT;
@@ -129,6 +142,7 @@ export class Dragon {
     const patrolRadius = 16 + 5 * Math.sin(tick * 0.003 + this.id);
     const goal = target
       ? { x: target.state.x, y: target.state.y + 3.2, z: target.state.z }
+      : returning ? this.home
       : { x: this.home.x + Math.cos(patrolAngle) * patrolRadius,
         y: this.home.y + 3 * Math.sin(tick * 0.009 + this.id),
         z: this.home.z + Math.sin(patrolAngle) * patrolRadius };
@@ -139,7 +153,11 @@ export class Dragon {
     const speed = target && horizontalDistance < 6 ? DRAGON_SPEED * 0.2 : DRAGON_SPEED;
     const nx = s.x - Math.sin(s.yaw) * speed * TICK_DT;
     const nz = s.z - Math.cos(s.yaw) * speed * TICK_DT;
-    if (nx > 3 && nz > 3 && nx < world.sizeX - 3 && nz < world.sizeZ - 3) {
+    const islandDistance = this.homeIsland
+      ? Math.hypot(nx - this.homeIsland.x, nz - this.homeIsland.z) : 0;
+    if (nx > 3 && nz > 3 && nx < world.sizeX - 3 && nz < world.sizeZ - 3
+      && (target || !this.homeIsland || islandDistance <= this.homeIsland.radius + 15
+        || islandDistance < Math.hypot(s.x - this.homeIsland.x, s.z - this.homeIsland.z))) {
       s.x = nx;
       s.z = nz;
     }

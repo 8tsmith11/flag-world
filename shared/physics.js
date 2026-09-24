@@ -11,6 +11,7 @@ import {
   GLIDE_SPEED, GLIDE_FALL_SPEED, SPRINT_SPEED_SCALE, WATER_CURRENT_SPEED,
 } from './config.js';
 import { BLOCK, isSolid, isLadder, isWater, waterLevel } from './blocks.js';
+import { accessoryDef } from './accessories.js';
 
 // Collision boxes: half width on X/Z and height above the feet position.
 export const PLAYER_BOX = { halfW: PLAYER_WIDTH / 2, height: PLAYER_HEIGHT };
@@ -30,7 +31,9 @@ const MAX_STEP = 0.4;
 // clears once there's room to stand.
 export function createPlayerState(x, y, z) {
   return {
-    x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0, onGround: false, carrying: false, crouching: false, gliding: false,
+    x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0,
+    onGround: false, carrying: false, crouching: false, gliding: false,
+    accessory: null, springCharge: 0, springBouncing: false,
   };
 }
 
@@ -170,6 +173,10 @@ export function stepPlayer(state, input, world) {
   const inWater = isInWater(state, world);
   const current = inWater ? waterCurrent(state, world) : null;
   const onLadder = isOnLadder(state, world);
+  const accessory = accessoryDef(state.accessory);
+  const spring = accessory?.visual === 'spring' ? accessory : null;
+  if (!spring) { state.springCharge = 0; state.springBouncing = false; }
+  if (inWater || onLadder) { state.springCharge = 0; state.springBouncing = false; }
   state.gliding = !!input.glide && !state.onGround && !inWater && !onLadder;
 
   // Horizontal movement is direct (no acceleration) for responsive controls.
@@ -185,7 +192,8 @@ export function stepPlayer(state, input, world) {
     * (state.crouching ? CROUCH_SPEED_SCALE : 1)
     // Drawing a bow (input.draw is only sent, and only kept by the server, while holding one).
     * (input.draw ? BOW_DRAW_SPEED_SCALE : 1)
-    * (input.eat ? EAT_SPEED_SCALE : 1);
+    * (input.eat ? EAT_SPEED_SCALE : 1)
+    * (accessory?.moveMultiplier ?? 1);
   const sin = Math.sin(state.yaw), cos = Math.cos(state.yaw);
   // Yaw 0 looks down -Z (Three.js camera convention).
   // Knockback takes control away: none right after a hit, back to full as it fades.
@@ -213,7 +221,15 @@ export function stepPlayer(state, input, world) {
       state.vy = midWater ? SWIM_UP_SPEED : SWIM_EXIT_VELOCITY;
     }
   } else {
-    if (input.jump && state.onGround) state.vy = JUMP_VELOCITY;
+    if (spring && state.onGround) {
+      if (input.jump) state.springCharge = Math.min(Math.round(spring.chargeSeconds / TICK_DT), state.springCharge + 1);
+      else if (state.springCharge > 0) {
+        const charge = state.springCharge / Math.round(spring.chargeSeconds / TICK_DT);
+        state.vy = JUMP_VELOCITY + (Math.sqrt(2 * GRAVITY * spring.jumpHeight) - JUMP_VELOCITY) * charge;
+        state.springCharge = 0;
+        state.springBouncing = false;
+      }
+    } else if (input.jump && state.onGround) state.vy = JUMP_VELOCITY;
     // Head above water but feet still in it: at the surface, so bounce out.
     else if (input.jump && feetInWater(state, world)) state.vy = Math.max(state.vy, SWIM_EXIT_VELOCITY);
     state.vy -= GRAVITY * TICK_DT;
@@ -272,9 +288,23 @@ function moveBody(state, world, box, guard = false) {
   const dz = guard ? guardedStep(state, world, box, 'z', state.vz * TICK_DT) : state.vz * TICK_DT;
   if (moveAxis(state, world, box, 'z', dz)) state.vz = 0;
   const falling = state.vy < 0;
+  const impactSpeed = falling ? -state.vy : 0;
   const hitY = moveAxis(state, world, box, 'y', state.vy * TICK_DT);
   state.onGround = hitY && falling;
-  if (hitY) state.vy = 0;
+  if (hitY) {
+    state.vy = 0;
+    const spring = accessoryDef(state.accessory);
+    if (state.onGround && spring?.visual === 'spring' && !state.crouching
+      && (state.springBouncing || impactSpeed > Math.sqrt(2 * GRAVITY * 3))) {
+      const rebound = impactSpeed * spring.bounceScale;
+      const continues = rebound >= Math.sqrt(2 * GRAVITY * spring.minBounceHeight);
+      if (!state.springBouncing || continues) {
+        state.vy = rebound;
+        state.onGround = false;
+        state.springBouncing = continues;
+      } else state.springBouncing = false;
+    } else state.springBouncing = false;
+  }
 }
 
 export function createItemState(x, y, z, vx = 0, vy = 0, vz = 0) {

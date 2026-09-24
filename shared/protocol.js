@@ -34,6 +34,9 @@ export const S2C = {
   CONTAINER: 'container',
   CONTAINER_CLOSE: 'containerClose',
   FURNACE_LIT: 'furnaceLit',
+  PORTAL_SPAWN: 'portalSpawn',
+  PORTAL_DESPAWN: 'portalDespawn',
+  EMBER_BURST: 'emberBurst',
 };
 
 // Where a flag is, in FlagState.

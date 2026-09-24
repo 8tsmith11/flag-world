@@ -49,6 +49,9 @@ export const BLOCK = {
   WATER_FLOW_1: 41,
   WATER_FLOW_7: 47,
   SAPLING: 48,
+  STONE_BRICKS: 49,
+  MOSSY_STONE_BRICKS: 50,
+  CRACKED_STONE_BRICKS: 51,
 };
 
 export function isWater(id) {
@@ -147,6 +150,9 @@ define(BLOCK.AIR, 'air', { solid: false, transparent: true, color: 0x000000, bre
 define(BLOCK.GRASS, 'grass', { color: 0x5da83a, breakTime: 0.6 });
 define(BLOCK.DIRT, 'dirt', { color: 0x8a5a36, breakTime: 0.5 });
 define(BLOCK.STONE, 'stone', { color: 0x8a8a8a, hardness: 2, breakTime: 1.5 });
+define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: 4, breakTime: 1.5 });
+define(BLOCK.MOSSY_STONE_BRICKS, 'mossy stone bricks', { color: 0x778a70, hardness: 4, breakTime: 1.5 });
+define(BLOCK.CRACKED_STONE_BRICKS, 'cracked stone bricks', { color: 0x858480, hardness: 4, breakTime: 1.5 });
 define(BLOCK.WATER, 'water', { solid: false, transparent: true, color: 0x3a6fd8, breakable: false, hardness: 0 });
 for (let level = 1; level <= 7; level++) {
   define(BLOCK.WATER_FLOW_1 + level - 1, 'flowing water', {

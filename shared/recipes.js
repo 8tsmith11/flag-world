@@ -12,6 +12,7 @@ const needs = (...pairs) => pairs.map(([item, count]) => ({ item, count }));
 
 export const RECIPES = [
   { id: 'planks', station: null, output: BLOCK.PLANKS, count: 4, inputs: needs([BLOCK.WOOD, 1]) },
+  { id: 'stone_bricks', station: null, output: BLOCK.STONE_BRICKS, count: 1, inputs: needs([BLOCK.STONE, 1]) },
   { id: 'ladder', station: null, output: ITEM.LADDER, count: 2, inputs: needs([BLOCK.PLANKS, 1]) },
   { id: 'workbench', station: null, output: BLOCK.WORKBENCH, count: 1, inputs: needs([BLOCK.PLANKS, 4]) },
   { id: 'wood_hammer', station: 'workbench', output: ITEM.WOOD_HAMMER, count: 1, inputs: needs([BLOCK.PLANKS, 3], [BLOCK.WOOD, 2]) },
