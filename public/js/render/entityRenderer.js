@@ -26,6 +26,9 @@ const MOB_BOXES = {
   [ENTITY_TYPE.VOID_EEL]: { halfW: 0.6, height: 0.8 },
   [ENTITY_TYPE.GOBLIN_WORKER]: { halfW: GOBLINS.worker.width / 2, height: GOBLINS.worker.height },
   [ENTITY_TYPE.GOBLIN_KING]: { halfW: GOBLINS.king.width / 2, height: GOBLINS.king.height },
+  [ENTITY_TYPE.GOBLIN_BUILDER]: { halfW: GOBLINS.builder.width / 2, height: GOBLINS.builder.height },
+  [ENTITY_TYPE.GOBLIN_SOLDIER]: { halfW: GOBLINS.soldier.width / 2, height: GOBLINS.soldier.height },
+  [ENTITY_TYPE.GOBLIN_ARCHER]: { halfW: GOBLINS.archer.width / 2, height: GOBLINS.archer.height },
   [ENTITY_TYPE.GOBLIN_TOTEM]: { halfW: GOBLINS.totem.width / 2, height: GOBLINS.totem.height },
 };
 
@@ -110,6 +113,9 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.VOID_EEL]: createEelModel,
   [ENTITY_TYPE.GOBLIN_WORKER]: createGoblinModel,
   [ENTITY_TYPE.GOBLIN_KING]: createGoblinModel,
+  [ENTITY_TYPE.GOBLIN_BUILDER]: createGoblinModel,
+  [ENTITY_TYPE.GOBLIN_SOLDIER]: createGoblinModel,
+  [ENTITY_TYPE.GOBLIN_ARCHER]: createGoblinModel,
   [ENTITY_TYPE.GOBLIN_TOTEM]: createGoblinTotem,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
@@ -178,7 +184,7 @@ export class EntityRenderer {
       slowed: snap.slowTicks > 0, grapple: snap.grapple ?? null,
       gliding: !!snap.gliding, breathing: !!snap.breathing, walking: !!snap.walking, climbing: !!snap.climbing,
       coiling: !!snap.coiling, lunging: !!snap.lunging, night: !!snap.night, tail: snap.tail ?? null,
-      onGround: !!snap.onGround, mining: !!snap.mining,
+      onGround: !!snap.onGround, mining: !!snap.mining, aiming: !!snap.aiming,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
@@ -274,7 +280,7 @@ export class EntityRenderer {
       const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
       if (object.userData.cow) animateCow(object, dt, speed);
       if (object.userData.crawler) animateCrawler(object, dt, speed, b.climbing);
-      if (object.userData.goblin) animateGoblin(object, dt, speed, { mining: b.mining, climbing: b.climbing });
+      if (object.userData.goblin) animateGoblin(object, dt, speed, { mining: b.mining, climbing: b.climbing, aiming: b.aiming });
       if (object.userData.totem) animateTotem(object, dt);
       if (object.userData.healthBar && entity.maxHp) drawHealthBar(object.userData.healthBar, entity.hp ?? entity.maxHp, entity.maxHp);
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,

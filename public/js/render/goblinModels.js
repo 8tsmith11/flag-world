@@ -47,12 +47,78 @@ const GEAR = {
     }
     return knob;
   },
+  hammer(hand) {
+    const handle = box(hand, 0.05, 0.05, 0.46, 0, 0, -0.18, lambert(0x6b4a2b));
+    handle.rotation.x = 0.1;
+    return box(hand, 0.2, 0.13, 0.13, 0, 0.02, -0.4, lambert(0x7d8288));
+  },
+  // A crude notched blade.
+  sword(hand) {
+    box(hand, 0.05, 0.05, 0.14, 0, 0, -0.05, lambert(0x4a3220));
+    box(hand, 0.18, 0.04, 0.04, 0, 0, -0.13, lambert(0x5b4128));
+    const blade = box(hand, 0.08, 0.025, 0.55, 0, 0, -0.42, lambert(0x9aa0a6));
+    for (const z of [-0.3, -0.5]) box(hand, 0.03, 0.03, 0.05, 0.05, 0, z, lambert(0x6d7277));
+    return blade;
+  },
+  bow(hand) {
+    const wood = lambert(0x6b4520);
+    const group = new THREE.Group();
+    group.position.set(0, 0, -0.08);
+    group.rotation.x = -Math.PI / 2;
+    hand.add(group);
+    for (const side of [-1, 1]) {
+      const limb = box(group, 0.04, 0.34, 0.04, 0, side * 0.2, 0.06, wood);
+      limb.rotation.x = side * 0.35;
+    }
+    box(group, 0.05, 0.12, 0.05, 0, 0, 0, lambert(0x3b2a18));
+    box(group, 0.01, 0.74, 0.01, 0, 0, 0.13, lambert(0xe8e0c8));
+    return group;
+  },
+};
+
+// Worn extras, on the body.
+const EXTRAS = {
+  // A small round shield on the left arm.
+  shield(body, arms) {
+    const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 10), lambert(0x6a4a2a));
+    shield.rotation.z = Math.PI / 2;
+    shield.position.set(-0.07, -0.2, 0);
+    arms[0].shoulder.add(shield);
+    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), lambert(0x8a8f96));
+    boss.position.set(-0.1, -0.2, 0);
+    arms[0].shoulder.add(boss);
+  },
+  // A quiver of arrows on the back.
+  quiver(body) {
+    const quiver = box(body, 0.14, 0.34, 0.12, 0.08, 0.55, 0.2, lambert(0x7a4a28));
+    quiver.rotation.z = -0.35;
+    for (const x of [-0.03, 0.03]) box(quiver, 0.02, 0.1, 0.02, x, 0.2, 0, lambert(0xd8d0b8));
+  },
+  // A leather cap (builders).
+  cap(body, arms, head) {
+    box(head, 0.42, 0.08, 0.38, 0, 0.36, 0, lambert(0x8a6238));
+  },
+  // An iron helmet (soldiers).
+  helmet(body, arms, head) {
+    box(head, 0.44, 0.14, 0.4, 0, 0.36, 0, lambert(0x6d7277));
+    box(head, 0.06, 0.1, 0.03, 0, 0.26, -0.2, lambert(0x6d7277));
+  },
+  hood(body, arms, head) {
+    box(head, 0.44, 0.12, 0.4, 0, 0.35, 0.01, lambert(0x3f5a2a));
+    box(head, 0.44, 0.3, 0.06, 0, 0.2, 0.2, lambert(0x3f5a2a));
+  },
 };
 
 // Per type: overall scale (the base is GOBLINS.worker.height tall), colors,
 // held gear and extras.
 export const GOBLIN_LOOKS = {
   goblinWorker: { height: GOBLINS.worker.height, skin: 0x6f9b3c, tunic: 0x7a5a32, belt: 0x3d2a17, gear: 'pick' },
+  goblinBuilder: { height: GOBLINS.builder.height, skin: 0x7aa347, tunic: 0x8a6a3a, belt: 0x5b4128, gear: 'hammer',
+    extras: ['cap'] },
+  goblinSoldier: { height: GOBLINS.soldier.height, skin: 0x5f8a33, tunic: 0x5a3a2a, belt: 0x2a2a2a, gear: 'sword',
+    extras: ['shield', 'helmet'] },
+  goblinArcher: { height: GOBLINS.archer.height, skin: 0x6f9b3c, tunic: 0x4a6a32, belt: 0x3d2a17, gear: 'bow',
+    extras: ['quiver', 'hood'] },
   goblinKing: { height: GOBLINS.king.height, skin: 0x557d2c, tunic: 0x6d1f28, belt: 0xd4af37, gear: 'club',
     crown: true, cape: 0x8e2230 },
 };
@@ -129,6 +195,7 @@ export function createGoblinModel({ type }) {
     arms.push({ shoulder, hand, side });
   }
   const gear = look.gear && GEAR[look.gear](arms[1].hand);
+  for (const extra of look.extras ?? []) EXTRAS[extra](body, arms, head);
   group.userData.goblin = { body, legs, arms, head, gear, phase: 0, swingStart: -Infinity, work: 0 };
   return group;
 }
@@ -140,9 +207,9 @@ export function swingGoblin(model) {
 const SWING_MS = 450;
 
 // Per frame: legs and arms swing with walking, the right arm chops while
-// mining, a swing (King's club) is a big overhead strike, and climbing
+// mining (or hammering), an archer holds its bow out while aiming, a swing (King's club) is a big overhead strike, and climbing
 // reaches both arms up.
-export function animateGoblin(model, dt, speed, { mining = false, climbing = false } = {}) {
+export function animateGoblin(model, dt, speed, { mining = false, climbing = false, aiming = false } = {}) {
   const g = model.userData.goblin;
   const walk = Math.min(1, speed / 2.5);
   if (walk > 0.05 || climbing) g.phase += dt * (climbing ? 9 : 4 + speed * 2);
@@ -156,7 +223,11 @@ export function animateGoblin(model, dt, speed, { mining = false, climbing = fal
   // Positive rotation raises an arm forward. A strike winds up overhead,
   // then slams down in front.
   if (swing >= 0 && swing < 1) right.shoulder.rotation.x = swing < 0.55 ? 2.8 * swing / 0.55 : 2.8 - (swing - 0.55) / 0.45 * 1.9;
-  else if (climbing) right.shoulder.rotation.x = 2.6 - stride;
+  else if (aiming) {
+    // Bow held out in front, the other arm drawing.
+    right.shoulder.rotation.x = 1.5;
+    left.shoulder.rotation.x = 1.4;
+  } else if (climbing) right.shoulder.rotation.x = 2.6 - stride;
   else if (mining) right.shoulder.rotation.x = 1.1 + Math.abs(Math.sin(g.work)) * 1.3;
   else right.shoulder.rotation.x = 0.35 + stride * 0.8;
   g.body.position.y = Math.abs(Math.sin(g.phase)) * 0.03 * walk;

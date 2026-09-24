@@ -44,6 +44,8 @@ export const S2C = {
   // A line for everyone's chat/event feed (e.g. the Goblin Totem falling).
   CHAT: 'chat',
   GOBLIN_TOTEM_DESTROYED: 'goblinTotemDestroyed',
+  // Creative players only: the Goblin Fortress's state, for the totem inspector.
+  GOBLIN_STATUS: 'goblinStatus',
 };
 
 // Where a flag is, in FlagState.
@@ -99,4 +101,7 @@ export const ENTITY_TYPE = {
   GOBLIN_WORKER: 'goblinWorker',
   GOBLIN_KING: 'goblinKing',
   GOBLIN_TOTEM: 'goblinTotem',
+  GOBLIN_BUILDER: 'goblinBuilder',
+  GOBLIN_SOLDIER: 'goblinSoldier',
+  GOBLIN_ARCHER: 'goblinArcher',
 };

@@ -108,7 +108,7 @@ are other items: `256` wood hammer, `257` ladder, `258` door, `259` iron ingot,
 `260` stone hammer, `261` iron hammer, `262`–`264` wood / stone / iron sword,
 `265` bow, `266` leather, `267` raw beef, `268` empty bucket, `269` water
 bucket, `270` cooked beef, `271` leather armor, `272` iron armor, `273`
-glider, `274` tree seeds. Block id `48` is a sapling.
+glider, `274` sapling (the item; it places block `48`, the planted sapling).
 `275` is loot-only golden beef (stack size 4). Block ids `49`–`51` are stone
 bricks, mossy stone bricks, and cracked stone bricks. All three require an
 iron hammer to break. One stone crafts into one stone brick. `276`–`280`
@@ -119,10 +119,14 @@ grappling hook. `287` Dragon Scale (dropped by dragons), `288` Silk (dropped by
 Crawlers, no use yet) and `289` Dragonscale Armor. Block `53` (anvil) is also
 its item.
 `290` is the creative-only Flight Orb accessory. `291`–`296` are Cow,
-Dragon, Crawler, Void Eel, Goblin Worker and Goblin King spawn eggs; their definitions live in
+Dragon, Crawler, Void Eel, Goblin Worker and Goblin King spawn eggs, and
+`297`–`299` Goblin Builder, Goblin Soldier and Goblin Archer spawn eggs; their definitions live in
 `shared/mobEggs.js`. All egg types are creative-only to obtain, but anyone
-holding one can use it. Grass and dirt both drop dirt. Block `59` is Goblin
-Bricks (hardness 8, drops itself), the walls of the Goblin Fortress.
+holding one can use it. Grass and dirt both drop dirt. Block `60` is Goblin
+Bricks (hardness 8, drops itself), the walls of the Goblin Fortress. Block
+`61` is a fence (a post with rails toward neighbouring fences and solid
+blocks; solid, one block tall), which goblins use around tree plots and on
+lookouts.
 Buckets, armor, accessories, gliders, hammers, swords, bows, crossbows, Wind
 Axes and grappling hooks have stack size 1;
 ordinary items stack to 64. What held tools do is in `shared/tools.js`.
@@ -179,21 +183,23 @@ then in `state` only on ticks it moved.
 | `yaw` | number | Facing (0 looks toward -Z) |
 | `climbing` | bool | Climbing a wall (drawn tipped up it) |
 
-**GoblinSnapshot** — a Goblin Worker or the Goblin King. Sent in
-`entitySpawn` / `welcome` (with `maxHp`), then in `state` on ticks it moved or
-its `climbing`, `mining` or `carrying` changed.
+**GoblinSnapshot** — a Goblin Worker, Builder, Soldier, Archer or the Goblin
+King. Sent in `entitySpawn` / `welcome` (with `maxHp`), then in `state` on
+ticks it moved or its `climbing`, `mining`, `carrying` or `aiming` changed
+(and on ticks offscreen mode moved it).
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | int | Entity id |
-| `type` | string | `"goblinWorker"` or `"goblinKing"` |
-| `name` | string | `"Goblin Worker"` / `"Goblin King"`, used in the event feed |
-| `x`,`y`,`z` | number | Feet position (worker box 0.6 × 1.2, King 1.1 × 2.6) |
+| `type` | string | `"goblinWorker"`, `"goblinBuilder"`, `"goblinSoldier"`, `"goblinArcher"` or `"goblinKing"` |
+| `name` | string | `"Goblin Worker"` etc., used in the event feed |
+| `x`,`y`,`z` | number | Feet position (boxes: worker and builder 0.6 × 1.2, soldier 0.7 × 1.3, archer 0.6 × 1.25, King 1.1 × 2.6) |
 | `yaw` | number | Facing (0 looks toward -Z) |
 | `hp` | number | Health (`maxHp` in `entitySpawn` / `welcome`) |
 | `walking`, `climbing` | bool | Walking; on a ladder |
-| `mining` | bool | Worker only: swinging its pick at a block |
-| `carrying` | int | Worker only: items it's carrying |
+| `mining` | bool | Swinging its tool at a block (digging, chopping, building, clearing its way) |
+| `carrying` | int | Workers and Builders: items or materials it's carrying |
+| `aiming` | bool | Archer only: bow up at a target |
 
 **GoblinTotemSnapshot** — the Goblin Totem. Sent in `welcome` / `entitySpawn`
 (with `maxHp`), then in `state` on ticks its HP changes (whole HP).
@@ -448,8 +454,9 @@ and is outside every keep's volume. Then, by item:
 - **Door:** the cell above is also free, the block below is a full solid block,
   and no player is in either cell. It's placed closed, facing the way the
   player looks.
-- **Tree seeds:** right click the top of grass or dirt to place a sapling.
-  It grows a tree after about 15 s if the trunk has room; blocked saplings retry.
+- **Sapling:** right click the top of grass or dirt to plant it. It grows a
+  tree after 3–5 minutes (`SAPLING_GROW_TIME`) if the trunk has room; blocked
+  saplings retry.
 - **Rope Bundle:** any clicked face. Rope fills this cell and each cell
   straight below it, up to 40 in all, stopping above the first cell that
   isn't air or water (a solid block, for example) or is in a keep's no-build
@@ -541,7 +548,7 @@ a 1.2 s cooldown. It coils and glows for 1 s with a hiss, then lunges. A bite
 stops gliding for 1.5 s. Its faintly glowing tail tip takes double damage.
 At night it glows faintly and rises 30% faster. A dead eel drops 1–2 Rift Orbs.
 
-Provocation: any damage from a player to a Crawler, Void Eel, dragon or Goblin King (a
+Provocation: any damage from a player to a Crawler, Void Eel, dragon, Goblin King, Soldier or Archer (a
 punch, arrow, crossbow bolt or Thorns, at any range) provokes it. It hunts that
 player, ignoring its aggro range, leash and home zone, until the player dies,
 disconnects or is eliminated, or it has had no line of sight to them for 10 s.
@@ -738,23 +745,45 @@ passes. Whatever doesn't fit stays on the ground.
 
 ### `swing`
 
-Another player swung their arm (punch, mining, or placing a block), or the
-Goblin King swung its club. Not sent to the player who swung; their own
-first-person arm animates locally.
+Another player swung their arm (punch, mining, or placing a block), a Goblin
+King or Soldier struck, or a Goblin Archer loosed an arrow. Not sent to the
+player who swung; their own first-person arm animates locally.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `id`  | int  | Player (or Goblin King) who swung |
+| `id`  | int  | Player (or goblin) who swung |
 
 ### `chat`
 
-A line for everyone's event feed. So far only world events: the Goblin Totem
-being destroyed ("NAME destroyed the Goblin Totem!").
+A line for everyone's event feed. So far only two world events, both goblin:
+the first surface shaft breaking through ("The goblins have broken through to
+the surface!") and the Goblin Totem being destroyed ("NAME destroyed the
+Goblin Totem!"). No other goblin event is announced.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `text` | string | The line |
 | `kind` | string | `"event"` (drawn as a highlighted world event) |
+
+### `goblinStatus`
+
+Sent once a second, only to players in creative mode: the Goblin Fortress's
+state, which their client shows while they look at the Goblin Totem.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `totemId` | int \| null | The Totem's entity id |
+| `totemAlive` | bool | |
+| `storage` | object | Totem storage by material: `stone`, `bricks`, `wood`, `planks`, `dirt`, `saplings` |
+| `project` | object \| null | The work in hand (repairs first): `{ kind, label, progress (0..1), done, total, waiting }`; `kind` is `repairs`, `shaft`, `gatehouse`, `module`, `dwelling`, `plot` or `widen`; `waiting` when builders are short of a material |
+| `nextProjectIn` | int | Seconds until the next project may start (0 while one runs) |
+| `population` | object | Colony goblins alive by type (`goblinWorker`, `goblinBuilder`, `goblinSoldier`, `goblinArcher`) |
+| `total`, `capacity`, `hardCap` | int | Colony size, current capacity, and the world size's hard cap |
+| `modules`, `moduleCap` | int | Brick modules and their cap |
+| `dwellings`, `dwellingCap` | int | Standing surface dwellings and their cap |
+| `plots` | int | Tree plots |
+| `entrances` | `{ width, gatehouse }[]` | Surface entrances: ladder columns wide, gatehouse built |
+| `offscreen` | bool | Goblins are in offscreen (estimated) mode |
 
 ### `goblinTotemDestroyed`
 
@@ -982,9 +1011,11 @@ the world seed and chest position. Breaking one before opening it drops its
 seeded contents. Player-placed chests start empty.
 When wood is removed, the server checks nearby leaves in bounded batches.
 Leaves without a path to wood through at most six adjacent leaves decay and
-are sent as ordinary `blockChange` messages. Each decayed leaf has an 8%
-chance to drop tree seeds. The server schedules planted saplings to grow in
-15 s, sending the resulting tree as `blockChange` messages.
+are sent as ordinary `blockChange` messages. Each decayed leaf has a 4%
+chance to drop a sapling, and breaking leaves drops one 10% of the time
+(`SAPLING_DROP_CHANCE`). The server schedules planted saplings to grow in
+3–5 minutes (`SAPLING_GROW_TIME`; goblin plot saplings on the goblin clock),
+sending the resulting tree as `blockChange` messages.
 
 ## Tiny islands
 
@@ -1072,12 +1103,14 @@ is equipped, double-tap jump to toggle flight. Jump rises, crouch descends,
 horizontal flight is twice walking speed, and flight has no gravity or fall
 damage. The orb glows as it orbits the player.
 
-Spawn eggs exist for Cow, Dragon, Crawler, Void Eel, Goblin Worker and Goblin
-King. Right-clicking a solid block with one spawns its normal mob on top and
-consumes the egg. Cow, Dragon and Crawler use the spawn position as home or
-leash center; a Void Eel uses the nearest island. A Goblin Worker hatched
-inside the Goblin Fortress joins the work (it isn't counted toward respawns);
-outside it, it potters about where it hatched and flees players. A Goblin King
+Spawn eggs exist for Cow, Dragon, Crawler, Void Eel, Goblin Worker, Builder,
+Soldier, Archer and Goblin King. Right-clicking a solid block with one spawns
+its normal mob on top and consumes the egg. Cow, Dragon and Crawler use the
+spawn position as home or leash center; a Void Eel uses the nearest island. A
+Goblin Worker, Builder, Soldier or Archer hatched inside the Goblin Fortress
+joins the colony (and counts toward its population); outside it, it's a
+stray: Workers and Builders potter about where they hatched and flee players,
+Soldiers and Archers guard around it. A Goblin King
 hatched in the Totem Hall guards it; anywhere else it guards a 16-block square
 around where it hatched. Anyone holding an egg can use it.
 
@@ -1094,8 +1127,10 @@ hallway, corner, T and cross junctions, dead end, ladder shaft, the Totem Hall
 Totem Hall, 3–5 hallway/junction/corner/shaft modules and the Quarry room (a
 Quarry Stone in the middle), sometimes over two levels. It stands at a seeded
 angle and 30–62% of the radius from the island's center, at least 30% out,
-with natural stone at least 3 blocks under, 5 over and 3 beside it; where the
-island is too thin there, its underside is deepened under the fortress. Caves
+with natural stone at least 3 blocks under, 5 over and 3 beside it, 10 blocks
+above the deepest spot that fits (room to grow below). The central island's
+underside barely tapers, so the fortress can spread sideways; where the
+island is still too thin, its underside is deepened under the fortress. Caves
 and structures keep clear of it. The graph (modules, connections and the
 points goblins walk through) is `world.goblinFortress`; later phases add
 modules at runtime with `addModule` + `connectModules` / `autoConnect`, whose
@@ -1103,25 +1138,127 @@ blocks arrive as `blockChange`.
 
 The Goblin Totem stands in the middle of the Totem Hall: 400 HP, hurt only by
 players' melee and arrows/bolts, back to full at 4 HP/s after 30 s without
-damage. It holds the goblins' shared storage (a count per item; nobody can open
-it). Destroyed, it bursts (`goblinTotemDestroyed`), drops a `goblinTotem` loot
-pile, is announced (`chat`), and goblins stop spawning and respawning for the
-rest of the match; existing goblins carry on.
+damage. It holds the goblins' shared storage of materials (stone, Goblin
+Bricks, wood, planks, dirt, saplings; nobody can open it). Destroyed, it
+bursts (`goblinTotemDestroyed`), drops a `goblinTotem` loot pile, is announced
+(`chat`), and goblins stop spawning and stop starting or working on projects
+for the rest of the match; the goblins alive carry on otherwise.
 
 The Goblin King (80 HP) stays in the Totem Hall, attacks players inside it (7
 damage, strong knockback, every 1.5 s), is provoked like other mobs but never
 leaves the hall, and returns beside the totem when it has no target. It drops
 `goblinKing` loot and doesn't respawn.
 
-Goblin Workers (4 / 5 / 6 on Small / Medium / Large, 10 HP) spawn by the totem,
-path over the module graph to the Quarry room, mine the stone the Quarry Stone
-regrows, and carry it to the totem once they hold 16 items (or have held some
-with nothing to mine for 15 s). They flee along the graph from any player
-within 8 blocks and go back to work once no player has been within 12 blocks
-of them, or 8 of where they're headed, for 3 s. A dead worker drops what it
-carried; it respawns by the totem after 60 s while the totem stands. Goblins
-steer apart when crowded, and goblins, Crawlers, dragons and Void Eels ignore
-each other.
+All goblin numbers are in `shared/goblins.js` (`GOBLINS`); `goblinTimeScale`
+(default 1, or `GOBLIN_TIME_SCALE` in the server's environment) speeds up
+every goblin timer (project pacing, spawning, digging, placing, chopping,
+waits, plot tree growth), though not walking.
+
+### The colony
+
+A match starts with 1 Worker and 1 Builder, and the totem holds 9 saplings
+and enough planks to ladder the planned surface shaft, plus 10.
+
+- **Workers** (10 HP) dig out what projects need, carrying what they dig to
+  the totem (stone, dirt, wood, planks, bricks), chop wood when storage is
+  short of it, and otherwise mine the stone the Quarry Stone regrows.
+- **Builders** (10 HP) take materials from the totem and place them: Goblin
+  Bricks for the fortress (stone becomes bricks 1:1 at the totem when they're
+  needed), ladders for shafts, planks and logs for surface buildings (wood
+  becomes 4 planks when needed). They never fight.
+- Workers and Builders flee from any player within 8 blocks and go back to
+  work once none has been within 12 for 3 s. Killed, they drop what they
+  carry (materials as their blocks).
+- Both break anything in the way of their work or their path, including
+  player-placed blocks, taking longer the harder the block (as with a hammer
+  of strength 2: each point of hardness above that adds the base time again).
+  They never break keep blocks, and never touch the totem. Builders scoop out
+  water (sources and flowing) where it's in the way.
+- **Soldiers** (16 HP, walking speed) carry a crude sword and a small shield:
+  4 damage every 1 s. **Archers** (10 HP) shoot server-simulated arrows (3
+  damage, range 20, every 1.5 s) and back away from players within 5 blocks.
+  Both patrol between the fortress, the entrances and the dwellings (Archers
+  prefer standing on a Lookout, or near an entrance), attack players within
+  12 (Soldiers) / 20 (Archers) blocks that they can see, give up a chase 25
+  blocks from their patrol spot, and are provoked like other mobs (ignoring
+  that limit). Goblin arrows only hit players.
+- Goblins going up to the surface gather at the bottom of the shaft and climb
+  together once 3–5 have gathered (or after 8 s), soldiers first, half a
+  second apart.
+
+**Population:** capacity is 3 (the Totem Hall) plus 2 per Bunk Room plus the
+standing dwellings' capacity, never more than 25 / 40 / 60 (Small / Medium /
+Large). While below capacity and the totem stands, a goblin spawns by the
+totem every 3 minutes if the totem can pay 10 stone and 5 planks (never with
+what the current work still needs). Its type is by need: a Builder when
+placements pile up, a Worker when materials are short or digs pile up,
+otherwise toward 35% Workers, 20% Builders, 25% Soldiers, 20% Archers. Dead
+goblins aren't respawned; the population refills by spawning.
+
+### Projects
+
+Goblins work through one project at a time (projects are lists of block
+tasks: digs for Workers, placements for Builders). Between projects they rest
+4 minutes. Repairs always go first. Otherwise, by priority:
+
+1. **Repairs.** Blocks the goblins built and keep (fortress modules, shafts,
+   gatehouses) that anyone else changes, by breaking, blocking or flooding
+   them, become repair tasks after 2 s: blocks put back, blockages dug out,
+   water sources scooped up (flowing water drains by itself).
+2. **Surface shaft** (the first project): a shaft base module beside the
+   fortress (on its top level when possible) and a ladder column from it up
+   to the central island's surface, emerging at a seeded spot clear of keeps,
+   structures and rivers, on the most level, solid, low ground available.
+   Workers dig it, Builders ladder it and brick up any open sides. The moment
+   it breaks through to the sky, `chat` announces it.
+3. **Shaft gatehouse**, right after: a Goblin Brick house around the shaft's
+   top (ladders on its back wall, a doorway in front, a path cleared out of
+   the door).
+4. **Tree plot** (at most 1 / 1 / 2) when wood storage is low: an 11 × 11
+   flattened, fenced plot near an entrance with a 3 × 3 grid of saplings 4
+   apart. Workers harvest grown trees and replant at once (the harvest gives
+   the sapling back). Before any plot, Workers chop at most 4 natural trees
+   near an entrance; after that only plot trees.
+5. **Entrance upgrades**, now and then (15% of choices): widen a shaft by
+   another ladder column (up to 3), or, once the fortress has 16 / 22 / 30
+   modules, dig a second entrance with its own gatehouse (2 at most). Only
+   with the planks for the ladders at hand.
+6. Alternating **fortress modules** and **surface dwellings** (dwellings only
+   when the population is within 1 of capacity); when one is capped or has
+   nowhere to go, the other.
+
+A new **module** goes on a free cell next to an existing one, chosen for
+staying on the ring around the island's center the fortress started on and
+for wrapping around it (so it slowly becomes a torus), with some randomness;
+now and then it grows up a ladder shaft above a room. Types: room, hallway,
+corner, T / cross junction, ladder shaft and **Bunk Room** (a room with three
+bunks, +2 capacity; favoured when goblins need room). Never within 30% of the
+island's radius from its center, never through the island's underside, never
+over structures, rivers, keeps or goblin buildings. A module may rise out of
+the ground (then it stands as a brick building on the surface), or, at the
+island's edge, a sealed room at the end of a hallway may poke out of the cliff
+(nothing grows past it). Its whole shell is Goblin Bricks: where it passes
+through caves or open air, Builders brick up every open cell of its walls,
+floor and ceiling. Brick modules are capped at 25 / 35 / 50.
+
+**Surface dwellings** stand within 30 blocks of an entrance, on level, solid
+ground (flattened and filled underneath), doors facing the entrance: Hut (+2
+capacity), Longhouse (+4) and Lookout (+1; a raised platform with a ladder,
+where an Archer stands guard). Capped at 6 / 10 / 14. Players can break them;
+one that loses 30% of its blocks stops counting and may be rebuilt later as a
+normal project. When wood is gone for good, a waiting dwelling is given up.
+
+### Offscreen mode
+
+When no player is within 100 blocks of the fortress, the entrances, the
+surface buildings, the active site and every colony goblin, goblins stop
+moving and their work advances at estimated rates instead: every 2 s, each
+Worker and Builder gets 2 s of work, spent on the same tasks (cost: the
+block's break or place time, plus its share of the trips between the totem
+and the site). Changes are applied to the world directly in batches (as
+ordinary `blockChange`s), spawning continues as usual, and goblins are placed
+at plausible spots for their work (appearing in `state`). When a player comes
+within range, full simulation resumes from there.
 
 ## Day and night
 

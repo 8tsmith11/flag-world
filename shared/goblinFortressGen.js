@@ -16,9 +16,10 @@ const NONE = -32768;
 // mask). Each attempt picks a spot in the ring and a layout; it fits if
 // every cell has island columns `side` blocks around it, and room for
 // `underside` stone below and `cover` above. The deepest fitting position
-// wins. If no attempt fits (thin islands), the attempt closest to fitting is
-// used, hung from the surface cover, and the island's underside is deepened
-// under it with a tapered stone keel (world, terrain updated).
+// wins, lifted by floorLift. If no attempt fits (thin islands), the attempt
+// closest to fitting is used, hung from the surface cover, and the island's
+// underside is deepened under it with a tapered stone keel (world, terrain
+// updated).
 export function planGoblinFortress(world, terrain, seed) {
   if (!terrain) return null;
   const settings = GOBLINS.placement;
@@ -53,7 +54,10 @@ export function planGoblinFortress(world, terrain, seed) {
     }
     if (!ok) continue;
     const deficit = low - high;
-    if (!best || deficit < best.deficit) best = { deficit, ox, oz, y0: deficit <= 0 ? low : high, layout, cells, angle, distance };
+    // Lifted floorLift off the deepest fit (room to grow at its level and
+    // below), but never into the surface cover.
+    const y0 = deficit <= 0 ? Math.min(high, low + settings.floorLift) : high;
+    if (!best || deficit < best.deficit) best = { deficit, ox, oz, y0, layout, cells, angle, distance };
     if (deficit <= 0) break;
   }
   if (!best) return null;

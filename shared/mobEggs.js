@@ -9,6 +9,9 @@ export const MOB_EGGS = [
   { item: ITEM.CRAWLER_EGG, type: ENTITY_TYPE.CRAWLER, name: 'Crawler', color: 0x59675e, spots: 0x242e29 },
   { item: ITEM.VOID_EEL_EGG, type: ENTITY_TYPE.VOID_EEL, name: 'Void Eel', color: 0x5a6dac, spots: 0x23315b },
   { item: ITEM.GOBLIN_WORKER_EGG, type: ENTITY_TYPE.GOBLIN_WORKER, name: 'Goblin Worker', color: 0x5f8a3a, spots: 0x7a5a32 },
+  { item: ITEM.GOBLIN_BUILDER_EGG, type: ENTITY_TYPE.GOBLIN_BUILDER, name: 'Goblin Builder', color: 0x6f9b3c, spots: 0x8a8f96 },
+  { item: ITEM.GOBLIN_SOLDIER_EGG, type: ENTITY_TYPE.GOBLIN_SOLDIER, name: 'Goblin Soldier', color: 0x4f7a30, spots: 0x7d8288 },
+  { item: ITEM.GOBLIN_ARCHER_EGG, type: ENTITY_TYPE.GOBLIN_ARCHER, name: 'Goblin Archer', color: 0x6a8f3a, spots: 0x3f5a2a },
   { item: ITEM.GOBLIN_KING_EGG, type: ENTITY_TYPE.GOBLIN_KING, name: 'Goblin King', color: 0x3f6a2a, spots: 0xe0b83a },
 ];
 

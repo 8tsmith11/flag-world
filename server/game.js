@@ -16,6 +16,7 @@ import {
   FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS, DRAGON_LEASH, CRAWLER_DROPS, EEL_BAND, EEL_DROPS,
   EEL_GLIDE_BREAK, CRAWLER_DAMAGE, EEL_DAMAGE,
   DAY_LENGTH, DAY_START, BIOME_SETTINGS,
+  SAPLING_DROP_CHANCE, ARROW_DRAG,
 } from '../shared/config.js';
 import {
   BLOCK, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
@@ -55,7 +56,8 @@ import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
 import { GoblinController } from './goblins.js';
-import { TOTEM_BOX, KING_BOX, WORKER_BOX } from './goblin.js';
+import { KING_BOX, WORKER_BOX, BUILDER_BOX, SOLDIER_BOX, ARCHER_BOX } from './goblin.js';
+import { GOBLINS } from '../shared/goblins.js';
 import { assignMobSteering, steerGround, resolveMobOverlaps } from './mobSteering.js';
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
@@ -344,7 +346,8 @@ export class Game {
         && p.state.x - playerBoxOf(p.state).halfW < x + 1
         && p.state.z + playerBoxOf(p.state).halfW > z
         && p.state.z - playerBoxOf(p.state).halfW < z + 1
-        && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y));
+        && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y),
+      (x, y, z) => this.goblins?.saplingGrowTime(x, y, z));
     this.world.onBlockChanged = (x, y, z, id, oldId) => {
       this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id });
       this.broadcast({ type: S2C.BLOCK_CHANGE, x, y, z, id });
@@ -353,6 +356,7 @@ export class Game {
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
       if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
       if (id === BLOCK.QUARRY_STONE || oldId === BLOCK.QUARRY_STONE) this.quarry.changed(x, y, z, id);
+      this.goblins?.blockChanged(x, y, z, id, oldId);
     };
     for (const [key, table] of this.world.lootChests) {
       this.world.tileEntities.set(key, new Chest(table));
@@ -627,6 +631,7 @@ export class Game {
       this.world.setBlock(x, y, z, BLOCK.AIR);
       const drop = getBlockDef(id).drops;
       if (drop !== null) this.dropAt(drop, x, y, z);
+      if (id === BLOCK.LEAVES && Math.random() < SAPLING_DROP_CHANCE) this.dropAt(ITEM.TREE_SEED, x, y, z);
       const key = `${x},${y},${z}`;
       const container = this.world.tileEntities.get(key);
       if (container) {
@@ -757,7 +762,8 @@ export class Game {
     if (!egg || !pos || !this.inReach(player, pos) || !isSolid(this.world.getBlock(pos.x, pos.y, pos.z))) return;
     const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
     const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX,
-      goblinWorker: WORKER_BOX, goblinKing: KING_BOX };
+      goblinWorker: WORKER_BOX, goblinKing: KING_BOX, goblinBuilder: BUILDER_BOX, goblinSoldier: SOLDIER_BOX,
+      goblinArcher: ARCHER_BOX };
     const box = boxes[egg.type];
     if (!box || !playerFitsAt(this.world, { x, y, z, box }, y)) return;
     const island = this.world.islands?.length ? this.world.islands.reduce((best, candidate) =>
@@ -786,6 +792,9 @@ export class Game {
         break;
       }
       case 'goblinWorker':
+      case 'goblinBuilder':
+      case 'goblinSoldier':
+      case 'goblinArcher':
       case 'goblinKing':
         mob = this.goblins.hatch(egg.type, x, y, z);
         this.mobs.set(mob.id, mob);
@@ -1116,8 +1125,10 @@ export class Game {
     const moved = [];
     for (const arrow of this.arrows.values()) {
       const flying = !arrow.stuckIn;
-      const result = arrow.step(this.world, [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
-        ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()]);
+      // Goblin arrows only hit players.
+      const result = arrow.step(this.world, arrow.shooter.goblin ? [...this.players.values()]
+        : [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
+          ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()]);
       if (result === 'gone' || arrow.y < this.world.voidY) {
         this.removeArrow(arrow);
       } else if (result?.hit) {
@@ -1127,13 +1138,39 @@ export class Game {
         t.kz += result.dir.z * ARROW_KNOCKBACK;
         t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
         t.onGround = false;
-        this.hurt(target, arrow.damage * (result.damageScale ?? 1), arrow.shooter);
+        this.hurt(target, arrow.damage * (result.damageScale ?? 1), arrow.shooter,
+          arrow.shooter.goblin ? DEATH_CAUSE.MOB : DEATH_CAUSE.PLAYER);
         this.removeArrow(arrow);
       } else if (flying) {
         moved.push(arrow);
       }
     }
     return moved;
+  }
+
+  // A Goblin Archer's shot at a player: aimed at their chest, leading for
+  // gravity (the lower of the two arcs), with a little spread.
+  goblinShoot(archer, target) {
+    const settings = GOBLINS.archer;
+    const eye = archer.eye(), t = target.state;
+    const aim = { x: t.x + t.vx * 0.2, y: t.y + playerBoxOf(t).height * 0.6, z: t.z + t.vz * 0.2 };
+    const dx = aim.x - eye.x, dy = aim.y - eye.y, dz = aim.z - eye.z;
+    const d = Math.hypot(dx, dz) || 0.01;
+    // Drag slows the arrow over the flight; aim as if a bit slower.
+    const v = settings.arrowSpeed * Math.pow(ARROW_DRAG, d / settings.arrowSpeed * TICK_RATE / 2);
+    const g = ARROW_GRAVITY;
+    const root = v ** 4 - g * (g * d * d + 2 * dy * v * v);
+    const pitch = root >= 0 ? Math.atan((v * v - Math.sqrt(root)) / (g * d)) : Math.PI / 4;
+    const yaw = Math.atan2(dz, dx) + (Math.random() - 0.5) * 2 * settings.spread;
+    const p = pitch + (Math.random() - 0.5) * 2 * settings.spread;
+    const speed = settings.arrowSpeed;
+    const arrow = new Arrow(this.nextId++, archer, eye.x, eye.y, eye.z,
+      Math.cos(yaw) * Math.cos(p) * speed, Math.sin(p) * speed, Math.sin(yaw) * Math.cos(p) * speed, 0.5);
+    arrow.damage = settings.damage;
+    arrow.gravity = g;
+    this.arrows.set(arrow.id, arrow);
+    this.broadcast({ type: S2C.ENTITY_SPAWN, entity: arrow.describe() });
+    this.swing(archer);
   }
 
   removeArrow(arrow) {
@@ -1346,6 +1383,12 @@ export class Game {
     const moved = [];
     for (const mob of this.mobs.values()) {
       const s = mob.state;
+      // Offscreen goblins stand still; the simulation moves them.
+      if (mob.goblin && this.goblins.frozen(mob)) {
+        if (mob.teleported) moved.push(mob);
+        mob.teleported = false;
+        continue;
+      }
       const before = `${s.x},${s.y},${s.z},${s.yaw},${mob.extraKey?.() ?? ''}`;
       const time = this.dayTime();
       const bitten = mob instanceof VoidEel
@@ -1414,12 +1457,12 @@ export class Game {
   }
 
   // Damage to anything a player can hit: a player, cow, dragon, Crawler, Eel or goblin.
-  hurt(target, amount, attacker) {
+  hurt(target, amount, attacker, cause = DEATH_CAUSE.PLAYER) {
     if (target.goblin) this.goblins.hurt(target, amount, attacker, attacker instanceof Player);
     else if (target instanceof Cow) this.hurtCow(target, amount, attacker);
     else if (target instanceof Dragon) this.hurtDragon(target, amount, attacker);
     else if (target instanceof Crawler || target instanceof VoidEel) this.hurtMob(target, amount, attacker);
-    else this.damage(target, amount, attacker);
+    else this.damage(target, amount, attacker, cause);
   }
 
   // A player's hit provokes it. A dead dragon drops iron, leather and Dragon Scales.
@@ -1826,10 +1869,11 @@ export class Game {
     this.updateContainers();
 
     const livingMobs = [...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()];
-    const crowdGrid = assignMobSteering(livingMobs);
+    // The totem never moves, and climbers aren't shoved off their ladders.
+    const crowdGrid = assignMobSteering(livingMobs.filter((mob) => !mob.fixed));
     const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateRiftOrbs(), ...this.updateCows(), ...this.updateDragons(),
       ...this.updateMobs()];
-    for (const mob of resolveMobOverlaps(this.world, livingMobs.filter((mob) => !mob.dead), crowdGrid)) {
+    for (const mob of resolveMobOverlaps(this.world, livingMobs.filter((mob) => !mob.dead && !mob.fixed && !mob.climbing), crowdGrid)) {
       if (!movedItems.includes(mob)) movedItems.push(mob);
     }
 

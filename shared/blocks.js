@@ -10,7 +10,7 @@
 //   breakTime    - seconds of holding the break button to mine it
 //   drops        - item id dropped when broken (default: the block's own id), or null
 //   shape        - null for a plain cube, or a name the mesher draws from boxes
-//                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil')
+//                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil', 'fence', 'sapling')
 //
 // Ladders and doors keep their state in the block id:
 //   ladder: LADDER + facing, where facing is the side of the cell it hangs on
@@ -62,6 +62,8 @@ export const BLOCK = {
   SNOW: 59,
   // Walls, floors and ceilings of the Goblin Fortress (shared/goblinModules.js).
   GOBLIN_BRICKS: 60,
+  // A low wooden fence (goblin tree plots, lookout railings).
+  FENCE: 61,
 };
 
 export function isWater(id) {
@@ -228,6 +230,8 @@ for (const id of FACED[BLOCK.ANVIL]) {
     color: 0x3b3d42, hardness: 2, breakTime: 2, tileEntity: 'anvil', shape: 'anvil', transparent: true, drops: BLOCK.ANVIL,
   });
 }
+// A post with rails toward neighbouring fences and solid blocks (mesher). Solid: it's jumped over.
+define(BLOCK.FENCE, 'fence', { color: 0x9a7248, breakTime: 0.6, shape: 'fence', transparent: true });
 define(BLOCK.SCORCHED_EARTH, 'scorched earth', { color: 0x3a2f29, breakTime: 0.5, drops: BLOCK.DIRT });
 
 // Rope breaks in one tick and leaves nothing behind.

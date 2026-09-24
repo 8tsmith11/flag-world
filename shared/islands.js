@@ -21,6 +21,12 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // Tiny islands hang a tapered, root-like stone underside about this many
 // radii deep below their surface.
 const TINY_ROOT_DEPTH = 0.6;
+// The central island's underside barely tapers (room for the Goblin
+// Fortress to spread, and steep cliff sides): at t of the radius it is
+// edge + (1 - edge) * (1 - t^power)^curve of full depth, so nearly full
+// through most of it and still `edge` of full depth at the rim.
+const CENTER_TAPER = { power: 6, curve: 0.6, edge: 0.55 };
+const centerTaper = (t) => CENTER_TAPER.edge + (1 - CENTER_TAPER.edge) * (1 - t ** CENTER_TAPER.power) ** CENTER_TAPER.curve;
 const tinyDepth = (radius) => 1.5 + radius * TINY_ROOT_DEPTH;
 
 function islandBounds(kind, radius, surfaceY) {
@@ -191,8 +197,9 @@ function terrainColumn(island, x, z, noise, detail) {
     + 0.3 * noise(x / 105 + 200, z / 105 + 200));
   const yTop = Math.round(island.surfaceY + biome.offset + hill * (1 - t * t));
   const jag = 0.78 + 0.32 * detail(x / 7 + 100, z / 7 + 100);
-  const depth = Math.round((12 + island.radius * 0.28 * (1 - t) ** 1.4
-    + (island.kind === 'center' ? CENTRAL_EXTRA_DEPTH * (1 - t) ** 1.3 : 0)) * jag);
+  const depth = Math.round((island.kind === 'center'
+    ? 12 + (island.radius * 0.28 + CENTRAL_EXTRA_DEPTH) * centerTaper(t)
+    : 12 + island.radius * 0.28 * (1 - t) ** 1.4) * jag);
   return { yTop, yBottom: yTop - depth, weights };
 }
 

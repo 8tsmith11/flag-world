@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CHUNK_SIZE } from '/shared/config.js';
-import { BLOCK, getBlockDef, ladderFacing, doorState, blockBase, isWater, waterLevel } from '/shared/blocks.js';
+import { BLOCK, getBlockDef, ladderFacing, doorState, blockBase, isWater, waterLevel, isSolid } from '/shared/blocks.js';
 import { ANVIL_PARTS } from './models.js';
 import { BIOME_SETTINGS } from '/shared/config.js';
 
@@ -302,6 +302,23 @@ const ROPE = [
 // in dark iron with a worn, lighter face (the same boxes as its item model).
 const ANVIL = ANVIL_PARTS.map(({ box, light }, i) => ({ box, color: light ? 0x5c5f66 : i % 2 ? 0x34363b : 0x3b3d42 }));
 
+// Fence: a post, with two rails out to each neighbouring fence or solid block.
+const FENCE_POST = { box: [0.375, 0, 0.375, 0.625, 1, 0.625] };
+const FENCE_RAILS = [[0, -1], [1, 0], [0, 1], [-1, 0]].map(([dx, dz]) => {
+  const x0 = dx < 0 ? 0 : dx > 0 ? 0.625 : 0.44, x1 = dx < 0 ? 0.375 : dx > 0 ? 1 : 0.56;
+  const z0 = dz < 0 ? 0 : dz > 0 ? 0.625 : 0.44, z1 = dz < 0 ? 0.375 : dz > 0 ? 1 : 0.56;
+  return { dx, dz, parts: [0.35, 0.75].map((y) => ({ box: [x0, y, z0, x1, y + 0.14, z1], color: 0x7e5a36 })) };
+});
+
+function fenceBoxes(world, x, y, z) {
+  const parts = [FENCE_POST];
+  for (const rail of FENCE_RAILS) {
+    const n = world.getBlock(x + rail.dx, y, z + rail.dz);
+    if (n === BLOCK.FENCE || (isSolid(n) && !getBlockDef(n).shape)) parts.push(...rail.parts);
+  }
+  return parts;
+}
+
 const SHAPES = { workbench: WORKBENCH, furnace: FURNACE, chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL };
 
 // [{ box, color }] for a shaped block, turned to its facing.
@@ -353,7 +370,7 @@ export function meshChunk(world, chunk) {
         const j = jitter(x, y, z);
         // Thin shapes (ladders, doors) are drawn whole; nothing culls them.
         if (def.shape) {
-          for (const part of shapeBoxes(id, def)) {
+          for (const part of def.shape === 'fence' ? fenceBoxes(world, x, y, z) : shapeBoxes(id, def)) {
             pushBox(opaque, part.box, x, y, z, part.color === undefined ? color : hexColor(part.color), j);
           }
           continue;

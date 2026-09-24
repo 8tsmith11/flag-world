@@ -1114,3 +1114,25 @@ body.frosted::after {
 #daytime.night .icon {
   color: #dfe6ff;
 }
+
+/* Creative-mode goblin inspector (goblinInspector.js). */
+#goblin-inspector {
+  position: fixed;
+  top: 50%;
+  left: calc(50% + 40px);
+  transform: translateY(-50%);
+  min-width: 250px;
+  padding: 10px 12px;
+  background: rgba(20, 26, 16, 0.86);
+  border: 1px solid #5f8a33;
+  border-radius: 6px;
+  color: #e6ecd8;
+  font: 13px/1.35 system-ui, sans-serif;
+  pointer-events: none;
+  z-index: 20;
+}
+#goblin-inspector .gi-title { font-weight: 700; color: #9dff5a; margin-bottom: 4px; }
+#goblin-inspector .gi-off { font-weight: 400; color: #f2d34a; font-size: 11px; margin-left: 6px; }
+#goblin-inspector .gi-section { margin-top: 6px; color: #b7c99a; font-weight: 600; }
+#goblin-inspector .gi-row { display: flex; justify-content: space-between; gap: 16px; }
+#goblin-inspector .gi-wide { display: block; }

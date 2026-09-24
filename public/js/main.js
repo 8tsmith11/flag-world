@@ -36,6 +36,7 @@ import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
 import { QuarryEffects } from './render/quarryEffects.js';
 import { GoblinEffects } from './render/goblinEffects.js';
+import { GoblinInspector } from './goblinInspector.js';
 import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
 import { Sounds } from './sounds.js';
@@ -90,6 +91,7 @@ const carryLabel = new Label(document.getElementById('carry'));
 const entities = new EntityRenderer(scene);
 const portals = new PortalRenderer(scene);
 const goblinEffects = new GoblinEffects(scene);
+const goblinInspector = new GoblinInspector();
 // The local player's grappling hook rope (remote players' are on their models).
 const grappleLine = new GrappleLine(scene);
 const sounds = new Sounds();
@@ -469,6 +471,7 @@ conn.on(S2C.DAMAGE, (msg) => {
 });
 
 conn.on(S2C.CHAT, (msg) => feed.add(msg.text, msg.kind === 'event' ? 'event' : ''));
+conn.on(S2C.GOBLIN_STATUS, (msg) => goblinInspector.setStatus(msg));
 conn.on(S2C.GOBLIN_TOTEM_DESTROYED, (msg) => goblinEffects.totemBurst(msg.x, msg.y, msg.z));
 
 conn.on(S2C.DEATH, (msg) => {
@@ -727,6 +730,11 @@ function frame(now) {
   const hit = playing ? raycastPlayers(camera.position, dir, combatBlock ? combatBlock.t : REACH_DISTANCE,
     entities.attackTargets(), (p) => playerBoxOf(p.state)) : null;
   targetPlayer = hit ? hit.player.id : null;
+  // Creative players inspecting the Goblin Totem.
+  const inspecting = playing && !!player?.state.creative && goblinInspector.status?.totemId != null;
+  const lookBlock = inspecting ? raycastBlock(world, camera.position, dir, 48, (id) => isTargetable(id) && !isWater(id)) : null;
+  goblinInspector.update(inspecting, inspecting ? entities.object(goblinInspector.status.totemId)?.position : null,
+    camera.position, dir, lookBlock?.t);
   // Only buckets target water. Other actions reach the block behind it.
   const bucket = heldItem() === ITEM.EMPTY_BUCKET || heldItem() === ITEM.WATER_BUCKET;
   target = hit ? null : bucket ? block : combatBlock;

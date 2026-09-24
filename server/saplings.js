@@ -1,16 +1,18 @@
 // Server-owned sapling timers. Only due timers are visited on each tick.
-import { TICK_RATE } from '../shared/config.js';
+import { TICK_RATE, SAPLING_GROW_TIME } from '../shared/config.js';
 import { BLOCK } from '../shared/blocks.js';
 import { canGrowTree, growTree } from '../shared/structures.js';
 
-const GROW_TICKS = 15 * TICK_RATE;
 const RETRY_TICKS = 5 * TICK_RATE;
 const TICK_BUDGET = 64;
 
 export class SaplingGrowth {
-  constructor(world, occupied = () => false) {
+  // growTime(x, y, z): seconds for the sapling there to grow (default: a
+  // random time in SAPLING_GROW_TIME).
+  constructor(world, occupied = () => false, growTime = null) {
     this.world = world;
     this.occupied = occupied;
+    this.growTime = growTime;
     this.scheduled = new Map();
     this.buckets = new Map();
   }
@@ -23,7 +25,9 @@ export class SaplingGrowth {
   }
 
   planted(x, y, z, tick) {
-    this.scheduleAt(x, y, z, tick + GROW_TICKS);
+    const [low, high] = SAPLING_GROW_TIME;
+    const seconds = this.growTime?.(x, y, z) ?? low + Math.random() * (high - low);
+    this.scheduleAt(x, y, z, tick + Math.max(1, Math.round(seconds * TICK_RATE)));
   }
 
   removed(x, y, z) {

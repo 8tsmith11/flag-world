@@ -24,6 +24,10 @@ export const VIEW_DISTANCE_MAX = 320;
 export const TICK_RATE = 20;
 export const TICK_DT = 1 / TICK_RATE;
 export const QUARRY_REGROW_TIME = 5;
+// Saplings: the chance breaking leaves drops one, and how long a planted one
+// takes to grow into a tree (seconds, a random time in this range).
+export const SAPLING_DROP_CHANCE = 0.1;
+export const SAPLING_GROW_TIME = [180, 300];
 
 // Player physics (blocks, seconds).
 export const PLAYER_WIDTH = 0.6;

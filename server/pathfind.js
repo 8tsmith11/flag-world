@@ -1,7 +1,7 @@
 // A small A* for walking mobs. Nodes are standing spots: integer (x, y, z)
 // where the mob's feet are at y, the block below is solid, and it's clear
 // `height` blocks up (no water: mobs keep out of ponds). Moves go to the 8
-// neighbours, stepping up or down at most one block; diagonals need both
+// neighbours, stepping up one block or down at most maxDrop (default one); diagonals need both
 // straight neighbours open so paths don't cut corners.
 //
 // The search stops after maxNodes. If the goal wasn't reached it returns the
@@ -66,7 +66,9 @@ const key = (x, y, z) => (y * 2048 + z) * 2048 + x;
 // Path of standing spots from `start` (integer {x, y, z}, where the mob
 // stands) toward the column (goal.x, goal.z): [{x, y, z}, ...] not including
 // the start, or [] if it can't move at all.
-export function findPath(world, start, goal, { height = 2, maxNodes = 600 } = {}) {
+export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDrop = 1 } = {}) {
+  const steps = [0, 1];
+  for (let d = 1; d <= maxDrop; d++) steps.push(-d);
   const h = (x, z) => Math.hypot(goal.x - x, goal.z - z);
   const nodes = new Map();
   const heap = new Heap();
@@ -92,7 +94,7 @@ export function findPath(world, start, goal, { height = 2, maxNodes = 600 } = {}
       const nx = node.x + dx, nz = node.z + dz;
       // Same level, one up (with headroom to jump), or one down.
       let ny = null;
-      for (const dy of [0, 1, -1]) {
+      for (const dy of steps) {
         if (dy === 1 && !canStand(world, node.x, node.y, node.z, height + 1)) continue;
         if (canStand(world, nx, node.y + dy, nz, height)) {
           ny = node.y + dy;

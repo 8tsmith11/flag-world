@@ -63,7 +63,8 @@ defineItem(ITEM.DRAGON_SCALE, 'dragon scale', { shape: 'scale', color: 0x7a2f2c 
 // Dropped by Crawlers. No use yet.
 defineItem(ITEM.SILK, 'silk', { shape: 'silk', color: 0xeeeae0 });
 defineItem(ITEM.GLIDER, 'glider', { maxStack: 1, shape: 'glider', color: 0x9b5e2f });
-defineItem(ITEM.TREE_SEED, 'tree seeds', { places: 'sapling', shape: 'seed', color: 0x65a84b });
+// Dropped by leaves; planted on grass or dirt, it grows into a tree.
+defineItem(ITEM.TREE_SEED, 'sapling', { places: 'sapling', shape: 'seed', color: 0x65a84b });
 defineItem(ITEM.LADDER, 'ladder', { places: 'ladder', color: getBlockDef(ladderBlock(0)).color });
 defineItem(ITEM.DOOR, 'door', { places: 'door', color: getBlockDef(doorBlock(0, false, false)).color });
 for (const [id, accessory] of Object.entries(ACCESSORIES)) {

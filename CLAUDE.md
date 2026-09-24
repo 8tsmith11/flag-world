@@ -83,14 +83,23 @@ including the host, plays by opening `http://<host-ip>:3000`.
   attacker until they lose sight of them for `PROVOKE_FORGET_TIME`. Worldgen
   picks Crawler spawn points (`world.mobSpawns`) and roosts (`world.roosts`).
 - Goblins: the Goblin Fortress is modules on a cell grid, all data in
-  `shared/goblinModules.js` (types, `addModule`, `connectModules`,
-  `autoConnect`, starting layout) and placed by `shared/goblinFortressGen.js`
+  `shared/goblinModules.js` (module types, `registerModule`/`moduleBlocks`,
+  `planConnection`, starting layout, surface templates: gatehouse, hut,
+  longhouse, lookout, tree plot) and placed by `shared/goblinFortressGen.js`
   inside the central island before caves (which avoid it). The graph lives in
-  `world.goblinFortress`. Every goblin number is in `shared/goblins.js`.
-  `server/goblins.js` (GoblinController) spawns the Totem, King and Workers
-  into `Game.mobs` and owns totem storage, respawns and crowding; mob classes
-  are in `server/goblin.js`, graph + local A* routing in `server/goblinNav.js`.
-  Client models share one base goblin (`render/goblinModels.js`, `GOBLIN_LOOKS`).
+  `world.goblinFortress`. Every goblin number is in `shared/goblins.js`
+  (`goblinTimeScale` speeds up all goblin timers for testing).
+  `server/goblins.js` (GoblinController) spawns the Totem, King and colony
+  into `Game.mobs` and owns storage, population, the project queue, repairs
+  (`intended` blocks vs. `blockChanged`), entrances and surfacing groups;
+  projects are block task lists planned in `server/goblinProjects.js`, done by
+  the mobs in `server/goblin.js` (Worker digs, Builder places, Soldier/Archer
+  guard), routed by `server/goblinNav.js` (module graph, shaft ladders,
+  surface A*). With no player near, `server/goblinOffscreen.js` advances the
+  same tasks at estimated rates. Goblin block changes go through
+  `controller.setBlock` so they aren't taken for damage. Client models share
+  one base goblin (`render/goblinModels.js`, `GOBLIN_LOOKS`); creative players
+  get `goblinStatus` for the totem inspector (`goblinInspector.js`).
 - Day/night is visual only: the server sends `dayTime` in `welcome`, clients
   run the clock from `state` ticks and `render/sky.js` lights the scene.
 - Breaking a block needs the held item's tool strength (bare hands are
@@ -135,9 +144,11 @@ server/
   dragon.js                  Dragons: patrol, landing, leash, fire breath
   crawler.js                 Crawlers: wandering, hunting, wall climbing, bites
   eel.js                     Void Eels: patrol under an island, chase exposed players
-  goblins.js                 Goblin Fortress controller: spawns, totem storage, respawns, crowding, goblin damage
-  goblin.js                  Goblin Totem, Goblin King and Goblin Worker mobs
-  goblinNav.js               Goblin routing over the fortress module graph, ladder climbing
+  goblins.js                 Goblin Fortress controller: storage, population, projects, repairs, entrances, damage
+  goblin.js                  Goblin Totem, King, Worker, Builder, Soldier and Archer mobs
+  goblinProjects.js          Goblin projects as block tasks: sites and planners for shafts, modules, buildings
+  goblinOffscreen.js         Offscreen goblin simulation (estimated work rates)
+  goblinNav.js               Goblin routing: module graph, shaft ladders, surface A*
   provocation.js             Shared grudge (provoked target) and line-of-sight test
   flag.js                    A player's flag: home / carried / dropped / captured
   containers.js              Chest and furnace tile entities: slots, shift-click, smelting
@@ -153,8 +164,8 @@ shared/                      Runs on server and client
   worldgen.js                World sizes config, seed parsing, generateWorld, the Test world
   islands.js                 Floating-island world gen (center, middle ring, outer scatter, bridges)
   structures.js              Keeps, sand shores, trees, seeded PRNG shared by the generators
-  goblins.js                 Goblin tuning (fortress placement, totem, King, Workers)
-  goblinModules.js           Fortress module types, grid, building and connecting modules, starting layout
+  goblins.js                 Goblin tuning (placement, colony, projects, caps, offscreen), goblinTimeScale
+  goblinModules.js           Fortress module types, grid, module/connection blocks, starting layout, surface templates
   goblinFortressGen.js       Places and builds the starting fortress in the central island
   physics.js                 Deterministic player/item movement and voxel collision
   raycast.js                 Voxel raycast (crosshair block) and ray/box tests (punch targets)
@@ -170,6 +181,7 @@ public/
     itemIcon.js              DOM item icons for the hotbar and inventory
     inventoryScreen.js       Inventory / workbench / furnace / chest screen: slots, cursor, recipes, preview
     hud.js                   Health bar, kill feed, flag grab bar, notifications
+    goblinInspector.js       Creative-mode Goblin Totem inspector panel
     lobby.js                 Lobby and match-in-progress screens, remembered name
     spectator.js             Free-fly camera for eliminated players
     localPlayer.js           Client-side prediction and reconciliation
@@ -186,7 +198,7 @@ public/
       blockHighlight.js      Targeted block outline and break progress overlay
       flagRenderer.js        Flags, carried flags on backs, light beams, return puffs
       grappleLine.js         Grappling hook rope and hook head while a pull is on
-      goblinModels.js        Base goblin model (Worker, King gear) and the Goblin Totem
+      goblinModels.js        Base goblin model (Worker, Builder, Soldier, Archer, King gear) and the Goblin Totem
       goblinEffects.js       Goblin Totem destruction burst
 scripts/
   check.js                   `npm run check`
