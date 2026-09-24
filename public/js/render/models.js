@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { PLAYER_HEIGHT } from '/shared/config.js';
 import { getItemDef } from '/shared/items.js';
+import { getBlockDef } from '/shared/blocks.js';
 import { ITEM } from '/shared/itemIds.js';
 
 const BODY_RADIUS = 0.26;
@@ -29,6 +30,9 @@ const CROUCH_LEAN = 0.35;
 const CROUCH_EASE = 12;
 // Shoulder angle holding a drawn bow out in front (arm level).
 const BOW_AIM = Math.PI / 2;
+const FROST_FLAKES = 14;
+// Seconds for a frost flake to drift from head to feet.
+const FROST_FALL_TIME = 1.4;
 
 function lambert(color) {
   return new THREE.MeshLambertMaterial({ color });
@@ -84,7 +88,7 @@ function rod(a, b, thickness, material) {
   return mesh;
 }
 
-function placeRod(mesh, a, b, dir = new THREE.Vector3().subVectors(b, a)) {
+export function placeRod(mesh, a, b, dir = new THREE.Vector3().subVectors(b, a)) {
   mesh.position.addVectors(a, b).multiplyScalar(0.5);
   mesh.scale.set(1, Math.max(dir.length(), 1e-4), 1);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
@@ -113,8 +117,164 @@ function createBow(color) {
   return group;
 }
 
-// Pulls a bow model's string back by `amount` (0..1) and nocks an arrow.
+// A Wind Axe standing on its handle: a pale double-bitted head with swept
+// blades, and a ring of wind curling around it.
+function createWindAxe(color) {
+  const group = new THREE.Group();
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.034, 0.56, 8), lambert(0x7b6a55));
+  handle.position.y = 0.28;
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.1, 8), lambert(0xe6f6f8));
+  collar.position.y = 0.5;
+  group.add(handle, collar);
+  const blade = lambert(color);
+  for (const side of [-1, 1]) {
+    // Each bit flares from the collar out to a tall, curved edge.
+    const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.035), blade);
+    cheek.position.set(side * 0.08, 0.5, 0);
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.26, 0.025), blade);
+    edge.position.set(side * 0.16, 0.5, 0);
+    edge.rotation.z = side * 0.18;
+    group.add(cheek, edge);
+  }
+  const swirl = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.012, 5, 20, Math.PI * 1.5),
+    new THREE.MeshBasicMaterial({ color: 0xf2fdff, transparent: true, opacity: 0.7 }));
+  swirl.rotation.x = Math.PI / 2;
+  swirl.position.y = 0.5;
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.1, 6), lambert(0xe6f6f8));
+  tip.position.y = 0.61;
+  group.add(swirl, tip);
+  return group;
+}
+
+// An Ice Sword standing on its pommel: a frosty crystal guard and a
+// translucent faceted blade tapering to a point.
+function createIceSword(color) {
+  const group = new THREE.Group();
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), lambert(0x33506b));
+  grip.position.y = 0.07;
+  const pommel = new THREE.Mesh(new THREE.OctahedronGeometry(0.04), lambert(0xdff6ff));
+  const guard = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), lambert(0xc6ecfb));
+  guard.scale.set(1.2, 0.35, 0.5);
+  guard.position.y = 0.16;
+  const ice = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.82 });
+  // Four radial segments make a diamond cross-section.
+  const blade = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.055, 0.46, 4), ice);
+  blade.scale.z = 0.4;
+  blade.position.y = 0.41;
+  const point = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.12, 4), ice);
+  point.scale.z = 0.4;
+  point.position.y = 0.7;
+  const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.035), lambert(0xffffff));
+  shard.position.set(0.05, 0.22, 0);
+  group.add(grip, pommel, guard, blade, point, shard);
+  return group;
+}
+
+// A crossbow in the hand's frame like the bow: the stock runs along Y (butt
+// toward the archer at +Y, the shot going forward, -Y), the limbs cross it at
+// the front along X, bending back, with the string between their tips.
+// userData.crossbow lets setBowDraw pull the string and show the bolt.
+const CROSSBOW_FRONT = -0.3;
+const CROSSBOW_TIP = new THREE.Vector3(0.3, CROSSBOW_FRONT + 0.08, 0.04);
+const CROSSBOW_PULL = 0.2;
+function createCrossbow(color) {
+  const group = new THREE.Group();
+  const wood = lambert(color), iron = lambert(0x8c8c8c);
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.5, 0.07), wood);
+  stock.position.set(0, -0.08, 0.03);
+  const butt = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.13), wood);
+  butt.position.set(0, 0.18, 0);
+  const trigger = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.07), iron);
+  trigger.position.set(0, 0.05, -0.04);
+  const center = new THREE.Vector3(0, CROSSBOW_FRONT, 0.04);
+  const left = CROSSBOW_TIP.clone().setX(-CROSSBOW_TIP.x);
+  group.add(stock, butt, trigger, rod(center, CROSSBOW_TIP, 0.035, iron), rod(center, left, 0.035, iron));
+  const stringMaterial = lambert(0xe8e2d0);
+  const rest = new THREE.Vector3(0, CROSSBOW_TIP.y, CROSSBOW_TIP.z);
+  const right = rod(CROSSBOW_TIP, rest, 0.012, stringMaterial);
+  const leftString = rod(left, rest, 0.012, stringMaterial);
+  const bolt = createArrowModel();
+  bolt.scale.set(1, 1, 0.55);
+  bolt.visible = false;
+  group.add(right, leftString, bolt);
+  group.userData.crossbow = { right, leftString, bolt, tip: CROSSBOW_TIP, left };
+  return group;
+}
+
+const ROPE_COLOR = 0xb89a62;
+
+// A grappling hook head: a shaft with three curved prongs, pointing along +Y.
+export function createHookHead() {
+  const group = new THREE.Group();
+  const iron = lambert(0x8d9299);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.2, 6), iron);
+  shaft.position.y = 0.1;
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.07, 6), iron);
+  tip.position.y = 0.23;
+  group.add(shaft, tip);
+  for (let i = 0; i < 3; i++) {
+    const angle = i * Math.PI * 2 / 3;
+    const prong = new THREE.Group();
+    prong.rotation.y = angle;
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.1, 0.025), iron);
+    arm.position.set(0.045, 0.06, 0);
+    arm.rotation.z = -0.9;
+    const barb = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.06, 5), iron);
+    barb.position.set(0.09, 0.12, 0);
+    prong.add(arm, barb);
+    group.add(prong);
+  }
+  return group;
+}
+
+// A grappling hook standing on its grip: a launcher barrel wrapped in a coil
+// of rope, with the hook head seated in its muzzle.
+function createGrapplingHook(color) {
+  const group = new THREE.Group();
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.06), lambert(0x4a3524));
+  grip.position.y = 0.07;
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.3, 10), lambert(color));
+  barrel.position.y = 0.28;
+  const coil = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.02, 6, 14), lambert(ROPE_COLOR));
+  coil.rotation.x = Math.PI / 2;
+  coil.position.y = 0.24;
+  const coil2 = coil.clone();
+  coil2.position.y = 0.29;
+  const head = createHookHead();
+  head.position.y = 0.42;
+  group.add(grip, barrel, coil, coil2, head);
+  return group;
+}
+
+// A bundle of rope: a few stacked coils with a tie around them.
+function createRopeBundle(color, size) {
+  const group = new THREE.Group();
+  const rope = lambert(color);
+  for (let i = 0; i < 3; i++) {
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(size * 0.38, size * 0.11, 6, 14), rope);
+    coil.rotation.x = Math.PI / 2;
+    coil.position.y = size * (0.12 + i * 0.2);
+    group.add(coil);
+  }
+  const tie = new THREE.Mesh(new THREE.BoxGeometry(size * 0.12, size * 0.7, size * 0.95), lambert(0x7a5a33));
+  tie.position.y = size * 0.32;
+  group.add(tie);
+  return group;
+}
+
+// Pulls a bow model's string back by `amount` (0..1) and nocks an arrow. For a
+// crossbow, `amount` is how far it's loaded; the bolt shows once it's loaded.
 export function setBowDraw(model, amount) {
+  const crossbow = model?.userData.crossbow;
+  if (crossbow) {
+    const nock = new THREE.Vector3(0, CROSSBOW_TIP.y + CROSSBOW_PULL * amount, CROSSBOW_TIP.z);
+    placeRod(crossbow.right, crossbow.tip, nock);
+    placeRod(crossbow.leftString, crossbow.left, nock);
+    crossbow.bolt.visible = amount >= 1;
+    crossbow.bolt.position.set(0, nock.y, 0.08);
+    crossbow.bolt.rotation.set(Math.PI / 2, 0, 0);
+    return;
+  }
   const bow = model?.userData.bow;
   if (!bow) return;
   const nock = new THREE.Vector3(0, BOW_TIP.y + BOW_PULL * amount, 0);
@@ -285,6 +445,207 @@ export function animateDragon(model, dt, breathing, walking, aimYaw = 0, aimPitc
   if (breathing) dragon.flame.scale.setScalar(0.94 + Math.sin(dragon.phase * 3) * 0.06);
 }
 
+// A Crawler, facing -Z: a low, wide body and abdomen, a small head with red
+// eyes, and eight legs (two jointed segments each) that step as it walks.
+// userData.crawler.climb tips the whole model up a wall.
+export function createCrawlerModel() {
+  const group = new THREE.Group();
+  const body = new THREE.Group();
+  group.add(body);
+  const shell = lambert(0x2b2622), dark = lambert(0x1a1715);
+  const thorax = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), shell);
+  thorax.scale.set(0.34, 0.2, 0.3);
+  thorax.position.set(0, 0.4, -0.05);
+  const abdomen = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), shell);
+  abdomen.scale.set(0.42, 0.28, 0.5);
+  abdomen.position.set(0, 0.45, 0.6);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 0.6), lambert(0x7a2a24));
+  stripe.position.set(0, 0.73, 0.6);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), dark);
+  head.scale.set(0.2, 0.16, 0.18);
+  head.position.set(0, 0.4, -0.38);
+  body.add(thorax, abdomen, stripe, head);
+  const eye = new THREE.MeshBasicMaterial({ color: 0xff3a2a });
+  for (const [x, y] of [[-0.08, 0.47], [0.08, 0.47], [-0.04, 0.52], [0.04, 0.52]]) {
+    const e = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.02), eye);
+    e.position.set(x, y, -0.55);
+    body.add(e);
+  }
+  const legs = [];
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      // Hip on the thorax; the upper segment reaches up and out, the lower down to the ground.
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.22, 0.42, -0.25 + i * 0.13);
+      hip.rotation.y = side * (-0.6 + i * 0.4);
+      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.05), dark);
+      upper.position.set(side * 0.19, 0.12, 0);
+      upper.rotation.z = side * 0.55;
+      const knee = new THREE.Group();
+      knee.position.set(side * 0.38, 0.23, 0);
+      const lower = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.62, 0.05), dark);
+      lower.position.set(side * 0.08, -0.3, 0);
+      lower.rotation.z = side * 0.25;
+      knee.add(lower);
+      hip.add(upper, knee);
+      body.add(hip);
+      legs.push({ hip, side, index: i, rest: hip.rotation.y });
+    }
+  }
+  group.userData.crawler = { body, legs, phase: 0, climb: 0 };
+  return group;
+}
+
+// Per frame: legs step in alternating sets of four; climbing tips it up.
+export function animateCrawler(model, dt, speed, climbing) {
+  const c = model.userData.crawler;
+  const walk = Math.min(1, speed / 3);
+  if (walk > 0.05 || climbing) c.phase += dt * 14;
+  for (const leg of c.legs) {
+    const alternate = (leg.index + (leg.side > 0 ? 1 : 0)) % 2 ? 1 : -1;
+    const swing = Math.sin(c.phase) * alternate * (climbing ? 1 : walk);
+    leg.hip.rotation.y = leg.rest + swing * 0.35;
+    leg.hip.rotation.z = Math.max(0, -swing) * 0.3 * leg.side;
+  }
+  c.climb += ((climbing ? 1 : 0) - c.climb) * Math.min(1, dt * 8);
+  c.body.rotation.x = c.climb * Math.PI * 0.42;
+  c.body.position.y = c.climb * 0.3;
+}
+
+// A Void Eel: a head (the entity's position) and a chain of shrinking body
+// segments that trail along the path the head swam, undulating side to side.
+// The group itself isn't turned; animateEel places everything in world space
+// relative to the head.
+const EEL_SEGMENTS = 14;
+const EEL_SPACING = 0.55;
+export function createEelModel() {
+  const group = new THREE.Group();
+  const skin = lambert(0x2c2447), belly = lambert(0x6b4e9e), glow = new THREE.MeshBasicMaterial({ color: 0x9be7ff });
+  const head = new THREE.Group();
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), skin);
+  skull.scale.set(0.42, 0.34, 0.62);
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.6), belly);
+  jaw.position.set(0, -0.2, -0.25);
+  head.add(skull, jaw);
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), glow);
+    eye.position.set(side * 0.24, 0.1, -0.42);
+    const fin = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.35, 4), belly);
+    fin.position.set(side * 0.3, 0.18, 0.2);
+    fin.rotation.z = -side * 1.1;
+    head.add(eye, fin);
+  }
+  head.position.y = 0.4;
+  group.add(head);
+  const segments = [];
+  for (let i = 0; i < EEL_SEGMENTS; i++) {
+    const t = i / EEL_SEGMENTS;
+    const segment = new THREE.Mesh(new THREE.SphereGeometry(0.36 * (1 - t * 0.75), 10, 7), i % 2 ? skin : belly);
+    segment.scale.z = 1.4;
+    group.add(segment);
+    segments.push(segment);
+  }
+  group.userData.eel = { head, segments, trail: [], time: Math.random() * 10 };
+  return group;
+}
+
+// Per frame, with the head's world position (the group's position), yaw and pitch.
+export function animateEel(model, dt, yaw, pitch) {
+  const eel = model.userData.eel;
+  eel.time += dt;
+  const p = model.position;
+  const head = new THREE.Vector3(p.x, p.y + 0.4, p.z);
+  const trail = eel.trail;
+  // Seed the trail straight out behind the head the first time.
+  if (!trail.length) {
+    const back = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    for (let i = 0; i <= EEL_SEGMENTS + 1; i++) trail.push(head.clone().addScaledVector(back, i * EEL_SPACING));
+  }
+  if (trail[0].distanceTo(head) > 0.05) trail.unshift(head.clone());
+  // Keep only as much trail as the body covers.
+  let length = 0;
+  for (let i = 1; i < trail.length; i++) {
+    length += trail[i].distanceTo(trail[i - 1]);
+    if (length > (EEL_SEGMENTS + 2) * EEL_SPACING) { trail.length = i + 1; break; }
+  }
+  eel.head.rotation.set(pitch, yaw, 0, 'YXZ');
+  // Each segment sits at its distance along the trail, swaying across it.
+  let walked = 0, index = 1;
+  let previous = head;
+  eel.segments.forEach((segment, i) => {
+    const want = (i + 1) * EEL_SPACING;
+    while (index < trail.length - 1 && walked + trail[index].distanceTo(trail[index - 1]) < want) {
+      walked += trail[index].distanceTo(trail[index - 1]);
+      index++;
+    }
+    const a = trail[index - 1], b = trail[Math.min(index, trail.length - 1)];
+    const span = a.distanceTo(b) || 1;
+    const point = a.clone().lerp(b, Math.min(1, (want - walked) / span));
+    const along = previous.clone().sub(point).normalize();
+    const across = new THREE.Vector3(-along.z, 0, along.x).normalize();
+    point.addScaledVector(across, Math.sin(eel.time * 2.2 - i * 0.6) * 0.18 * (0.3 + i / EEL_SEGMENTS));
+    segment.position.copy(point).sub(p);
+    if (along.lengthSq() > 0) segment.lookAt(p.x + segment.position.x + along.x, p.y + segment.position.y + along.y,
+      p.z + segment.position.z + along.z);
+    previous = point;
+  });
+}
+
+// An anvil, facing -Z with its horn toward +X: a wide base, a narrow waist
+// and a flat face with a horn at one end, in dark iron.
+export function createAnvilModel(size = 1) {
+  const group = new THREE.Group();
+  const iron = lambert(0x3b3d42), edge = lambert(0x55585f);
+  for (const { box, material } of ANVIL_PARTS.map((part) => ({ ...part, material: part.light ? edge : iron }))) {
+    const [x0, y0, z0, x1, y1, z1] = box;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry((x1 - x0) * size, (y1 - y0) * size, (z1 - z0) * size), material);
+    mesh.position.set(((x0 + x1) / 2 - 0.5) * size, ((y0 + y1) / 2) * size, ((z0 + z1) / 2 - 0.5) * size);
+    group.add(mesh);
+  }
+  return group;
+}
+// The same boxes as the mesher's anvil block (unit cell, facing north).
+export const ANVIL_PARTS = [
+  { box: [0.12, 0, 0.2, 0.88, 0.14, 0.8] },
+  { box: [0.22, 0.14, 0.3, 0.78, 0.26, 0.7] },
+  { box: [0.35, 0.26, 0.38, 0.65, 0.58, 0.62] },
+  { box: [0.14, 0.58, 0.28, 0.8, 0.9, 0.72] },
+  { box: [0.14, 0.88, 0.28, 0.8, 0.92, 0.72], light: true },
+  { box: [0.8, 0.64, 0.36, 0.92, 0.88, 0.64] },
+  { box: [0.92, 0.7, 0.42, 1, 0.84, 0.58] },
+];
+
+// Dark overlapping scales for Dragonscale Armor, made once on first use.
+let scaleTexture = null;
+function dragonScaleTexture() {
+  if (scaleTexture || typeof document === 'undefined') return scaleTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1d1519';
+  ctx.fillRect(0, 0, 64, 64);
+  for (let row = 0; row < 9; row++) {
+    for (let col = -1; col < 9; col++) {
+      const x = col * 8 + (row % 2) * 4, y = row * 7;
+      const g = ctx.createLinearGradient(x, y, x, y + 8);
+      g.addColorStop(0, '#6e2f36');
+      g.addColorStop(1, '#2a1c22');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x + 4, y + 2, 4.2, 0, Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.stroke();
+    }
+  }
+  scaleTexture = new THREE.CanvasTexture(canvas);
+  scaleTexture.wrapS = scaleTexture.wrapT = THREE.RepeatWrapping;
+  scaleTexture.repeat.set(3, 3);
+  scaleTexture.magFilter = THREE.NearestFilter;
+  scaleTexture.colorSpace = THREE.SRGBColorSpace;
+  return scaleTexture;
+}
+
 // A small flat ladder (two rails, three rungs) or door, standing on its base.
 function createFlatItem(kind, color, size) {
   const group = new THREE.Group();
@@ -311,6 +672,27 @@ export function createItemModel(item, blockSize = 0.25) {
   if (def.tool === 'hammer') return createHammer(def.color);
   if (def.tool === 'sword') return createSword(def.color);
   if (def.tool === 'bow') return createBow(def.color);
+  if (def.tool === 'windAxe') return createWindAxe(def.color);
+  if (def.tool === 'iceSword') return createIceSword(def.color);
+  if (def.tool === 'crossbow') return createCrossbow(def.color);
+  if (def.tool === 'grapple') return createGrapplingHook(def.color);
+  if (def.shape === 'rope') return createRopeBundle(def.color, blockSize);
+  if (def.block !== null && getBlockDef(def.block).shape === 'anvil') {
+    const group = new THREE.Group();
+    const anvil = createAnvilModel(blockSize * 1.3);
+    group.add(anvil);
+    return group;
+  }
+  if (def.shape === 'scale' || def.shape === 'silk') {
+    const group = new THREE.Group();
+    const mesh = def.shape === 'scale'
+      ? new THREE.Mesh(new THREE.CylinderGeometry(blockSize * 0.5, blockSize * 0.5, blockSize * 0.12, 6), lambert(def.color))
+      : new THREE.Mesh(new THREE.SphereGeometry(blockSize * 0.4, 8, 6), lambert(def.color));
+    mesh.position.y = blockSize * 0.25;
+    if (def.shape === 'silk') mesh.scale.set(1, 0.7, 1.3);
+    group.add(mesh);
+    return group;
+  }
   if (def.shape === 'seed') {
     const group = new THREE.Group();
     const seed = new THREE.Mesh(new THREE.SphereGeometry(blockSize * 0.38, 7, 5), lambert(0x8b6637));
@@ -366,7 +748,7 @@ export function setHandItem(hand, item) {
   // not its side, faces the way it swings. Blocks just sit in the fist.
   const tool = getItemDef(item).tool;
   if (tool === 'hammer') model.rotation.set(-Math.PI / 2, Math.PI / 2, 0);
-  else if (tool === 'bow') model.position.set(0, -0.02, 0); // built in the hand's frame already
+  else if (tool === 'bow' || tool === 'crossbow') model.position.set(0, -0.02, 0); // built in the hand's frame already
   else if (tool) model.rotation.x = -Math.PI / 2;
   else model.position.set(0, -0.1, -0.05);
   hand.add(model);
@@ -458,8 +840,20 @@ export function createPlayerModel({ color }) {
   ember.position.set(0, 0.84, -BODY_RADIUS - 0.08);
   addAccessory(ITEM.EMBER_HEART, ember);
 
+  // Frost: flakes drifting down around the body while an Ice Sword slows them.
+  const frost = new THREE.Group();
+  const flakeMaterial = new THREE.MeshBasicMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.85 });
+  const flakeGeometry = new THREE.OctahedronGeometry(0.045);
+  for (let i = 0; i < FROST_FLAKES; i++) {
+    const flake = new THREE.Mesh(flakeGeometry, flakeMaterial);
+    flake.userData.flake = { angle: i * 2.4, radius: 0.35 + (i % 3) * 0.08, phase: i / FROST_FLAKES };
+    frost.add(flake);
+  }
+  frost.visible = false;
+  group.add(frost);
+
   group.userData.player = { torso, head, shoulder, hand, armorParts: [chest, helmet, sleeve], armorMaterial, glider,
-    accessoryParts, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
+    accessoryParts, frost, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
   return group;
 }
 
@@ -475,11 +869,31 @@ export function handItem(hand) {
 // Per frame. speed: horizontal blocks/s; pitch: look pitch; crouching: squash
 // and lean; draw: how far a bow is drawn (0..1), which raises the arm forward.
 export function animatePlayer(model, { dt, speed, pitch, held, armor = null, accessory = null,
-  crouching = false, draw = 0, gliding = false }) {
+  crouching = false, draw = 0, gliding = false, slowed = false }) {
   const p = model.userData.player;
   p.glider.visible = gliding;
+  p.frost.visible = slowed;
+  if (slowed) {
+    // Flakes spiral down from above the head and start over at the top.
+    const time = performance.now() / 1000;
+    for (const flake of p.frost.children) {
+      const f = flake.userData.flake;
+      const t = (time / FROST_FALL_TIME + f.phase) % 1;
+      const angle = f.angle + time * 1.5;
+      flake.position.set(Math.cos(angle) * f.radius, PLAYER_HEIGHT * (1.05 - t), Math.sin(angle) * f.radius);
+      flake.rotation.set(time * 2 + f.angle, time * 3, 0);
+    }
+  }
   p.armorParts.forEach((part) => { part.visible = armor !== null; });
-  if (armor !== null) p.armorMaterial.color.setHex(getItemDef(armor).color);
+  if (armor !== null) {
+    // Dragonscale's pieces are textured with scales; the rest are plain colors.
+    const map = getItemDef(armor).texture === 'scales' ? dragonScaleTexture() : null;
+    if (p.armorMaterial.map !== map) {
+      p.armorMaterial.map = map;
+      p.armorMaterial.needsUpdate = true;
+    }
+    p.armorMaterial.color.setHex(map ? 0xffffff : getItemDef(armor).color);
+  }
   for (const [item, part] of p.accessoryParts) part.visible = item === accessory;
   p.crouch += ((crouching ? 1 : 0) - p.crouch) * Math.min(1, dt * CROUCH_EASE);
   p.torso.scale.y = 1 - CROUCH_SQUASH * p.crouch;

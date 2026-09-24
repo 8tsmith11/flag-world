@@ -1,6 +1,6 @@
 // Blocks with their own inventory, kept by the server as tile entities in
 // world.tileEntities ("x,y,z" -> container). Every container has:
-//   kind         'furnace' or 'chest' (the block's tileEntity)
+//   kind         'furnace', 'chest' or 'anvil' (the block's tileEntity)
 //   slots        its stacks (null = empty)
 //   click()      an inventory-screen click on one of its slots
 //   insert()     shift-click from the player's inventory: take what fits
@@ -14,17 +14,19 @@ import { TICK_RATE, SMELT_TIME } from '../shared/config.js';
 import { SMELTING, FUEL } from '../shared/recipes.js';
 import { clickSlot, maxStack } from './inventory.js';
 import { rollLoot } from '../shared/loot.js';
+import { canHaveMods, rollMods, sameKind } from '../shared/modifiers.js';
 
 // Moves as much of `stack` as fits into slots[index] (empty, or the same item
 // with room). Returns whether anything moved.
+// A modded stack only goes into an empty slot, modifiers and all.
 function mergeInto(slots, index, stack) {
   const target = slots[index];
-  if (target && target.item !== stack.item) return false;
+  if (target && !sameKind(target, stack)) return false;
   const room = maxStack(stack.item) - (target ? target.count : 0);
   const n = Math.min(room, stack.count);
   if (n <= 0) return false;
   if (target) target.count += n;
-  else slots[index] = { item: stack.item, count: n };
+  else slots[index] = stack.mods?.length ? { item: stack.item, count: n, mods: stack.mods } : { item: stack.item, count: n };
   stack.count -= n;
   return true;
 }
@@ -163,8 +165,51 @@ export class Furnace {
   }
 }
 
+// Anvil: one slot, for a moddable item only. reroll() gives it a fresh roll
+// of modifiers (the game charges the cost). Anyone at the anvil sees the
+// same slot, like a chest.
+const ANVIL_SLOT = { accepts: canHaveMods };
+
+export class Anvil {
+  constructor() {
+    this.kind = 'anvil';
+    this.slots = [null];
+  }
+
+  click(slot, button, holder) {
+    return clickSlot(this.slots, slot, holder, button, ANVIL_SLOT);
+  }
+
+  insert(stack) {
+    return canHaveMods(stack.item) && mergeInto(this.slots, 0, stack);
+  }
+
+  // Replaces the item's modifiers with a new roll; false with nothing to reroll.
+  reroll(random = Math.random) {
+    const stack = this.slots[0];
+    if (!stack || !canHaveMods(stack.item)) return false;
+    stack.mods = rollMods(stack.item, random);
+    return true;
+  }
+
+  tick() {
+    return false;
+  }
+
+  view() {
+    return { kind: this.kind, slots: this.slots };
+  }
+
+  takeAll() {
+    const stacks = this.slots.filter(Boolean);
+    this.slots = [null];
+    return stacks;
+  }
+}
+
 export function createContainer(kind) {
   if (kind === 'furnace') return new Furnace();
   if (kind === 'chest') return new Chest();
+  if (kind === 'anvil') return new Anvil();
   return null;
 }

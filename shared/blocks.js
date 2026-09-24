@@ -10,18 +10,18 @@
 //   breakTime    - seconds of holding the break button to mine it
 //   drops        - item id dropped when broken (default: the block's own id), or null
 //   shape        - null for a plain cube, or a name the mesher draws from boxes
-//                  ('ladder', 'door', 'workbench', 'furnace', 'chest')
+//                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil')
 //
 // Ladders and doors keep their state in the block id:
 //   ladder: LADDER + facing, where facing is the side of the cell it hangs on
 //           (toward the block holding it up)
 //   door:   DOOR + facing + 4 * open + 8 * upper half, where facing is the
 //           way the placing player looked
-//   furnace, chest: one id per facing (FACED), where facing is the way the
+//   furnace, chest, anvil: one id per facing (FACED), where facing is the way the
 //           front faces (toward the player who placed it). The first id is
 //           the item, the drop, and the id used in recipes.
 // Facing: 0 north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
-//   tileEntity   - name of the tile entity type attached when placed (future: chests)
+//   tileEntity   - name of the tile entity type attached when placed ('furnace', 'chest', 'anvil')
 
 import { TICK_RATE } from './config.js';
 import { ITEM } from './itemIds.js';
@@ -52,6 +52,12 @@ export const BLOCK = {
   STONE_BRICKS: 49,
   MOSSY_STONE_BRICKS: 50,
   CRACKED_STONE_BRICKS: 51,
+  // Hung in columns by a Rope Bundle; climbed like a ladder.
+  ROPE: 52,
+  // Reroll item modifiers. Ids 53-56, one per facing (FACED).
+  ANVIL: 53,
+  // The darkened ground inside a dragon roost's nest.
+  SCORCHED_EARTH: 57,
 };
 
 export function isWater(id) {
@@ -71,6 +77,7 @@ export function waterLevel(id) {
 export const FACED = {
   [BLOCK.FURNACE]: [BLOCK.FURNACE, 38, 39, 40],
   [BLOCK.CHEST]: [BLOCK.CHEST, 35, 36, 37],
+  [BLOCK.ANVIL]: [BLOCK.ANVIL, 54, 55, 56],
 };
 
 const facedIds = new Map();
@@ -94,6 +101,10 @@ export function isChest(id) {
   return blockBase(id).base === BLOCK.CHEST;
 }
 
+export function isAnvil(id) {
+  return blockBase(id).base === BLOCK.ANVIL;
+}
+
 // Unit X/Z steps for each facing.
 export const FACING_DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 
@@ -108,6 +119,11 @@ export function ladderBlock(facing) {
 
 export function isLadder(id) {
   return id >= BLOCK.LADDER && id < BLOCK.LADDER + 4;
+}
+
+// Ladders and rope: no gravity while overlapping one, and climbable up and down.
+export function isClimbable(id) {
+  return isLadder(id) || id === BLOCK.ROPE;
 }
 
 export function ladderFacing(id) {
@@ -197,6 +213,20 @@ for (let facing = 0; facing < 4; facing++) {
     }
   }
 }
+
+// Anvils hold one item to reroll its modifiers (server/containers.js). The
+// horn points the way the front faces.
+for (const id of FACED[BLOCK.ANVIL]) {
+  define(id, 'anvil', {
+    color: 0x3b3d42, hardness: 2, breakTime: 2, tileEntity: 'anvil', shape: 'anvil', transparent: true, drops: BLOCK.ANVIL,
+  });
+}
+define(BLOCK.SCORCHED_EARTH, 'scorched earth', { color: 0x3a2f29, breakTime: 0.5, drops: BLOCK.DIRT });
+
+// Rope breaks in one tick and leaves nothing behind.
+define(BLOCK.ROPE, 'rope', {
+  solid: false, transparent: true, shape: 'rope', color: 0xb89a62, breakTime: 0, drops: null,
+});
 
 export function getBlockDef(id) {
   return defs[id] ?? defs[BLOCK.AIR];

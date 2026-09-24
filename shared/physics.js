@@ -9,9 +9,12 @@ import {
   KNOCKBACK_GROUND_DECAY, CARRY_SPEED_SCALE, CLIMB_SPEED, PLAYER_EYE_HEIGHT,
   CROUCH_SPEED_SCALE, CROUCH_HEIGHT, CROUCH_EYE_DROP, CROUCH_MAX_DROP, BOW_DRAW_SPEED_SCALE, EAT_SPEED_SCALE,
   GLIDE_SPEED, GLIDE_FALL_SPEED, SPRINT_SPEED_SCALE, WATER_CURRENT_SPEED,
+  GRAPPLE_RANGE, GRAPPLE_SPEED, GRAPPLE_COOLDOWN,
 } from './config.js';
-import { BLOCK, isSolid, isLadder, isWater, waterLevel } from './blocks.js';
+import { BLOCK, isSolid, isClimbable, isLadder, isWater, waterLevel } from './blocks.js';
 import { accessoryDef } from './accessories.js';
+import { FROST } from './tools.js';
+import { lookDirection, raycastBlock } from './raycast.js';
 
 // Collision boxes: half width on X/Z and height above the feet position.
 export const PLAYER_BOX = { halfW: PLAYER_WIDTH / 2, height: PLAYER_HEIGHT };
@@ -24,16 +27,23 @@ const KNOCKBACK_REST_SPEED = 0.05;
 const EPS = 1e-4;
 // Largest per-axis step, so fast falls can't tunnel through a block.
 const MAX_STEP = 0.4;
+const GRAPPLE_COOLDOWN_TICKS = Math.round(GRAPPLE_COOLDOWN / TICK_DT);
 
 // kx/kz: knockback velocity, added on top of the input-driven velocity and decaying each tick.
 // carrying: holding a flag, which slows walking. Set by the server.
 // crouching: lower and slower, with edge protection; set by input, but only
 // clears once there's room to stand.
+// slowTicks: ticks of frost slow left (set by the server on an Ice Sword hit).
+// grapple: while a grappling hook pulls, { hx, hy, hz } where the hook hit
+// and { x, y, z } where the feet are heading; otherwise null.
+// hookCooldown: ticks until the grappling hook can fire again.
+// moveScale: walking speed multiplier from armor and accessory modifiers.
 export function createPlayerState(x, y, z) {
   return {
     x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0,
     onGround: false, carrying: false, crouching: false, gliding: false,
     accessory: null, springCharge: 0, springBouncing: false,
+    slowTicks: 0, grapple: null, hookCooldown: 0, moveScale: 1,
   };
 }
 
@@ -140,20 +150,29 @@ export function waterCurrent(state, world) {
   return { x: length ? vx / length : 0, y: falling ? -1 : 0, z: length ? vz / length : 0 };
 }
 
-// Whether the player's body overlaps a ladder block.
-export function isOnLadder(state, world) {
+// What the player's body is holding on to: 'ladder' if it overlaps a ladder,
+// else 'rope' if it overlaps rope, else null.
+function climbableAt(state, world) {
   const { halfW, height } = playerBoxOf(state);
   const x0 = Math.floor(state.x - halfW), x1 = Math.floor(state.x + halfW - EPS);
   const y0 = Math.floor(state.y), y1 = Math.floor(state.y + height - EPS);
   const z0 = Math.floor(state.z - halfW), z1 = Math.floor(state.z + halfW - EPS);
+  let rope = false;
   for (let y = y0; y <= y1; y++) {
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
-        if (isLadder(world.getBlock(x, y, z))) return true;
+        const id = world.getBlock(x, y, z);
+        if (isLadder(id)) return 'ladder';
+        if (isClimbable(id)) rope = true;
       }
     }
   }
-  return false;
+  return rope ? 'rope' : null;
+}
+
+// Whether the player's body overlaps a ladder or rope block.
+export function isOnLadder(state, world) {
+  return climbableAt(state, world) !== null;
 }
 
 function feetInWater(state, world) {
@@ -170,9 +189,21 @@ export function stepPlayer(state, input, world) {
   else if (state.crouching && !collidesAt(world, PLAYER_BOX, state.x, state.y, state.z)) state.crouching = false;
   const box = playerBoxOf(state);
 
+  // Grappling hook (input.hook is only kept by the server with one in hand).
+  // A pull replaces all other movement until it ends.
+  if (state.hookCooldown > 0) state.hookCooldown--;
+  if (state.slowTicks > 0) state.slowTicks--;
+  if (input.hook) fireGrapple(state, world);
+  if (state.grapple && state.carrying) state.grapple = null;
+  if (state.grapple) {
+    stepGrapple(state, world, box);
+    return;
+  }
+
   const inWater = isInWater(state, world);
   const current = inWater ? waterCurrent(state, world) : null;
-  const onLadder = isOnLadder(state, world);
+  const climbing = climbableAt(state, world);
+  const onLadder = climbing !== null;
   const accessory = accessoryDef(state.accessory);
   const spring = accessory?.visual === 'spring' ? accessory : null;
   if (!spring) { state.springCharge = 0; state.springBouncing = false; }
@@ -181,9 +212,12 @@ export function stepPlayer(state, input, world) {
 
   // Horizontal movement is direct (no acceleration) for responsive controls.
   let fwd = Math.max(-1, Math.min(1, input.forward));
-  // On a ladder S climbs down rather than walking you off it.
+  // On a ladder S climbs down rather than walking you off it. Rope hangs
+  // free, with no wall to lean into, so there W doesn't walk you off either
+  // (strafe to step off, or climb past the top).
   const climb = input.forward > 0 || input.jump ? 1 : input.forward < 0 ? -1 : 0;
   if (onLadder && fwd < 0) fwd = 0;
+  if (climbing === 'rope') fwd = 0;
   let strafe = Math.max(-1, Math.min(1, input.strafe));
   const len = Math.hypot(fwd, strafe);
   if (len > 1) { fwd /= len; strafe /= len; }
@@ -193,7 +227,10 @@ export function stepPlayer(state, input, world) {
     // Drawing a bow (input.draw is only sent, and only kept by the server, while holding one).
     * (input.draw ? BOW_DRAW_SPEED_SCALE : 1)
     * (input.eat ? EAT_SPEED_SCALE : 1)
-    * (accessory?.moveMultiplier ?? 1);
+    * (accessory?.moveMultiplier ?? 1)
+    // Light armor and Fleet accessories (set by the server), or a mob's own speed.
+    * (state.moveScale ?? 1)
+    * (state.slowTicks > 0 ? 1 - FROST.slow : 1);
   const sin = Math.sin(state.yaw), cos = Math.cos(state.yaw);
   // Yaw 0 looks down -Z (Three.js camera convention).
   // Knockback takes control away: none right after a hit, back to full as it fades.
@@ -249,6 +286,48 @@ export function stepPlayer(state, input, world) {
   state.kz = state.vz === 0 || Math.abs(state.kz) < KNOCKBACK_REST_SPEED ? 0 : state.kz * decay;
 }
 
+// Fires a grappling hook from the eyes along the look direction (starting its
+// cooldown, hit or miss). If it hits a solid block within range, a pull
+// begins: toward standing on a top face, or bringing the body's middle to a
+// side or bottom face.
+function fireGrapple(state, world) {
+  if (state.grapple || state.hookCooldown > 0 || state.carrying) return;
+  state.hookCooldown = GRAPPLE_COOLDOWN_TICKS;
+  const eye = { x: state.x, y: state.y + eyeHeight(state), z: state.z };
+  const dir = lookDirection(state.yaw, state.pitch);
+  const hit = raycastBlock(world, eye, dir, GRAPPLE_RANGE, isSolid);
+  if (!hit || hit.t === 0) return;
+  const hx = eye.x + dir.x * hit.t, hy = eye.y + dir.y * hit.t, hz = eye.z + dir.z * hit.t;
+  const y = hit.ny === 1 ? hy : hy - playerBoxOf(state).height / 2;
+  state.grapple = { hx, hy, hz, x: hx, y, z: hz };
+}
+
+// One tick of a grapple pull: a straight line toward the target at
+// GRAPPLE_SPEED with no gravity or knockback. It ends on arrival or when any
+// axis of the move is blocked, leaving the player at rest (so they fall from
+// there, and fall damage counts from the highest point as usual).
+function stepGrapple(state, world, box) {
+  const g = state.grapple;
+  const dx = g.x - state.x, dy = g.y - state.y, dz = g.z - state.z;
+  const dist = Math.hypot(dx, dy, dz);
+  const step = GRAPPLE_SPEED * TICK_DT;
+  const k = dist > step ? step / dist : 1;
+  state.kx = state.kz = 0;
+  state.gliding = false;
+  state.springCharge = 0;
+  state.springBouncing = false;
+  const blockedX = moveAxis(state, world, box, 'x', dx * k);
+  const blockedZ = moveAxis(state, world, box, 'z', dz * k);
+  const blockedY = moveAxis(state, world, box, 'y', dy * k);
+  const moving = k < 1 && !blockedX && !blockedZ && !blockedY;
+  const speed = moving ? GRAPPLE_SPEED / dist : 0;
+  state.vx = dx * speed;
+  state.vy = dy * speed;
+  state.vz = dz * speed;
+  state.onGround = blockedY && dy < 0;
+  if (!moving) state.grapple = null;
+}
+
 // Ground within CROUCH_MAX_DROP below a box at (x, y, z), or a ladder to hold
 // (in the body, or below within that drop).
 function hasFooting(world, box, x, y, z) {
@@ -259,7 +338,7 @@ function hasFooting(world, box, x, y, z) {
   for (let by = Math.floor(minY); by <= Math.floor(y + box.height - EPS); by++) {
     for (let bz = z0; bz <= z1; bz++) {
       for (let bx = x0; bx <= x1; bx++) {
-        if (isLadder(world.getBlock(bx, by, bz))) return true;
+        if (isClimbable(world.getBlock(bx, by, bz))) return true;
       }
     }
   }

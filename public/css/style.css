@@ -249,9 +249,11 @@ canvas {
 body:not(.in-game) #crosshair,
 body:not(.in-game) #hotbar,
 body:not(.in-game) #health,
+body:not(.in-game) #daytime,
 body.spectating #crosshair,
 body.spectating #hotbar,
-body.spectating #health {
+body.spectating #health,
+body.spectating #daytime {
   display: none;
 }
 
@@ -581,9 +583,13 @@ body.dead canvas {
   border-radius: 3px;
   background: rgba(12, 16, 26, 0.95);
   color: #fff;
-  font: 13px/1.2 ui-monospace, monospace;
-  white-space: nowrap;
+  font: 13px/1.35 ui-monospace, monospace;
+  /* Modded items list their modifiers on lines under the name. */
+  white-space: pre;
   pointer-events: none;
+}
+.item-tooltip::first-line {
+  color: #ffe38a;
 }
 
 .item-tooltip[hidden] { display: none; }
@@ -812,3 +818,183 @@ body.dead canvas {
 .armor-slot { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #eee; }
 .armor-slot .slot { width: 44px; height: 44px; }
 .armor-slot[hidden] { display: none; }
+
+/* Ice Sword: a pale, glinting blade and a frosty guard. */
+.icon.sword.ice .blade {
+  box-shadow: inset -2px 0 0 rgba(255, 255, 255, 0.7);
+}
+.icon.sword.ice .guard {
+  background: #c6ecfb;
+}
+
+/* Wind Axe: a handle with a flared bit on each side, in the item's color. */
+.icon.axe {
+  transform: rotate(-35deg);
+}
+.icon.axe > div { position: absolute; }
+.icon.axe .handle {
+  left: 44%;
+  top: 8%;
+  width: 12%;
+  height: 92%;
+  background: #7b6a55;
+}
+.icon.axe .bit {
+  top: 4%;
+  width: 34%;
+  height: 40%;
+  background: currentColor;
+}
+.icon.axe .bit.left {
+  left: 10%;
+  border-radius: 90% 0 0 90%;
+}
+.icon.axe .bit.right {
+  right: 10%;
+  border-radius: 0 90% 90% 0;
+}
+
+/* Crossbow: a stock with a bent bow across its front. */
+.icon.crossbow {
+  transform: rotate(45deg);
+}
+.icon.crossbow > div { position: absolute; }
+.icon.crossbow .stock {
+  left: 42%;
+  top: 10%;
+  width: 16%;
+  height: 90%;
+  background: currentColor;
+}
+.icon.crossbow .limbs {
+  left: 0;
+  top: 8%;
+  width: 100%;
+  height: 30%;
+  box-sizing: border-box;
+  border: 3px solid #8c8c8c;
+  border-bottom: 1.5px solid #e8e2d0;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+}
+
+/* Grappling hook: a shaft with a three-pronged hook on top. */
+.icon.grapple > div { position: absolute; }
+.icon.grapple .shaft {
+  left: 44%;
+  top: 25%;
+  width: 12%;
+  height: 75%;
+  background: currentColor;
+}
+.icon.grapple .prongs {
+  left: 12%;
+  top: 0;
+  width: 76%;
+  height: 38%;
+  box-sizing: border-box;
+  border: 3px solid currentColor;
+  border-top: none;
+  border-radius: 0 0 50% 50% / 0 0 100% 100%;
+  background: linear-gradient(to right, transparent 44%, currentColor 44% 56%, transparent 56%);
+}
+
+/* Rope bundle: a coil of rope. */
+.icon.rope .coil {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle, currentColor 0 14%, #7a5a33 14% 20%);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* Slowed by an Ice Sword: a frosty rim around the screen. */
+body.frosted::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 120px 20px rgba(200, 238, 255, 0.55);
+}
+
+/* A modded item's slot glows faintly. */
+.slot.modded {
+  box-shadow: inset 0 0 6px 1px rgba(255, 214, 102, 0.7);
+}
+
+.icon.scale {
+  width: calc(var(--slot, 44px) * 0.5);
+  clip-path: polygon(50% 0, 100% 30%, 90% 80%, 50% 100%, 10% 80%, 0 30%);
+  box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.3), inset 0 3px 0 rgba(255, 150, 130, 0.35);
+}
+
+.icon.silk {
+  width: calc(var(--slot, 44px) * 0.5);
+  height: calc(var(--slot, 44px) * 0.4);
+  border-radius: 45%;
+  background-image: repeating-linear-gradient(30deg, transparent 0 3px, rgba(0, 0, 0, 0.12) 3px 4px) !important;
+}
+
+/* Dragonscale armor: overlapping dark red scales. */
+.icon.armor.scaled {
+  background-image: radial-gradient(circle at 50% 0, #7a333b 0 38%, transparent 40%) !important;
+  background-size: 7px 6px !important;
+}
+
+/* Anvil: a flat face with a horn, a narrow waist and a wide foot. */
+.icon.anvil > div { position: absolute; background: #3b3d42; }
+.icon.anvil .face { left: 8%; top: 18%; width: 70%; height: 24%; border-top: 3px solid #5c5f66; }
+.icon.anvil .horn { left: 78%; top: 22%; width: 20%; height: 14%; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.icon.anvil .waist { left: 32%; top: 45%; width: 30%; height: 30%; }
+.icon.anvil .foot { left: 12%; top: 75%; width: 70%; height: 18%; }
+
+/* Anvil screen. */
+.anvil {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+#anvil-reroll {
+  padding: 6px 10px;
+  cursor: pointer;
+}
+#anvil-reroll:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#anvil-mods {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.9em;
+  min-height: 3.5em;
+}
+#anvil-mods .name {
+  color: #ffe38a;
+  font-weight: bold;
+}
+
+/* Time of day: a small sun or moon on an arc, just above the health bar. */
+#daytime {
+  position: fixed;
+  left: 50%;
+  bottom: 90px;
+  margin-left: -22px;
+  width: 44px;
+  height: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+  opacity: 0.8;
+}
+#daytime .icon {
+  position: absolute;
+  width: auto;
+  height: auto;
+  transform: translate(-50%, 50%);
+  color: #ffd75e;
+  font-size: 15px;
+  line-height: 1;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+}
+#daytime.night .icon {
+  color: #dfe6ff;
+}

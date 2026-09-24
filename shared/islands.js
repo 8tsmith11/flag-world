@@ -4,7 +4,7 @@ import { createNoise2D, createNoise3D } from 'simplex-noise';
 import { BLOCK, isSolid } from './blocks.js';
 import { World } from './world.js';
 import { CHUNK_SIZE, KEEP_HEIGHT } from './config.js';
-import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores, surfaceStats } from './structures.js';
+import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores, surfaceStats, growTree } from './structures.js';
 import { generateStructures } from './worldStructures.js';
 
 const EDGE_SHELL = 3;
@@ -12,10 +12,15 @@ const KEEP_CLEARANCE = KEEP_REACH + 6;
 const HORIZONTAL = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+// Tiny islands hang a tapered, root-like stone underside about this many
+// radii deep below their surface.
+const TINY_ROOT_DEPTH = 0.6;
+const tinyDepth = (radius) => 1.5 + radius * TINY_ROOT_DEPTH;
+
 function islandBounds(kind, radius, surfaceY) {
   if (kind === 'tiny') {
     return { topY: Math.ceil(surfaceY + 3),
-      bottomY: Math.floor(surfaceY - 3 - (2 + radius * 0.45) * 1.1) };
+      bottomY: Math.floor(surfaceY - 2 - tinyDepth(radius) * 1.35) };
   }
   return { topY: Math.ceil(surfaceY + 24),
     bottomY: Math.floor(surfaceY - 24 - (12 + radius * 0.28) * 1.1) };
@@ -84,9 +89,9 @@ function planIslands(seed, teamCount, config) {
           x = big.x + Math.cos(angle) * distance;
           z = big.z + Math.sin(angle) * distance;
           stackAbove = stackedDirections[i];
-          stackOffset = Math.floor(rand() * 8);
+          stackOffset = Math.floor(rand() * (config.tinyStackOffset + 1));
           surfaceY = stackAbove
-            ? big.topY + 25 + stackOffset + Math.ceil(3 + (2 + radius * 0.45) * 1.1)
+            ? big.topY + 25 + stackOffset + Math.ceil(2 + tinyDepth(radius) * 1.35)
             : big.bottomY - 15 - stackOffset - 3;
         } else {
           const distance = teamDistance + config.teamRadius + config.islandSpacing
@@ -135,7 +140,28 @@ function planIslands(seed, teamCount, config) {
   return { islands, keeps, rand, tinyPlacementStats };
 }
 
+// Tiny islands: an irregular, lobed outline, a gently uneven grass surface,
+// and an underside that tapers from about TINY_ROOT_DEPTH radii at the middle
+// to a thin rim, with root-like spurs hanging lower here and there.
+function tinyColumn(island, x, z, noise, detail) {
+  const phase = island.index * 37;
+  const dx = x + 0.5 - island.x, dz = z + 0.5 - island.z;
+  const angle = Math.atan2(dz, dx);
+  const c = Math.cos(angle), s = Math.sin(angle);
+  const edge = island.radius * (0.84 + 0.2 * noise(c * 1.3 + phase, s * 1.3 + phase)
+    + 0.1 * noise(c * 3.2 + phase + 40, s * 3.2 + phase + 40)) + 0.7 * detail(x / 4, z / 4);
+  const distance = Math.hypot(dx, dz);
+  if (distance >= edge) return null;
+  const t = distance / edge;
+  const yTop = Math.round(island.surfaceY + (1.2 * noise(x / 6 + phase, z / 6) + 0.6 * detail(x / 4, z / 4)) * (1 - 0.5 * t * t));
+  const spur = Math.max(0, detail(x / 2.5 + 300, z / 2.5 + 300) - 0.35) * island.radius * 0.45 * (1 - t);
+  const jag = 0.85 + 0.25 * detail(x / 5 + 100, z / 5 + 100);
+  const depth = Math.max(2, Math.round((1.5 + island.radius * TINY_ROOT_DEPTH * (1 - t) ** 1.6 + spur) * jag));
+  return { yTop, yBottom: yTop - depth };
+}
+
 function terrainColumn(island, x, z, noise, detail) {
+  if (island.kind === 'tiny') return tinyColumn(island, x, z, noise, detail);
   const phase = island.index * 37;
   const dx = x + 0.5 - island.x, dz = z + 0.5 - island.z;
   const angle = Math.atan2(dz, dx);
@@ -145,15 +171,11 @@ function terrainColumn(island, x, z, noise, detail) {
   const distance = Math.hypot(dx, dz);
   if (distance >= edge) return null;
   const t = distance / edge;
-  const hill = island.kind === 'tiny'
-    ? 2 * noise(x / 9, z / 9) + detail(x / 5, z / 5)
-    : 10 * noise(x / 48, z / 48) + 5 * detail(x / 17, z / 17)
-      + 9 * noise(x / 105 + 200, z / 105 + 200);
+  const hill = 10 * noise(x / 48, z / 48) + 5 * detail(x / 17, z / 17)
+    + 9 * noise(x / 105 + 200, z / 105 + 200);
   const yTop = Math.round(island.surfaceY + hill * (1 - t * t));
   const jag = 0.78 + 0.32 * detail(x / 7 + 100, z / 7 + 100);
-  const depth = island.kind === 'tiny'
-    ? Math.max(2, Math.round((2 + island.radius * 0.45 * (1 - t) ** 1.5) * jag))
-    : Math.round((12 + island.radius * 0.28 * (1 - t) ** 1.4) * jag);
+  const depth = Math.round((12 + island.radius * 0.28 * (1 - t) ** 1.4) * jag);
   return { yTop, yBottom: yTop - depth };
 }
 
@@ -293,11 +315,11 @@ function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea) {
   }
 }
 
+// Ponds on the main islands (tiny islands have none).
 function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
   const { radius, x: ix, z: iz, getTop } = terrain;
   const tiny = terrain.kind === 'tiny';
-  const count = tiny ? (radius >= 10 && rand() < 0.35 ? 1 : 0)
-    : Math.max(6, Math.round(radius * radius / pondArea));
+  const count = tiny ? 0 : Math.max(6, Math.round(radius * radius / pondArea));
   for (let i = 0; i < count; i++) for (let attempt = 0; attempt < 40; attempt++) {
     const angle = rand() * Math.PI * 2, distance = Math.sqrt(rand()) * radius * (tiny ? 0.3 : 0.72);
     const cx = Math.floor(ix + Math.cos(angle) * distance);
@@ -328,6 +350,40 @@ function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
   }
 }
 
+// What each tiny island holds, at most one: a dragon roost (big enough ones,
+// by chance, up to the size's cap), else by chance a loose chest, else nothing.
+function chooseTinyContents(islands, seed, config) {
+  const rand = mulberry32(seed ^ 0x3e0f5a21);
+  let roosts = 0;
+  for (const island of islands) {
+    if (island.kind !== 'tiny') continue;
+    const roll = rand(), chestRoll = rand();
+    if (island.radius >= config.roosts.minRadius && roosts < config.roosts.max && roll < config.roosts.chance) {
+      island.content = 'roost';
+      roosts++;
+    } else island.content = chestRoll < config.structures.tinyChance ? 'chest' : 'plain';
+  }
+}
+
+// 1-2 trees near the middle of a tiny island big enough to hold them.
+function plantTinyTrees(world, terrain, rand, { minRadius, count }) {
+  if (terrain.radius < minRadius || terrain.content === 'roost') return;
+  const trees = count[0] + Math.floor(rand() * (count[1] - count[0] + 1));
+  for (let planted = 0, attempt = 0; planted < trees && attempt < 30; attempt++) {
+    const angle = rand() * Math.PI * 2, distance = rand() * terrain.radius * 0.45;
+    const trunk = 4 + Math.floor(rand() * 2);
+    const x = Math.round(terrain.x + Math.cos(angle) * distance);
+    const z = Math.round(terrain.z + Math.sin(angle) * distance);
+    const ground = terrain.getTop(x, z);
+    if (ground === -32768 || world.getBlock(x, ground, z) !== BLOCK.GRASS) continue;
+    if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => !isSolid(world.getBlock(x + dx, ground, z + dz)))) continue;
+    if ([[2, 0], [-2, 0], [0, 2], [0, -2], [0, 0]].some(([dx, dz]) =>
+      world.getBlock(x + dx, ground + trunk - 1, z + dz) !== BLOCK.AIR)) continue;
+    growTree(world, x, ground, z, ground + trunk);
+    planted++;
+  }
+}
+
 export function generateIslandWorld(seed, teamCount, config) {
   const plan = planIslands(seed, teamCount, config);
   const { islands, keeps } = plan;
@@ -339,6 +395,7 @@ export function generateIslandWorld(seed, teamCount, config) {
   const noise = createNoise2D(mulberry32(seed ^ 0x68e31da4));
   const detail = createNoise2D(mulberry32(seed ^ 0xb742c35e));
   alignStackedTiny(islands, noise, detail);
+  chooseTinyContents(islands, seed, config);
   const lowest = Math.min(...islands.map((island) => island.bottomY));
   const highest = Math.max(...islands.map((island) => island.topY));
   const highestTeamSurface = Math.max(config.centralSurfaceY,
@@ -349,8 +406,8 @@ export function generateIslandWorld(seed, teamCount, config) {
   });
   world.tinyPlacementStats = plan.tinyPlacementStats;
   world.islands = islands.map(({ x, z, radius, surfaceY, topY, bottomY,
-    kind, teamIndex, tinyGroup, stackedOn, stackAbove }) =>
-    ({ x, z, radius, surfaceY, topY, bottomY, kind, teamIndex, tinyGroup, stackedOn, stackAbove }));
+    kind, teamIndex, tinyGroup, stackedOn, stackAbove, content }) =>
+    ({ x, z, radius, surfaceY, topY, bottomY, kind, teamIndex, tinyGroup, stackedOn, stackAbove, content: content ?? null }));
   const noise3 = createNoise3D(mulberry32(seed ^ 0x1b873593));
   const nearKeep = (x, z) => keeps.some((site) =>
     Math.abs(x - site.cx) <= KEEP_CLEARANCE && Math.abs(z - site.cz) <= KEEP_CLEARANCE);
@@ -400,7 +457,8 @@ export function generateIslandWorld(seed, teamCount, config) {
   for (const terrain of terrains) {
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x68bc21eb));
     addPonds(world, terrain, rand, noise, nearKeep, config.pondArea);
-    plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
+    if (terrain.kind === 'tiny') plantTinyTrees(world, terrain, rand, config.tinyTrees);
+    else plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
       { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop });
   }
   generateStructures(world, terrains, config, seed);

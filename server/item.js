@@ -5,11 +5,13 @@ import { createItemState } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 
 export class ItemEntity {
-  constructor(id, item, count, x, y, z, vx, vy, vz, pickupDelay) {
+  // mods: the stack's modifiers (shared/modifiers.js), or null.
+  constructor(id, item, count, x, y, z, vx, vy, vz, pickupDelay, mods = null) {
     this.id = id;
     this.type = ENTITY_TYPE.ITEM;
     this.item = item;
     this.count = count;
+    this.mods = mods?.length ? mods : null;
     this.state = createItemState(x, y, z, vx, vy, vz);
     // Ticks until players can pick it up, and until it despawns.
     this.pickupTicks = Math.round(pickupDelay * TICK_RATE);

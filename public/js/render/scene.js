@@ -21,7 +21,9 @@ export function createScene(viewDistance) {
   camera.rotation.order = 'YXZ';
   setViewDistance(scene, camera, viewDistance);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+  // Their colors, strengths and the sun's direction follow the time of day (sky.js).
+  const ambient = new THREE.AmbientLight(0xffffff, 1.1);
+  scene.add(ambient);
   const sun = new THREE.DirectionalLight(0xffffff, 1.8);
   sun.position.set(0.4, 1, 0.25);
   scene.add(sun);
@@ -32,13 +34,14 @@ export function createScene(viewDistance) {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  return { renderer, scene, camera };
+  return { renderer, scene, camera, ambient, sun };
 }
 
-// Fog fully hides things at the view distance, where chunks stop being meshed.
-export function setViewDistance(scene, camera, distance) {
-  scene.fog.near = distance * FOG_START;
-  scene.fog.far = distance;
+// Fog fully hides things at the view distance, where chunks stop being meshed
+// (or a little sooner: `scale` < 1 pulls it in, as at night).
+export function setViewDistance(scene, camera, distance, scale = 1) {
+  scene.fog.near = distance * FOG_START * scale;
+  scene.fog.far = distance * scale;
   camera.far = distance + 64;
   camera.updateProjectionMatrix();
 }

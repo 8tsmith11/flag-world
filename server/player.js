@@ -1,15 +1,17 @@
-import { MAX_HP, FLAG_GRAB_TIME, TICK_RATE, BOW_FULL_DRAW } from '../shared/config.js';
+import { MAX_HP, FLAG_GRAB_TIME, TICK_RATE } from '../shared/config.js';
 import { createPlayerState } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
-import { breakingStats, attackStats } from '../shared/tools.js';
+import { breakingStats, attackStats, rangedStats } from '../shared/tools.js';
+import { getItemDef } from '../shared/items.js';
+import { modValue } from '../shared/modifiers.js';
 import { Inventory } from './inventory.js';
 import { accessoryDef } from '../shared/accessories.js';
+import { ITEM } from '../shared/itemIds.js';
 
 // A player in the current match. Outlives its connection: on disconnect the
 // socket is set to null and the player stays in the world (position,
 // inventory, ...) until someone reconnects with the same name.
 export const GRAB_TICKS = Math.round(FLAG_GRAB_TIME * TICK_RATE);
-const BOW_FULL_TICKS = Math.round(BOW_FULL_DRAW * TICK_RATE);
 
 export class Player {
   constructor(id, socket, name, color, spawn, team = 0) {
@@ -47,6 +49,12 @@ export class Player {
     // Bow: ticks the draw has been held, and the game tick it can next shoot.
     this.drawTicks = 0;
     this.nextShotTick = 0;
+    // Crossbow: ticks spent loading, whether it's loaded (only while held),
+    // and whether right click must be let go before loading again (after a
+    // right click fires it).
+    this.loadTicks = 0;
+    this.loaded = false;
+    this.loadNeedsRelease = false;
     this.eatTicks = 0;
     this.eatingItem = null;
     this.foodHealing = [];
@@ -76,14 +84,53 @@ export class Player {
     return this.inventory.get(this.selected)?.item ?? null;
   }
 
-  // { strength, speed } for breaking with what's in hand (shared/tools.js).
-  breakingStats() {
-    return breakingStats(this.held());
+  // The stack in hand, or null.
+  heldStack() {
+    return this.inventory.get(this.selected);
   }
 
-  // { damage, cooldown } for attacking with what's in hand.
+  // { strength, speed } for breaking with what's in hand (shared/tools.js).
+  breakingStats() {
+    return breakingStats(this.heldStack());
+  }
+
+  // { damage, cooldown, ... } for attacking with what's in hand.
   attackStats() {
-    return attackStats(this.held());
+    return attackStats(this.heldStack());
+  }
+
+  // Draw and load ticks, damage bonus and speed scale for the bow or crossbow in hand.
+  rangedStats() {
+    return rangedStats(this.heldStack());
+  }
+
+  // Worn gear, with modifiers: max HP (Heart Amulet, Vital), armor points
+  // (Sturdy), walking speed (Light, Fleet), fall damage cut (Cushioned) and
+  // Thorns damage to melee attackers.
+  maxHp() {
+    const accessory = this.inventory.accessory;
+    return MAX_HP + (accessoryDef(accessory?.item)?.maxHpBonus ?? 0) + modValue(accessory, 'vital');
+  }
+
+  armorPoints() {
+    const armor = this.inventory.armor;
+    return armor ? (getItemDef(armor.item).armorPoints || 0) + modValue(armor, 'sturdy') : 0;
+  }
+
+  moveScale() {
+    return (1 + modValue(this.inventory.armor, 'light')) * (1 + modValue(this.inventory.accessory, 'fleet'));
+  }
+
+  fallDamageScale() {
+    return 1 - modValue(this.inventory.accessory, 'cushioned');
+  }
+
+  thorns() {
+    return modValue(this.inventory.armor, 'thorns');
+  }
+
+  fireImmune() {
+    return !!getItemDef(this.inventory.armor?.item).fireImmune;
   }
 
   // Public info sent once when a player becomes known to a client.
@@ -106,7 +153,7 @@ export class Player {
       crouching: s.crouching,
       gliding: s.gliding,
       hp: this.hp,
-      maxHp: MAX_HP + (accessoryDef(this.inventory.accessory?.item)?.maxHpBonus ?? 0),
+      maxHp: this.maxHp(),
       dead: this.dead,
       eliminated: this.eliminated,
       carrying: this.carrying?.id ?? null,
@@ -116,8 +163,14 @@ export class Player {
       springCharge: s.springCharge,
       springBouncing: s.springBouncing,
       grab: this.grab ? this.grab.ticks / GRAB_TICKS : 0,
-      // How far a bow is drawn, 0..1.
-      draw: Math.min(1, this.drawTicks / BOW_FULL_TICKS),
+      // How far a bow is drawn or a crossbow loaded, 0..1.
+      draw: this.held() === ITEM.CROSSBOW
+        ? (this.loaded ? 1 : Math.min(1, this.loadTicks / this.rangedStats().loadTicks))
+        : Math.min(1, this.drawTicks / this.rangedStats().fullDrawTicks),
+      slowTicks: s.slowTicks,
+      grapple: s.grapple,
+      hookCooldown: s.hookCooldown,
+      moveScale: s.moveScale,
       lastSeq: this.lastSeq,
     };
   }

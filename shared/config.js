@@ -140,6 +140,22 @@ export const ARROW_STICK_TIME = 10;
 export const ARROW_SAFE_TIME = 0.2;
 export const ARROW_KNOCKBACK = 3;
 
+// Crossbows: hold right click CROSSBOW_LOAD_TIME to load, then click to fire.
+// Bolts fly 1.6x a full bow draw with a flatter arc (less gravity).
+export const CROSSBOW_LOAD_TIME = 1.2;
+export const CROSSBOW_ARROW_SPEED = ARROW_SPEED[1] * 1.6;
+export const CROSSBOW_ARROW_GRAVITY = 5;
+export const CROSSBOW_ARROW_DAMAGE = 6;
+
+// Rope Bundles hang a column of rope at most this many blocks long.
+export const ROPE_LENGTH = 40;
+
+// Grappling hooks: range of the hook (blocks), pull speed (blocks/s) and
+// cooldown between shots (seconds).
+export const GRAPPLE_RANGE = 30;
+export const GRAPPLE_SPEED = 20;
+export const GRAPPLE_COOLDOWN = 3;
+
 // Cows: collision box, health, walking speeds (fractions of WALK_SPEED),
 // herds (how many per square block of world, and their size), how long a
 // herd panics after one of them is hurt, and what they drop.
@@ -162,7 +178,54 @@ export const DRAGON_FIRE_DAMAGE = 2.5;
 export const DRAGON_FIRE_DURATION = 1.2;
 export const DRAGON_FIRE_COOLDOWN = 4;
 export const DRAGON_FIRE_INTERVAL = 0.3;
-export const DRAGON_DROPS = { iron: [2, 5], leather: [2, 4] };
+export const DRAGON_DROPS = { iron: [2, 5], leather: [2, 4], scales: [2, 4] };
+// How far past its island a leashed dragon roams unless chasing: team
+// islands, the central island and roosts (measured from the island's edge).
+export const DRAGON_LEASH = { team: 15, center: 20, roost: 20 };
+
+// Provocation: any damage from a player makes a Crawler, Void Eel or dragon
+// chase that player, ignoring its aggro range and leash, until the player
+// dies or it has lost sight of them this long (seconds).
+export const PROVOKE_FORGET_TIME = 10;
+
+// Crawlers: spider-like mobs in dungeons, underside ruins and dark caverns.
+// Speeds in blocks/s, ranges in blocks, times in seconds.
+export const CRAWLER_WIDTH = 0.9;
+export const CRAWLER_HEIGHT = 0.6;
+export const CRAWLER_HP = 12;
+export const CRAWLER_DAMAGE = 3;
+export const CRAWLER_ATTACK_COOLDOWN = 1;
+export const CRAWLER_SPEED = 4.8;
+export const CRAWLER_CLIMB_SPEED = 3;
+// Bite reach, from the edge of its box to the edge of the target's.
+export const CRAWLER_REACH = 0.6;
+export const CRAWLER_AGGRO_RANGE = 12;
+export const CRAWLER_GIVE_UP_RANGE = 24;
+// Idle crawlers wander this far from where they spawned.
+export const CRAWLER_WANDER_RADIUS = 5;
+export const CRAWLER_DROPS = { silk: [0, 2] };
+
+// Void Eels patrol under their home island, above the void.
+export const EEL_HP = 30;
+export const EEL_DAMAGE = 4;
+export const EEL_ATTACK_COOLDOWN = 1.2;
+export const EEL_SPEED = 4;
+export const EEL_CHASE_SPEED = 8;
+// Bite reach from the head's center to the target's box.
+export const EEL_REACH = 1.2;
+// Attacks players gliding, falling or climbing this close; loses them beyond
+// EEL_LOSE_RANGE or once they're back on their feet.
+export const EEL_AGGRO_RANGE = 15;
+export const EEL_LOSE_RANGE = 30;
+// Its patrol zone: from this far under the island's underside down to this far
+// above the void kill height, within its island's radius.
+export const EEL_ZONE = { belowUnderside: 4, depth: 22, aboveVoid: 6 };
+
+// Day/night: one full cycle in seconds (half day, half night). Time of day is
+// a fraction of the cycle: 0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight.
+// Matches start at DAY_START, in the morning.
+export const DAY_LENGTH = 24 * 60;
+export const DAY_START = 0.04;
 
 // Furnace: seconds to smelt one item.
 export const SMELT_TIME = 5;

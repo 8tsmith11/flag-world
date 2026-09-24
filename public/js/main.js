@@ -4,15 +4,15 @@
 
 import {
   DEBUG, TICK_DT, TICK_RATE, PLAYER_EYE_HEIGHT, REACH_DISTANCE, RESPAWN_DELAY,
-  BOW_FULL_DRAW, BOW_MIN_DRAW, BOW_COOLDOWN,
+  BOW_COOLDOWN, DAY_LENGTH,
   VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX,
 } from '/shared/config.js';
 import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT, TEAMS } from '/shared/protocol.js';
 import { generateWorld } from '/shared/worldgen.js';
 import {
-  BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, isFurnace, isChest, isFlowingWater,
+  BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, isFurnace, isChest, isAnvil, isFlowingWater,
 } from '/shared/blocks.js';
-import { breakingStats } from '/shared/tools.js';
+import { breakingStats, rangedStats } from '/shared/tools.js';
 import { getItemDef, ITEM } from '/shared/items.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '/shared/raycast.js';
 import { playerBoxOf, eyeHeight } from '/shared/physics.js';
@@ -22,11 +22,12 @@ import { LocalPlayer } from './localPlayer.js';
 import { DebugHud } from './debug.js';
 import { Hotbar } from './hotbar.js';
 import { LobbyScreen, MatchScreen, loadName } from './lobby.js';
-import { HealthBar, EventFeed, ProgressBar, Toast, Label } from './hud.js';
+import { HealthBar, EventFeed, ProgressBar, Toast, Label, DayIndicator } from './hud.js';
 import { FreeCamera } from './spectator.js';
 import { InventoryScreen, CONTAINERS } from './inventoryScreen.js';
 import { createScene, setViewDistance, setFogEnabled } from './render/scene.js';
 import { Clouds } from './render/clouds.js';
+import { Sky } from './render/sky.js';
 import { Overview } from './render/overview.js';
 import { ChunkRenderer } from './render/chunkRenderer.js';
 import { EntityRenderer } from './render/entityRenderer.js';
@@ -35,6 +36,7 @@ import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
 import { PortalRenderer } from './render/portalRenderer.js';
+import { GrappleLine } from './render/grappleLine.js';
 import { Sounds } from './sounds.js';
 
 // Cap on ticks simulated in one frame so a long stall doesn't burst-send inputs.
@@ -69,7 +71,13 @@ function loadViewDistance() {
 }
 let viewDistance = loadViewDistance();
 
-const { renderer, scene, camera } = createScene(viewDistance);
+const { renderer, scene, camera, ambient, sun } = createScene(viewDistance);
+const sky = new Sky(scene, { ambient, sun });
+const dayIndicator = new DayIndicator(document.getElementById('daytime'), DAY_LENGTH);
+// The match clock, for the time of day: the time of day and tick from
+// WELCOME, and the latest server tick and when it arrived (performance.now()),
+// so time runs on smoothly between messages.
+let dayClock = null;
 const input = new Input(renderer.domElement);
 const debug = new DebugHud(document.getElementById('debug'));
 const hotbar = new Hotbar(document.getElementById('hotbar'));
@@ -80,6 +88,8 @@ const toast = new Toast(document.getElementById('toast'));
 const carryLabel = new Label(document.getElementById('carry'));
 const entities = new EntityRenderer(scene);
 const portals = new PortalRenderer(scene);
+// The local player's grappling hook rope (remote players' are on their models).
+const grappleLine = new GrappleLine(scene);
 const sounds = new Sounds();
 document.addEventListener('pointerdown', () => sounds.unlock());
 const flags = new FlagRenderer(scene, entities);
@@ -122,9 +132,12 @@ let shakeUntil = 0;
 let drawTicks = 0;
 let drawReadyAt = 0;
 let localTick = 0;
-const BOW_FULL_TICKS = Math.round(BOW_FULL_DRAW * TICK_RATE);
-const BOW_MIN_TICKS = Math.round(BOW_MIN_DRAW * TICK_RATE);
 const BOW_COOLDOWN_TICKS = Math.round(BOW_COOLDOWN * TICK_RATE);
+// Crossbow loading, mirrored from the server's rules (Game.stepCrossbow) for
+// the arm, bolt and zoom, and to know when a click fires.
+let loadTicks = 0;
+let crossbowLoaded = false;
+let loadNeedsRelease = false;
 // Base field of view, and how much a full draw zooms in.
 const FOV = 75;
 const DRAW_ZOOM = 10;
@@ -194,7 +207,7 @@ viewDistanceInput.addEventListener('input', () => {
   } catch {
     // Not remembered; still applies now.
   }
-  setViewDistance(scene, camera, viewDistance);
+  setViewDistance(scene, camera, viewDistance, sky.fogScale);
   if (chunks && !overview) chunks.setViewDistance(viewDistance);
 });
 // Using the settings shouldn't count as a click to play.
@@ -219,6 +232,7 @@ function stationKind(id) {
   if (id === BLOCK.WORKBENCH) return 'workbench';
   if (isFurnace(id)) return 'furnace';
   if (isChest(id)) return 'chest';
+  if (isAnvil(id)) return 'anvil';
   return null;
 }
 
@@ -253,8 +267,13 @@ function heldItem() {
 }
 
 // { strength, speed } for breaking with what's in hand.
+// The stack in hand (with its modifiers), or null.
+function heldStack() {
+  return inventory.slots[input.slot] ?? null;
+}
+
 function heldTool() {
-  return breakingStats(heldItem());
+  return breakingStats(heldStack());
 }
 
 deathScreen.addEventListener('click', () => {
@@ -287,6 +306,7 @@ function enterDeath(msg, isEliminated) {
   closeInventory(false, false);
   mode = MODE.DEAD;
   drawTicks = 0;
+  stepCrossbow(false, false, false);
   eliminated = isEliminated;
   respawnRequested = false;
   respawnAt = performance.now() + RESPAWN_DELAY * 1000;
@@ -364,6 +384,7 @@ conn.on(S2C.WELCOME, (msg) => {
 
 function startGame(msg) {
   seed = msg.seed;
+  dayClock = { baseTime: msg.dayTime, baseTick: msg.tick, tick: msg.tick, at: performance.now() };
   world = generateWorld(msg.seed, msg.teamCount, msg.worldSize);
   for (const b of msg.blocks) world.setBlock(b.x, b.y, b.z, b.id);
   chunks = new ChunkRenderer(scene, world, viewDistance);
@@ -469,6 +490,8 @@ conn.on(S2C.BLOCK_CHANGE, (msg) => {
 
 conn.on(S2C.STATE, (msg) => {
   if (!player) return;
+  dayClock.tick = msg.tick;
+  dayClock.at = performance.now();
   flags.setStates(msg.flags);
   for (const e of msg.entities) {
     if (e.id !== player.id) {
@@ -520,6 +543,30 @@ function placeTarget() {
   return { x: target.x + nx, y: target.y + ny, z: target.z + nz, nx, ny, nz };
 }
 
+// One tick of the crossbow mirror; see Game.stepCrossbow.
+function stepCrossbow(held, load, fire) {
+  if (!held) {
+    loadTicks = 0;
+    crossbowLoaded = loadNeedsRelease = false;
+  } else if (fire && crossbowLoaded) {
+    loadTicks = 0;
+    crossbowLoaded = false;
+    loadNeedsRelease = load;
+  } else if (!load) {
+    loadNeedsRelease = false;
+    if (!crossbowLoaded) loadTicks = 0;
+  } else if (!crossbowLoaded && !loadNeedsRelease && ++loadTicks >= rangedStats(heldStack()).loadTicks) {
+    crossbowLoaded = true;
+  }
+}
+
+// How far the bow in hand is drawn or the crossbow loaded, 0..1.
+function drawAmount() {
+  const ranged = rangedStats(heldStack());
+  if (heldItem() === ITEM.CROSSBOW) return crossbowLoaded ? 1 : Math.min(1, loadTicks / ranged.loadTicks);
+  return Math.min(1, drawTicks / ranged.fullDrawTicks);
+}
+
 function sameBlock(a, b) {
   return !!a && !!b && a.x === b.x && a.y === b.y && a.z === b.z;
 }
@@ -556,9 +603,23 @@ function frame(now) {
     accumulator -= TICK_DT;
     const controls = input.sample();
     localTick++;
-    // Holding a bow, right click (held) draws it instead of placing or using.
+    // Holding a bow, right click (held) draws it instead of placing or using;
+    // holding a crossbow, it loads it, and once loaded either click fires.
+    // A grappling hook fires on right click.
     const bow = heldItem() === ITEM.BOW;
-    controls.draw = bow && input.secondaryDown;
+    const crossbow = heldItem() === ITEM.CROSSBOW;
+    const hook = heldItem() === ITEM.GRAPPLING_HOOK;
+    const aiming = bow || crossbow || hook;
+    controls.draw = (bow || crossbow) && input.secondaryDown;
+    controls.fire = crossbow && crossbowLoaded && (controls.attack || controls.place);
+    stepCrossbow(crossbow, controls.draw, controls.fire);
+    if (controls.fire) {
+      controls.attack = false;
+      viewModel.push();
+    }
+    // The shared physics decides whether it fires (cooldown, flag, already pulling).
+    controls.hook = hook && controls.place;
+    if (controls.hook && !player.state.grapple && !player.state.carrying && !(player.state.hookCooldown > 1)) viewModel.push();
     controls.eat = !!getItemDef(heldItem()).food && input.secondaryDown;
     if (controls.eat) controls.place = false;
     controls.glide = heldItem() === ITEM.GLIDER && input.secondaryDown;
@@ -568,7 +629,7 @@ function frame(now) {
     if (controls.draw) {
       if (localTick >= drawReadyAt) drawTicks++;
     } else {
-      if (drawTicks >= BOW_MIN_TICKS) drawReadyAt = localTick + BOW_COOLDOWN_TICKS;
+      if (drawTicks >= rangedStats(heldStack()).minDrawTicks) drawReadyAt = localTick + BOW_COOLDOWN_TICKS;
       drawTicks = 0;
     }
     // Any click swings the arm; it only punches with a player under the crosshair.
@@ -586,8 +647,8 @@ function frame(now) {
     // Right click on a door opens or closes it instead of placing.
     const useTarget = controls.place && target && (isDoor(target.id) || (target.id === BLOCK.WATER && heldItem() === ITEM.EMPTY_BUCKET));
     controls.use = useTarget ? { x: target.x, y: target.y, z: target.z } : null;
-    controls.place = controls.place && !useTarget && !bow ? placeTarget() : null;
-    if (bow) controls.use = null;
+    controls.place = controls.place && !useTarget && !aiming ? placeTarget() : null;
+    if (aiming) controls.use = null;
     const held = heldItem();
     const placing = controls.place && held !== null && (getItemDef(held).block !== null || getItemDef(held).places);
     if (useTarget || placing) viewModel.push();
@@ -631,8 +692,8 @@ function frame(now) {
   updateFlagHud();
 
   hotbar.select(input.slot);
-  // Zoom in a little as a bow is drawn.
-  const fov = FOV - DRAW_ZOOM * (playing ? Math.min(1, drawTicks / BOW_FULL_TICKS) : 0);
+  // Zoom in a little as a bow is drawn or while a crossbow is loaded.
+  const fov = FOV - DRAW_ZOOM * (playing ? drawAmount() : 0);
   if (Math.abs(camera.fov - fov) > 0.01) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 12);
     camera.updateProjectionMatrix();
@@ -641,12 +702,27 @@ function frame(now) {
   if (overview) chunks.update(world.sizeX / 2, world.sizeZ / 2);
   else chunks.update(camera.position.x, camera.position.z);
   clouds?.update(dt);
+  // Day and night, from the match clock.
+  if (dayClock) {
+    const ticks = dayClock.tick - dayClock.baseTick + Math.min(1, (now - dayClock.at) / 1000 * TICK_RATE);
+    const time = (dayClock.baseTime + ticks / (DAY_LENGTH * TICK_RATE)) % 1;
+    sky.update(time, camera);
+    if (!overview) setViewDistance(scene, camera, viewDistance, sky.fogScale);
+    clouds?.setTint(sky.tint);
+    dayIndicator.set(time);
+  }
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
   portals.update(dt, camera);
   entities.update(dt);
   sounds.update(dt, camera.position, player.state, world, entities,
     input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'));
   flags.update(dt, player.id, pos);
+  // The hook's rope runs from about the right hand to where it caught.
+  const grapple = playing && !overview ? player.state.grapple : null;
+  grappleLine.update(grapple && { x: camera.position.x + Math.cos(input.yaw) * 0.3,
+    y: camera.position.y - 0.4, z: camera.position.z - Math.sin(input.yaw) * 0.3 }, grapple);
+  // Frost from an Ice Sword hit rims the screen while it slows you.
+  document.body.classList.toggle('frosted', playing && player.state.slowTicks > 0);
   if (overview) {
     overview.fit(camera.aspect);
     renderer.render(scene, overview.camera);
@@ -660,7 +736,7 @@ function frame(now) {
       speed: s.onGround ? Math.hypot(s.vx, s.vz) : 0,
       mining: breaking !== null,
       held: heldItem(),
-      draw: Math.min(1, drawTicks / BOW_FULL_TICKS),
+      draw: drawAmount(),
       gliding: s.gliding,
     });
     viewModel.render(renderer);

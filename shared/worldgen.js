@@ -1,11 +1,29 @@
 // Seeded multi-island terrain shared by server and browser. All layout
 // distances and counts live in these size presets for easy tuning.
+//
+// Tiny islands: tinyCount of them, radius tinyRadius, split by
+// tinyDistribution into a ring around the center, rings around the team
+// islands, scattered further out and stacked over or under a main island.
+// Stacked ones sit 25 + (0..tinyStackOffset) above the terrain beneath, or
+// 15 + (0..tinyStackOffset) below the underside. Each holds at most one of a
+// loose chest (structures.tinyChance) or a dragon roost (roosts).
+// Dragons: centralDragons on the central island, teamDragons per team island,
+// one per roost. Void Eels: eels, the first under the central island.
+// Crawlers: crawlers.perStructure in each dungeon and underside ruin, and up
+// to crawlers.cavernCap per main island in dark caverns (each cavernChance).
 import { generateIslandWorld } from './islands.js';
+
+// The same for every size.
+const ROOSTS = { chance: 0.12, minRadius: 8 };
+const CRAWLERS = { perStructure: [3, 5], cavernCap: 2, cavernChance: 0.4 };
+// Tiny islands this big grow 1-2 trees (never on a roost).
+const TINY_TREES = { minRadius: 7, count: [1, 2] };
 
 export const WORLD_SIZES = {
   small: {
     label: 'Small', centralRadius: 110, teamRadius: 45, gap: 35,
-    tinyCount: [8, 12], tinyRadius: [4, 10], teamHeightOffset: 15, teamDragons: 0,
+    tinyCount: [14, 20], tinyRadius: [4, 10], teamHeightOffset: 15, teamDragons: 0, centralDragons: 2, eels: 2,
+    roosts: { ...ROOSTS, max: 1 }, crawlers: CRAWLERS, tinyTrees: TINY_TREES, tinyStackOffset: 15,
     centralSurfaceY: 86, teamAngleJitterDegrees: 15, keepInnerRadius: 0.7,
     islandSpacing: 12, verticalClearance: 20, tinyKeepClearance: 25,
     aboveClearance: 30, belowClearance: 20, outerReach: 28,
@@ -19,7 +37,8 @@ export const WORLD_SIZES = {
   },
   medium: {
     label: 'Medium', centralRadius: 155, teamRadius: 65, gap: 55,
-    tinyCount: [14, 20], tinyRadius: [5, 12], teamHeightOffset: 22, teamDragons: 1,
+    tinyCount: [22, 30], tinyRadius: [5, 12], teamHeightOffset: 22, teamDragons: 1, centralDragons: 3, eels: 4,
+    roosts: { ...ROOSTS, max: 2 }, crawlers: CRAWLERS, tinyTrees: TINY_TREES, tinyStackOffset: 15,
     centralSurfaceY: 86, teamAngleJitterDegrees: 15, keepInnerRadius: 0.7,
     islandSpacing: 20, verticalClearance: 20, tinyKeepClearance: 25,
     aboveClearance: 30, belowClearance: 20, outerReach: 20,
@@ -33,7 +52,8 @@ export const WORLD_SIZES = {
   },
   large: {
     label: 'Large', centralRadius: 210, teamRadius: 90, gap: 80,
-    tinyCount: [22, 30], tinyRadius: [5, 15], teamHeightOffset: 30, teamDragons: 1,
+    tinyCount: [32, 44], tinyRadius: [5, 15], teamHeightOffset: 30, teamDragons: 1, centralDragons: 5, eels: 6,
+    roosts: { ...ROOSTS, max: 4 }, crawlers: CRAWLERS, tinyTrees: TINY_TREES, tinyStackOffset: 15,
     centralSurfaceY: 86, teamAngleJitterDegrees: 15, keepInnerRadius: 0.7,
     islandSpacing: 20, verticalClearance: 20, tinyKeepClearance: 25,
     aboveClearance: 30, belowClearance: 20, outerReach: 20,

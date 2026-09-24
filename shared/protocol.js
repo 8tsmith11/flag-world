@@ -13,6 +13,7 @@ export const C2S = {
   INVENTORY_CLOSE: 'inventoryClose',
   CRAFT: 'craft',
   OPEN_CONTAINER: 'openContainer',
+  ANVIL_REROLL: 'anvilReroll',
 };
 
 // Server -> client
@@ -61,6 +62,8 @@ export const DEATH_CAUSE = {
   PLAYER: 'player',
   VOID: 'void',
   FALL: 'fall',
+  // A dragon, Crawler or Void Eel.
+  MOB: 'mob',
 };
 
 // Server phases.
@@ -84,4 +87,6 @@ export const ENTITY_TYPE = {
   ARROW: 'arrow',
   COW: 'cow',
   DRAGON: 'dragon',
+  CRAWLER: 'crawler',
+  VOID_EEL: 'voidEel',
 };

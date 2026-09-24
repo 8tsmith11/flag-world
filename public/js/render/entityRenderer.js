@@ -6,15 +6,23 @@
 // two server snapshots surrounding that time, which hides network jitter.
 
 import * as THREE from 'three';
-import { ITEM_SIZE, COW_WIDTH, COW_HEIGHT } from '/shared/config.js';
+import { ITEM_SIZE, COW_WIDTH, COW_HEIGHT, CRAWLER_WIDTH, CRAWLER_HEIGHT } from '/shared/config.js';
 import { ENTITY_TYPE } from '/shared/protocol.js';
 import {
   createPlayerModel, createItemModel, createArrowModel, createCowModel, createDragonModel,
-  animatePlayer, animateCow, animateDragon, swingPlayer,
+  createCrawlerModel, createEelModel, animatePlayer, animateCow, animateDragon, animateCrawler, animateEel, swingPlayer,
 } from './models.js';
+import { GrappleLine } from './grappleLine.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
 const DRAGON_BOX = { halfW: 1.1, height: 2.8 };
+// Punchable mobs and their boxes (feet position and height), as on the server.
+const MOB_BOXES = {
+  [ENTITY_TYPE.COW]: COW_BOX,
+  [ENTITY_TYPE.DRAGON]: DRAGON_BOX,
+  [ENTITY_TYPE.CRAWLER]: { halfW: CRAWLER_WIDTH / 2, height: CRAWLER_HEIGHT },
+  [ENTITY_TYPE.VOID_EEL]: { halfW: 0.6, height: 0.8 },
+};
 
 const INTERP_DELAY_MS = 100;
 const MAX_SNAPSHOTS = 20;
@@ -25,6 +33,8 @@ const ITEM_BOB_SPEED = 0.003;
 // Red tint on a player who just got hit.
 const FLASH_MS = 250;
 const FLASH_COLOR = 0xcc0000;
+// A player's hand, roughly, above their feet: where a grappling rope starts.
+const HAND_HEIGHT = 1.1;
 
 // A dropped item: its item model, small. Models with userData.spin are rotated
 // by time instead of following the entity's yaw, and bob.
@@ -50,6 +60,8 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.ITEM]: createDroppedItemModel,
   [ENTITY_TYPE.COW]: createCowModel,
   [ENTITY_TYPE.DRAGON]: createDragonModel,
+  [ENTITY_TYPE.CRAWLER]: createCrawlerModel,
+  [ENTITY_TYPE.VOID_EEL]: createEelModel,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
     const arrow = createArrowModel();
@@ -95,6 +107,7 @@ export class EntityRenderer {
     if (!entity) return;
     this.scene.remove(entity.object);
     disposeObject(entity.object);
+    entity.grappleLine?.dispose();
     this.entities.delete(id);
   }
 
@@ -110,7 +123,8 @@ export class EntityRenderer {
       time: performance.now(), x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
       crouching: !!snap.crouching, draw: snap.draw ?? 0, armor: snap.armor ?? null,
       accessory: snap.accessory ?? null,
-      gliding: !!snap.gliding, breathing: !!snap.breathing, walking: !!snap.walking,
+      slowed: snap.slowTicks > 0, grapple: snap.grapple ?? null,
+      gliding: !!snap.gliding, breathing: !!snap.breathing, walking: !!snap.walking, climbing: !!snap.climbing,
       onGround: !!snap.onGround,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
@@ -134,14 +148,15 @@ export class EntityRenderer {
     return this.entities.get(id)?.object ?? null;
   }
 
-  // What a punch can hit, as drawn this frame: live players, cows and dragons, as
+  // What a punch can hit, as drawn this frame: live players and mobs, as
   // { id, state: { x, y, z, crouching, box? } } for raycastPlayers.
   attackTargets() {
     const targets = this.playerTargets();
     for (const [id, { object, info }] of this.entities) {
-      if (info.type !== ENTITY_TYPE.COW && info.type !== ENTITY_TYPE.DRAGON) continue;
+      const box = MOB_BOXES[info.type];
+      if (!box) continue;
       const { x, y, z } = object.position;
-      targets.push({ id, state: { x, y, z, box: info.type === ENTITY_TYPE.COW ? COW_BOX : DRAGON_BOX } });
+      targets.push({ id, state: { x, y, z, box } });
     }
     return targets;
   }
@@ -181,6 +196,9 @@ export class EntityRenderer {
         // Face along the flight. A stuck arrow keeps the direction it hit with.
         const vx = a.vx + (b.vx - a.vx) * t, vy = a.vy + (b.vy - a.vy) * t, vz = a.vz + (b.vz - a.vz) * t;
         if (vx || vy || vz) object.lookAt(object.position.x + vx, object.position.y + vy, object.position.z + vz);
+      } else if (object.userData.eel) {
+        // The body trails in world space; the head turns on its own.
+        animateEel(object, dt, lerpAngle(a.yaw, b.yaw, t), a.pitch + (b.pitch - a.pitch) * t);
       } else if (spin) {
         object.rotation.y = now * ITEM_SPIN_SPEED + spin.phase;
         spin.inner.position.y = ITEM_BOB_HEIGHT * (1 + Math.sin(now * ITEM_BOB_SPEED + spin.phase));
@@ -191,13 +209,18 @@ export class EntityRenderer {
       const span = (b.time - a.time) / 1000;
       const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
       if (object.userData.cow) animateCow(object, dt, speed);
+      if (object.userData.crawler) animateCrawler(object, dt, speed, b.climbing);
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch);
       if (object.userData.player) {
         animatePlayer(object, {
           dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, armor: b.armor,
-          accessory: b.accessory, crouching: b.crouching, draw: b.draw, gliding: b.gliding,
+          accessory: b.accessory, crouching: b.crouching, draw: b.draw, gliding: b.gliding, slowed: b.slowed,
         });
+        const grapple = object.visible ? b.grapple : null;
+        if (grapple && !entity.grappleLine) entity.grappleLine = new GrappleLine(this.scene);
+        const p = object.position;
+        entity.grappleLine?.update({ x: p.x, y: p.y + HAND_HEIGHT, z: p.z }, grapple);
       }
     }
   }

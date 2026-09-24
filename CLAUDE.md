@@ -64,6 +64,26 @@ including the host, plays by opening `http://<host-ip>:3000`.
   (furnace, chest) have one id per facing (`FACED`). The inventory is 36 slots
   (hotbar 0-8) plus a cursor stack. It's server-owned (`server/inventory.js`), and the client only sends
   clicks and crafts.
+- Loot-only gear: Wind Axe and Ice Sword are melee entries in `SWORDS`
+  (`shared/tools.js`: knockback scale, lift, frost, `breaks: false`); the
+  crossbow (`Game.stepCrossbow`), Rope Bundle (places a `BLOCK.ROPE` column in
+  `Game.stepPlace`) and grappling hook tune from `shared/config.js`. Rope is
+  climbable like ladders (`isClimbable`), and the frost slow and grapple pull
+  are player physics state (`slowTicks`, `grapple`, `hookCooldown`), so
+  prediction replays them.
+- Item modifiers are data in `shared/modifiers.js` (pools by the item's
+  `modCategory`); a stack may carry `mods: [{ id, value }]` and then never
+  merges. Anything that moves stacks must keep `mods` (`Inventory.addStack`,
+  `spawnItem(..., mods)`). Effects read `modValue(stack, id)` where they apply
+  (`shared/tools.js`, `Player` stat helpers). Loot entries roll them via
+  `modChance`; the anvil (a container) rerolls them (`Game.anvilReroll`).
+- Hostile mobs: Crawlers (`server/crawler.js`) and Void Eels (`server/eel.js`)
+  live in `Game.mobs`; dragons in `Game.dragons`, leashed to a home island.
+  All three share `server/provocation.js`: player damage makes them hunt the
+  attacker until they lose sight of them for `PROVOKE_FORGET_TIME`. Worldgen
+  picks Crawler spawn points (`world.mobSpawns`) and roosts (`world.roosts`).
+- Day/night is visual only: the server sends `dayTime` in `welcome`, clients
+  run the clock from `state` ticks and `render/sky.js` lights the scene.
 - Breaking a block needs the held item's tool strength (bare hands are
   `HAND_STRENGTH`) >= its `hardness` and holding the break button on it for `breakTime`. Progress
   is counted per input tick on the server (`Game.stepBreaking`). Placing and
@@ -103,9 +123,14 @@ server/
   arrow.js                   Arrow entity: flight, swept collision, sticking
   cow.js                     Cows and herds: wandering, panic, path following
   pathfind.js                A* over standable blocks for walking mobs
+  dragon.js                  Dragons: patrol, landing, leash, fire breath
+  crawler.js                 Crawlers: wandering, hunting, wall climbing, bites
+  eel.js                     Void Eels: patrol under an island, chase exposed players
+  provocation.js             Shared grudge (provoked target) and line-of-sight test
   flag.js                    A player's flag: home / carried / dropped / captured
   containers.js              Chest and furnace tile entities: slots, shift-click, smelting
 shared/                      Runs on server and client
+  modifiers.js               Item modifier pools, rolls, names and tooltip lines
   config.js                  Constants: DEBUG, Test world size, chunk size, view distance, physics, gameplay
   blocks.js                  Block type registry and properties
   items.js                   Item registry: blocks as items, tools, ladders, doors
@@ -137,6 +162,7 @@ public/
     render/
       scene.js               Renderer, camera, lights, fog tied to view distance
       clouds.js              Drifting cloud layers (island worlds)
+      sky.js                 Day/night: sun, moon, stars, sky and fog color, lights
       overview.js            Debug top-down camera of the whole world
       mesher.js              Chunk -> BufferGeometry (visible cube faces; shaped blocks as colored boxes)
       chunkRenderer.js       Meshes chunks within the view distance, nearest first; unloads far ones
@@ -145,6 +171,7 @@ public/
       viewModel.js           First-person arm and held item
       blockHighlight.js      Targeted block outline and break progress overlay
       flagRenderer.js        Flags, carried flags on backs, light beams, return puffs
+      grappleLine.js         Grappling hook rope and hook head while a pull is on
 scripts/
   check.js                   `npm run check`
 PROTOCOL.md                  WebSocket message reference

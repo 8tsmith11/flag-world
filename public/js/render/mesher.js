@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE } from '/shared/config.js';
 import { BLOCK, getBlockDef, ladderFacing, doorState, blockBase, isWater, waterLevel } from '/shared/blocks.js';
+import { ANVIL_PARTS } from './models.js';
 
 // Corner offsets are wound counter-clockwise when viewed from outside.
 // Triangles per face: (0,1,2) and (2,1,3). `shade` fakes directional variation.
@@ -256,7 +257,17 @@ const SAPLING = [
   { box: [0.43, 0.3, 0.22, 0.57, 0.54, 0.78], color: 0x3c8d3b },
 ];
 
-const SHAPES = { workbench: WORKBENCH, furnace: FURNACE, chest: CHEST, sapling: SAPLING };
+// Rope: a thin strand down the middle of the cell with a knot halfway.
+const ROPE = [
+  { box: [0.45, 0, 0.45, 0.55, 1, 0.55] },
+  { box: [0.42, 0.44, 0.42, 0.58, 0.56, 0.58], color: 0x8f7446 },
+];
+
+// Anvil: a wide base, a narrow waist and a flat face with a horn toward +X,
+// in dark iron with a worn, lighter face (the same boxes as its item model).
+const ANVIL = ANVIL_PARTS.map(({ box, light }, i) => ({ box, color: light ? 0x5c5f66 : i % 2 ? 0x34363b : 0x3b3d42 }));
+
+const SHAPES = { workbench: WORKBENCH, furnace: FURNACE, chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL };
 
 // [{ box, color }] for a shaped block, turned to its facing.
 function shapeBoxes(id, def) {

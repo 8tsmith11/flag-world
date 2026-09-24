@@ -1,10 +1,13 @@
 // Server-owned player inventory: INVENTORY_SIZE slots (the hotbar is 0-8, the
-// main grid the rest), each null or a stack { item, count }, plus the stack
-// held on the mouse cursor while the inventory screen is open.
+// main grid the rest), each null or a stack { item, count, mods? }, plus the
+// stack held on the mouse cursor while the inventory screen is open. A stack
+// with modifiers (shared/modifiers.js) is one item instance: it moves as a
+// whole and never merges with another.
 
 import { INVENTORY_SIZE, HOTBAR_SIZE } from '../shared/config.js';
 import { getItemDef } from '../shared/items.js';
 import { countItems } from '../shared/recipes.js';
+import { sameKind } from '../shared/modifiers.js';
 
 export function maxStack(item) {
   return getItemDef(item).maxStack;
@@ -24,29 +27,38 @@ export function clickSlot(slots, index, holder, button, { accepts = () => true, 
   if (!cursor) {
     if (!stack) return false;
     const n = button === 'right' && !takeOnly ? Math.ceil(stack.count / 2) : stack.count;
+    // Taking the whole stack moves the stack itself, modifiers and all.
+    if (n === stack.count) {
+      holder.cursor = stack;
+      slots[index] = null;
+      return true;
+    }
     holder.cursor = { item: stack.item, count: n };
     stack.count -= n;
-    if (stack.count === 0) slots[index] = null;
     return true;
   }
   if (takeOnly) {
-    if (!stack || stack.item !== cursor.item || cursor.count + stack.count > maxStack(cursor.item)) return false;
+    if (!sameKind(stack, cursor) || cursor.count + stack.count > maxStack(cursor.item)) return false;
     cursor.count += stack.count;
     slots[index] = null;
     return true;
   }
   if (!accepts(cursor.item)) return false;
   if (button === 'right') {
-    if (stack && (stack.item !== cursor.item || stack.count >= maxStack(stack.item))) return false;
+    if (stack && (!sameKind(stack, cursor) || stack.count >= maxStack(stack.item))) return false;
     if (stack) stack.count++;
-    else slots[index] = { item: cursor.item, count: 1 };
+    else if (cursor.count === 1) {
+      slots[index] = cursor;
+      holder.cursor = null;
+      return true;
+    } else slots[index] = { item: cursor.item, count: 1 };
     if (--cursor.count === 0) holder.cursor = null;
     return true;
   }
   if (!stack) {
     slots[index] = cursor;
     holder.cursor = null;
-  } else if (stack.item === cursor.item && stack.count < maxStack(stack.item)) {
+  } else if (sameKind(stack, cursor) && stack.count < maxStack(stack.item)) {
     const n = Math.min(cursor.count, maxStack(stack.item) - stack.count);
     stack.count += n;
     cursor.count -= n;
@@ -67,17 +79,24 @@ export class Inventory {
   }
 
   // Adds up to `count` of `item`, topping up matching stacks before using empty
-  // slots, hotbar first in both passes. Returns how many didn't fit.
-  add(item, count) {
-    return this.addTo(item, count, 0, this.slots.length);
+  // slots, hotbar first in both passes. Returns how many didn't fit. With
+  // `mods` (a modded item) it only takes an empty slot.
+  add(item, count, mods = null) {
+    return this.addTo(item, count, 0, this.slots.length, mods);
+  }
+
+  // add() for a whole stack, keeping its modifiers.
+  addStack(stack) {
+    return this.add(stack.item, stack.count, stack.mods);
   }
 
   // add(), limited to slots from..to-1.
-  addTo(item, count, from, to) {
+  addTo(item, count, from, to, mods = null) {
     const max = maxStack(item);
-    for (let i = from; i < to && count > 0; i++) {
+    const modded = !!mods?.length;
+    for (let i = from; i < to && count > 0 && !modded; i++) {
       const stack = this.slots[i];
-      if (!stack || stack.item !== item || stack.count >= max) continue;
+      if (!stack || stack.item !== item || stack.mods?.length || stack.count >= max) continue;
       const n = Math.min(count, max - stack.count);
       stack.count += n;
       count -= n;
@@ -85,10 +104,16 @@ export class Inventory {
     for (let i = from; i < to && count > 0; i++) {
       if (this.slots[i]) continue;
       const n = Math.min(count, max);
-      this.slots[i] = { item, count: n };
+      this.slots[i] = modded ? { item, count: n, mods } : { item, count: n };
       count -= n;
     }
     return count;
+  }
+
+  // Whether the slots hold at least these [{ item, count }].
+  has(needs) {
+    const counts = countItems(this.slots);
+    return needs.every(({ item, count }) => (counts.get(item) ?? 0) >= count);
   }
 
   get(slot) {
@@ -129,7 +154,7 @@ export class Inventory {
     const stack = this.slots[slot];
     if (!stack) return false;
     const [from, to] = slot < HOTBAR_SIZE ? [HOTBAR_SIZE, this.slots.length] : [0, HOTBAR_SIZE];
-    const left = this.addTo(stack.item, stack.count, from, to);
+    const left = this.addTo(stack.item, stack.count, from, to, stack.mods);
     if (left === stack.count) return false;
     stack.count = left;
     if (left === 0) this.slots[slot] = null;
@@ -140,17 +165,16 @@ export class Inventory {
   // stack) or null.
   stowCursor() {
     if (!this.cursor) return null;
-    const { item, count } = this.cursor;
+    const stack = this.cursor;
     this.cursor = null;
-    const left = this.add(item, count);
-    return left > 0 ? { item, count: left } : null;
+    const left = this.addStack(stack);
+    return left > 0 ? { ...stack, count: left } : null;
   }
 
   // Crafts `recipe` if the slots hold its inputs and the output fits. Returns
   // whether it did.
   craft(recipe) {
-    const counts = countItems(this.slots);
-    if (!recipe.inputs.every(({ item, count }) => (counts.get(item) ?? 0) >= count)) return false;
+    if (!this.has(recipe.inputs)) return false;
     // Try it on a copy so a full inventory refuses the craft rather than losing items.
     const trial = new Inventory(this.slots.length);
     trial.slots = this.slots.map((s) => s && { ...s });

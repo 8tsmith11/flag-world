@@ -1,5 +1,10 @@
 // Server-owned dragon. It flies, occasionally lands to wander, pursues nearby
 // players, and breathes a short cone of fire with clear sight.
+//
+// Every dragon is leashed to a home island (a team island, the central island
+// or a roost): it roams within leashRadius of the island's middle and only
+// goes after players inside that radius. Provoked (see provocation.js), it
+// hunts its attacker anywhere until it loses them, then flies home.
 import {
   TICK_RATE, TICK_DT, DRAGON_HP, DRAGON_SPEED, DRAGON_SIGHT,
   DRAGON_FIRE_RANGE, DRAGON_FIRE_DURATION, DRAGON_FIRE_COOLDOWN, DRAGON_FIRE_INTERVAL,
@@ -8,6 +13,7 @@ import { BLOCK, isSolid } from '../shared/blocks.js';
 import { playerBoxOf } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { raycastBlock } from '../shared/raycast.js';
+import { Provocation, huntable } from './provocation.js';
 
 export const DRAGON_BOX = { halfW: 1.1, height: 2.8 };
 const FIRE_TICKS = Math.round(DRAGON_FIRE_DURATION * TICK_RATE);
@@ -26,12 +32,15 @@ function turnToward(current, wanted) {
 }
 
 export class Dragon {
-  constructor(id, x, y, z, homeIsland = null) {
+  // homeIsland: { x, z, radius }; leash: how far past its radius it may roam.
+  constructor(id, x, y, z, homeIsland, leash) {
     this.id = id;
     this.type = ENTITY_TYPE.DRAGON;
     this.name = 'Dragon';
     this.home = { x, y, z };
     this.homeIsland = homeIsland;
+    this.leashRadius = homeIsland.radius + leash;
+    this.provocation = new Provocation();
     this.state = { x, y, z, yaw: Math.random() * Math.PI * 2, pitch: 0, box: DRAGON_BOX };
     this.hp = DRAGON_HP;
     this.dead = false;
@@ -66,21 +75,30 @@ export class Dragon {
     const distance = 3 + Math.random() * 8;
     const x = this.state.x + Math.cos(angle) * distance;
     const z = this.state.z + Math.sin(angle) * distance;
-    if (this.homeIsland && Math.hypot(x - this.homeIsland.x, z - this.homeIsland.z)
-      > this.homeIsland.radius + 15) {
+    if (Math.hypot(x - this.homeIsland.x, z - this.homeIsland.z) > this.leashRadius) {
       this.walkGoal = { x: this.home.x, z: this.home.z };
     } else this.walkGoal = { x, z };
+  }
+
+  // The provoking player, else the nearest player within sight who is inside
+  // its leash.
+  chooseTarget(world, players, tick) {
+    const s = this.state;
+    const provoked = this.provocation.current(world, { x: s.x, y: s.y + 1.7, z: s.z }, tick);
+    if (provoked) return provoked;
+    const island = this.homeIsland;
+    return players.filter((p) => huntable(p)
+      && Math.hypot(p.state.x - island.x, p.state.z - island.z) <= this.leashRadius)
+      .map((p) => ({ player: p, distance: Math.hypot(p.state.x - s.x, p.state.y - s.y, p.state.z - s.z) }))
+      .filter(({ distance }) => distance < DRAGON_SIGHT)
+      .sort((a, b) => a.distance - b.distance)[0]?.player ?? null;
   }
 
   // Returns players hit by this tick's fire pulse. The game applies damage.
   step(world, players, tick) {
     const s = this.state;
-    const target = players.filter((p) => !p.dead && p.connected)
-      .map((p) => ({ player: p, distance: Math.hypot(p.state.x - s.x, p.state.y - s.y, p.state.z - s.z) }))
-      .filter(({ distance }) => distance < DRAGON_SIGHT)
-      .sort((a, b) => a.distance - b.distance)[0]?.player ?? null;
-    const returning = !target && this.homeIsland
-      && Math.hypot(s.x - this.home.x, s.z - this.home.z) > 20;
+    const target = this.chooseTarget(world, players, tick);
+    const returning = !target && Math.hypot(s.x - this.home.x, s.z - this.home.z) > 20;
     if (returning) {
       this.walking = false;
       this.landing = false;
@@ -111,8 +129,7 @@ export class Dragon {
         const nz = s.z - Math.cos(s.yaw) * WALK_SPEED * TICK_DT;
         const nextGround = this.groundAt(world, nx, nz);
         if (nextGround >= 0 && Math.abs(nextGround - ground) <= 1
-          && (!this.homeIsland || Math.hypot(nx - this.homeIsland.x, nz - this.homeIsland.z)
-            <= this.homeIsland.radius + 15)) {
+          && Math.hypot(nx - this.homeIsland.x, nz - this.homeIsland.z) <= this.leashRadius) {
           s.x = nx;
           s.z = nz;
           s.y = nextGround + WALK_HEIGHT;
@@ -153,10 +170,9 @@ export class Dragon {
     const speed = target && horizontalDistance < 6 ? DRAGON_SPEED * 0.2 : DRAGON_SPEED;
     const nx = s.x - Math.sin(s.yaw) * speed * TICK_DT;
     const nz = s.z - Math.cos(s.yaw) * speed * TICK_DT;
-    const islandDistance = this.homeIsland
-      ? Math.hypot(nx - this.homeIsland.x, nz - this.homeIsland.z) : 0;
+    const islandDistance = Math.hypot(nx - this.homeIsland.x, nz - this.homeIsland.z);
     if (nx > 3 && nz > 3 && nx < world.sizeX - 3 && nz < world.sizeZ - 3
-      && (target || !this.homeIsland || islandDistance <= this.homeIsland.radius + 15
+      && (target || islandDistance <= this.leashRadius
         || islandDistance < Math.hypot(s.x - this.homeIsland.x, s.z - this.homeIsland.z))) {
       s.x = nx;
       s.z = nz;
@@ -195,7 +211,7 @@ export class Dragon {
   }
 
   fireTargets(world, players) {
-    return players.filter((player) => !player.dead && player.connected && this.canHit(world, player));
+    return players.filter((player) => huntable(player) && this.canHit(world, player));
   }
 
   aimAt(player) {

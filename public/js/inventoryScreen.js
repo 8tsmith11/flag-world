@@ -6,19 +6,21 @@
 //   inventory (E):  a slowly turning preview of your player model, and the
 //                   recipes you can afford right now that need no station
 //   workbench:      the same, plus workbench recipes
-//   furnace, chest: containers, updated live by the server for everyone who
-//                   has them open. Furnace: input, fuel and output slots with
-//                   a fuel flame and smelting arrow. Chest: 27 slots above the
-//                   inventory.
+//   furnace, chest, anvil: containers, updated live by the server for everyone
+//                   who has them open. Furnace: input, fuel and output slots
+//                   with a fuel flame and smelting arrow. Chest: 27 slots above
+//                   the inventory. Anvil: one slot for a moddable item, its
+//                   modifiers, and a Reroll button.
 
 import * as THREE from 'three';
 import { HOTBAR_SIZE, INVENTORY_SIZE } from '/shared/config.js';
 
 const CHEST_SIZE = 27;
-export const CONTAINERS = ['furnace', 'chest'];
+export const CONTAINERS = ['furnace', 'chest', 'anvil'];
 import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
-import { recipesAt, canAfford } from '/shared/recipes.js';
+import { recipesAt, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
+import { canHaveMods, modLines, stackName } from '/shared/modifiers.js';
 import { renderStack } from './itemIcon.js';
 import { createPlayerModel, animatePlayer } from './render/models.js';
 
@@ -72,6 +74,14 @@ export class InventoryScreen {
       chest.append(slot);
       this.chestSlots.push(slot);
     }
+    this.anvilSlot = document.querySelector('[data-anvil]');
+    this.onClick(this.anvilSlot, 0, true);
+    this.anvilMods = document.getElementById('anvil-mods');
+    this.rerollButton = document.getElementById('anvil-reroll');
+    this.rerollButton.addEventListener('click', () => {
+      if (this.mode === 'anvil' && this.at) this.conn.send({ type: C2S.ANVIL_REROLL, ...this.at });
+    });
+    this.anvilStack = null;
     this.flame = document.querySelector('.furnace .flame .fill');
     this.arrow = document.querySelector('.furnace-arrow .fill');
 
@@ -127,10 +137,12 @@ export class InventoryScreen {
     document.querySelector('.inv-crafting').hidden = container;
     document.getElementById('inv-furnace').hidden = mode !== 'furnace';
     document.getElementById('inv-chest-panel').hidden = mode !== 'chest';
+    document.getElementById('inv-anvil').hidden = mode !== 'anvil';
     document.getElementById('inv-crafting-title').textContent = mode === 'workbench' ? 'Workbench' : 'Crafting';
     // Empty until the server's first CONTAINER message arrives.
     if (mode === 'furnace') this.setContainer({ kind: 'furnace', slots: [null, null, null], burn: 0, progress: 0 });
     if (mode === 'chest') this.setContainer({ kind: 'chest', slots: new Array(CHEST_SIZE).fill(null) });
+    if (mode === 'anvil') this.setContainer({ kind: 'anvil', slots: [null] });
     if (!container && !this.preview) this.createPreview(color);
     this.update(this.inventory);
   }
@@ -139,6 +151,12 @@ export class InventoryScreen {
   setContainer(view) {
     if (view.kind === 'chest') {
       this.chestSlots.forEach((el, i) => renderStack(el, view.slots[i]));
+      return;
+    }
+    if (view.kind === 'anvil') {
+      this.anvilStack = view.slots[0];
+      renderStack(this.anvilSlot, this.anvilStack);
+      this.updateAnvil();
       return;
     }
     this.furnaceSlots.forEach((el, i) => renderStack(el, view.slots[i]));
@@ -154,6 +172,23 @@ export class InventoryScreen {
     if (sendClose) this.conn.send({ type: C2S.INVENTORY_CLOSE });
   }
 
+  // The anvil's modifier preview, and whether Reroll can be afforded.
+  updateAnvil() {
+    const stack = this.anvilStack;
+    const lines = !stack ? ['Put in a weapon, tool, armor or accessory.']
+      : !stack.mods?.length ? [`${getItemDef(stack.item).name}: no modifiers yet`]
+        : [stackName(stack, getItemDef(stack.item).name), ...modLines(stack)];
+    this.anvilMods.replaceChildren(...lines.map((text, i) => {
+      const li = document.createElement('li');
+      li.textContent = text;
+      if (i === 0 && stack?.mods?.length) li.className = 'name';
+      return li;
+    }));
+    const counts = countItems(this.inventory.slots);
+    const affordable = ANVIL_REROLL_COST.every(({ item, count }) => (counts.get(item) ?? 0) >= count);
+    this.rerollButton.disabled = !stack || !canHaveMods(stack.item) || !affordable;
+  }
+
   // inventory: { slots, cursor } from the server.
   update(inventory) {
     this.inventory = inventory;
@@ -161,6 +196,7 @@ export class InventoryScreen {
     renderStack(this.cursorEl, inventory.cursor);
     renderStack(this.armorEl, inventory.armor);
     renderStack(this.accessoryEl, inventory.accessory);
+    if (this.mode === 'anvil') this.updateAnvil();
 
     // Only what you can make right now here; rebuilt on every inventory change.
     const station = this.mode === 'workbench' ? 'workbench' : null;

@@ -83,6 +83,15 @@
         </div>
         <p class="hint">Iron ore smelts into iron ingots. Fuel: wood (2 items) or planks (1).</p>
       </div>
+      <div id="inv-anvil" class="inv-side" hidden>
+        <h2>Anvil</h2>
+        <div class="anvil">
+          <div class="slot" data-anvil="0" title="A weapon, tool, armor or accessory"></div>
+          <button id="anvil-reroll" type="button">Reroll · 2 iron ingots</button>
+        </div>
+        <ul id="anvil-mods"></ul>
+        <p class="hint">Reroll replaces the item's modifiers with 1 or 2 new ones.</p>
+      </div>
       <div class="inv-grids">
         <div id="inv-chest-panel" hidden>
           <h2>Chest</h2>
@@ -106,6 +115,7 @@
   <div id="toast" hidden></div>
   <div id="carry" hidden></div>
   <div id="health"></div>
+  <div id="daytime"></div>
   <div id="hotbar"></div>
   <ul id="feed"></ul>
   <pre id="debug" hidden></pre>

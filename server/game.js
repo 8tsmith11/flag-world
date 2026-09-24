@@ -6,13 +6,15 @@
 import {
   TICK_RATE, MAX_QUEUED_INPUTS, PLAYER_HEIGHT,
   REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, TOWER_MIN_HEIGHT,
-  BOW_FULL_DRAW, BOW_MIN_DRAW, BOW_COOLDOWN, ARROW_SPEED, ARROW_DAMAGE, ARROW_KNOCKBACK,
+  BOW_COOLDOWN, ARROW_SPEED, ARROW_DAMAGE, ARROW_KNOCKBACK, ARROW_GRAVITY,
+  CROSSBOW_ARROW_SPEED, CROSSBOW_ARROW_DAMAGE, CROSSBOW_ARROW_GRAVITY, ROPE_LENGTH,
   COW_HERD_AREA, COW_HERD_SIZE, COW_PANIC_TIME, COW_DROPS, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
   DRAGON_FIRE_DAMAGE, DRAGON_DROPS,
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
   MAX_HP, REGEN_DELAY, REGEN_INTERVAL, EAT_TIME, FOOD_HEAL_TIME, HIT_TOLERANCE,
   KNOCKBACK_SPEED, KNOCKBACK_UP, RESPAWN_DELAY, KILL_CREDIT_TIME, FALL_SAFE_DISTANCE,
-  FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS,
+  FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS, DRAGON_LEASH, CRAWLER_DROPS, EEL_ZONE, CRAWLER_DAMAGE, EEL_DAMAGE,
+  DAY_LENGTH, DAY_START,
 } from '../shared/config.js';
 import {
   BLOCK, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
@@ -21,12 +23,16 @@ import {
 import { getItemDef, ITEM } from '../shared/items.js';
 import { accessoryDef } from '../shared/accessories.js';
 import { RIFT_STONE } from '../shared/accessories.js';
-import { getRecipe } from '../shared/recipes.js';
+import { getRecipe, ANVIL_REROLL_COST } from '../shared/recipes.js';
+import { canHaveMods } from '../shared/modifiers.js';
+import { FROST } from '../shared/tools.js';
 import { Chest, createContainer } from './containers.js';
 import { clickSlot } from './inventory.js';
 import { Arrow } from './arrow.js';
 import { Cow, Herd } from './cow.js';
 import { Dragon } from './dragon.js';
+import { Crawler } from './crawler.js';
+import { VoidEel } from './eel.js';
 import { canStand } from './pathfind.js';
 import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../shared/worldgen.js';
 import { keepAt, flagHome, mulberry32, KEEP_REACH } from '../shared/structures.js';
@@ -56,12 +62,9 @@ const ticks = (seconds) => Math.round(seconds * TICK_RATE);
 const EAT_TICKS = ticks(EAT_TIME);
 const RESPAWN_DELAY_TICKS = ticks(RESPAWN_DELAY);
 const KILL_CREDIT_TICKS = ticks(KILL_CREDIT_TIME);
-const BOW_FULL_TICKS = ticks(BOW_FULL_DRAW);
-const BOW_MIN_TICKS = ticks(BOW_MIN_DRAW);
 const BOW_COOLDOWN_TICKS = ticks(BOW_COOLDOWN);
 const COW_PANIC_TICKS = ticks(COW_PANIC_TIME);
 const FLAG_RETURN_TICKS = ticks(FLAG_RETURN_TIME);
-const maxHp = (player) => MAX_HP + (accessoryDef(player.inventory.accessory?.item)?.maxHpBonus ?? 0);
 // While mining, other players see a swing this often.
 const BREAK_SWING_TICKS = 5;
 
@@ -136,6 +139,8 @@ export class Game {
     this.arrows = new Map();
     this.cows = new Map();
     this.dragons = new Map();
+    // Crawlers and Void Eels by entity id.
+    this.mobs = new Map();
     this.portals = new Map();
     // Sessions on the "match in progress" screen.
     this.spectators = new Set();
@@ -215,6 +220,9 @@ export class Game {
         break;
       case C2S.CRAFT:
         if (session.player) this.craft(session.player, msg);
+        break;
+      case C2S.ANVIL_REROLL:
+        if (session.player) this.anvilReroll(session.player, msg);
         break;
     }
   }
@@ -341,6 +349,8 @@ export class Game {
       + `(generated in ${Math.round(performance.now() - started)} ms)`);
     this.spawnHerds();
     this.spawnDragons();
+    this.spawnCrawlers();
+    this.spawnEels();
     for (const player of this.players.values()) this.sendWelcome(player);
   }
 
@@ -397,6 +407,7 @@ export class Game {
       teamCount: this.teamCount,
       worldSize: this.worldSize,
       tick: this.tick,
+      dayTime: this.dayTime(),
       blocks: [...this.blockChanges.values()],
       litFurnaces: [...this.world.tileEntities].filter(([, c]) => c.kind === 'furnace' && c.burn > 0)
         .map(([key]) => {
@@ -404,7 +415,8 @@ export class Game {
           return { x, y, z };
         }),
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
-      entities: [...this.items.values(), ...this.arrows.values(), ...this.cows.values(), ...this.dragons.values()].map((e) => e.describe()),
+      entities: [...this.items.values(), ...this.arrows.values(), ...this.cows.values(), ...this.dragons.values(),
+        ...this.mobs.values()].map((e) => e.describe()),
       inventory: player.inventory,
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
       portals: [...this.portals.values()].map(({ id, x, y, z, expiresTick }) => ({ id, x, y, z, expiresTick })),
@@ -436,6 +448,8 @@ export class Game {
       eat: !!msg.eat,
       glide: !!msg.glide,
       rift: !!msg.rift,
+      fire: !!msg.fire,
+      hook: !!msg.hook,
     });
   }
 
@@ -491,7 +505,7 @@ export class Game {
         const destination = this.portalDestination(portal.keep, player);
         if (!destination) continue;
         Object.assign(state, destination, { vx: 0, vy: 0, vz: 0, kx: 0, kz: 0,
-          onGround: false, springCharge: 0, springBouncing: false });
+          onGround: false, springCharge: 0, springBouncing: false, grapple: null });
         player.fallTop = null;
         player.portalCooldownTick = this.tick + ticks(1);
         portal.inside.add(player.id);
@@ -539,7 +553,7 @@ export class Game {
           this.broadcast({ type: S2C.FURNACE_LIT, x, y, z, lit: false });
         }
         this.world.tileEntities.delete(key);
-        for (const stack of container.takeAll()) this.dropAt(stack.item, x, y, z, stack.count);
+        for (const stack of container.takeAll()) this.dropAt(stack.item, x, y, z, stack.count, stack.mods);
       }
     }
     FACING_DIRS.forEach(([dx, dz], facing) => {
@@ -552,9 +566,9 @@ export class Game {
     if (isDoor(above) && !doorState(above).upper) this.breakBlock(x, y + 1, z);
   }
 
-  dropAt(item, x, y, z, count = 1) {
+  dropAt(item, x, y, z, count = 1, mods = null) {
     const r = () => (Math.random() - 0.5) * 2;
-    this.spawnItem(item, count, x + 0.5, y + 0.5 - ITEM_SIZE / 2, z + 0.5, r(), ITEM_POP_SPEED, r(), ITEM_PICKUP_DELAY);
+    this.spawnItem(item, count, x + 0.5, y + 0.5 - ITEM_SIZE / 2, z + 0.5, r(), ITEM_POP_SPEED, r(), ITEM_PICKUP_DELAY, mods);
   }
 
   // True if any live player would overlap the block.
@@ -607,6 +621,14 @@ export class Game {
       if (pos.ny !== 0 || (pos.nx === 0 && pos.nz === 0)) return;
       if (!isSupport(this.world.getBlock(pos.x - pos.nx, pos.y, pos.z - pos.nz))) return;
       cells = [[pos.x, pos.y, pos.z, ladderBlock(facingOf(-pos.nx, -pos.nz))]];
+    } else if (def.places === 'rope') {
+      // A column straight down from this cell, up to ROPE_LENGTH long, ending
+      // above the first cell that can't be built in (a solid block, a keep's
+      // no-build zone, the bottom of the world).
+      cells = [];
+      for (let y = pos.y; y > pos.y - ROPE_LENGTH && this.buildable(pos.x, y, pos.z); y--) {
+        cells.push([pos.x, y, pos.z, BLOCK.ROPE]);
+      }
     } else if (def.places === 'door') {
       // Two tall on a full block, facing the way the player looks.
       if (!this.buildable(pos.x, pos.y + 1, pos.z)) return;
@@ -682,7 +704,7 @@ export class Game {
       const field = msg.accessory ? 'accessory' : 'armor';
       const equipmentSlots = [inv[field]];
       if (msg.shift) {
-        if (!inv[field] || inv.add(inv[field].item, 1) !== 0) return;
+        if (!inv[field] || inv.addStack(inv[field]) !== 0) return;
         inv[field] = null;
       } else if (!clickSlot(equipmentSlots, 0, inv, button, {
         accepts: (item) => field === 'accessory' ? !!getItemDef(item).accessory : !!getItemDef(item).armorPoints,
@@ -697,7 +719,7 @@ export class Game {
       if (msg.shift) {
         const stack = container.slots[slot];
         if (!stack) return;
-        const left = inv.add(stack.item, stack.count);
+        const left = inv.addStack(stack);
         moved = left < stack.count;
         stack.count = left;
         if (left === 0) container.slots[slot] = null;
@@ -786,7 +808,7 @@ export class Game {
     player.inventoryDirty = true;
     if (left) {
       const s = player.state;
-      this.spawnItem(left.item, left.count, s.x, s.y + 1, s.z, 0, ITEM_POP_SPEED, 0, ITEM_THROW_PICKUP_DELAY);
+      this.spawnItem(left.item, left.count, s.x, s.y + 1, s.z, 0, ITEM_POP_SPEED, 0, ITEM_THROW_PICKUP_DELAY, left.mods);
     }
   }
 
@@ -801,8 +823,25 @@ export class Game {
     if (player.inventory.craft(recipe)) player.inventoryDirty = true;
   }
 
-  // Throws one item from `slot` the way the player is looking.
+  // The Reroll button at an anvil the player has open: pays ANVIL_REROLL_COST
+  // from the inventory and gives the item in the anvil a fresh roll of
+  // modifiers (1 or 2), replacing any it had.
+  anvilReroll(player, msg) {
+    const pos = parseBlockPos(this.world, msg);
+    if (player.dead || !pos || player.viewing !== `${pos.x},${pos.y},${pos.z}`) return;
+    const anvil = this.viewedContainer(player);
+    if (anvil?.kind !== 'anvil' || !anvil.slots[0] || !canHaveMods(anvil.slots[0].item)) return;
+    if (!player.inventory.has(ANVIL_REROLL_COST)) return;
+    for (const { item, count } of ANVIL_REROLL_COST) player.inventory.remove(item, count);
+    anvil.reroll();
+    anvil.dirty = true;
+    player.inventoryDirty = true;
+  }
+
+  // Throws one item from `slot` the way the player is looking (a modded item
+  // keeps its modifiers).
   stepDrop(player, slot) {
+    const mods = player.inventory.get(slot)?.mods ?? null;
     const item = player.inventory.takeOne(slot);
     if (item === null) return;
     player.inventoryDirty = true;
@@ -810,11 +849,11 @@ export class Game {
     const dir = lookDirection(s.yaw, s.pitch);
     const v = ITEM_THROW_SPEED;
     this.spawnItem(item, 1, s.x, s.y + eyeHeight(s) - 0.3, s.z,
-      dir.x * v, dir.y * v + 1.5, dir.z * v, ITEM_THROW_PICKUP_DELAY);
+      dir.x * v, dir.y * v + 1.5, dir.z * v, ITEM_THROW_PICKUP_DELAY, mods);
   }
 
-  spawnItem(item, count, x, y, z, vx, vy, vz, pickupDelay) {
-    const entity = new ItemEntity(this.nextId++, item, count, x, y, z, vx, vy, vz, pickupDelay);
+  spawnItem(item, count, x, y, z, vx, vy, vz, pickupDelay, mods = null) {
+    const entity = new ItemEntity(this.nextId++, item, count, x, y, z, vx, vy, vz, pickupDelay, mods);
     this.items.set(entity.id, entity);
     this.broadcast({ type: S2C.ENTITY_SPAWN, entity: entity.describe() });
   }
@@ -848,7 +887,7 @@ export class Game {
       }
       for (const player of this.players.values()) {
         if (!player.connected || player.dead || !this.canPickUp(player, entity)) continue;
-        const left = player.inventory.add(entity.item, entity.count);
+        const left = player.inventory.add(entity.item, entity.count, entity.mods);
         if (left === entity.count) continue;
         player.inventoryDirty = true;
         entity.count = left;
@@ -874,6 +913,8 @@ export class Game {
 
   // One tick of the bow: holding draw builds charge (not during the cooldown);
   // letting go after at least BOW_MIN_DRAW shoots, sooner cancels.
+  // Draw times, and the shot's damage and speed, come from the bow's
+  // modifiers (Player.rangedStats).
   stepBow(player, draw) {
     if (player.held() !== ITEM.BOW) {
       player.drawTicks = 0;
@@ -883,23 +924,60 @@ export class Game {
       if (this.tick >= player.nextShotTick) player.drawTicks++;
       return;
     }
-    if (player.drawTicks >= BOW_MIN_TICKS) this.shoot(player, Math.min(1, player.drawTicks / BOW_FULL_TICKS));
+    const { minDrawTicks, fullDrawTicks } = player.rangedStats();
+    if (player.drawTicks >= minDrawTicks) this.shoot(player, Math.min(1, player.drawTicks / fullDrawTicks));
     player.drawTicks = 0;
   }
 
   // An arrow from the eyes along the look direction. Speed and damage scale
   // linearly from the weakest shot (drawn BOW_MIN_DRAW) to a full draw.
   shoot(player, draw) {
-    const minDraw = BOW_MIN_TICKS / BOW_FULL_TICKS;
+    const ranged = player.rangedStats();
+    const minDraw = ranged.minDrawTicks / ranged.fullDrawTicks;
     const t = Math.max(0, Math.min(1, (draw - minDraw) / (1 - minDraw)));
-    const speed = ARROW_SPEED[0] + (ARROW_SPEED[1] - ARROW_SPEED[0]) * t;
+    const speed = (ARROW_SPEED[0] + (ARROW_SPEED[1] - ARROW_SPEED[0]) * t) * ranged.speedScale;
+    const damage = Math.round(ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * t) + ranged.damageBonus;
+    this.launchArrow(player, speed, damage, ARROW_GRAVITY, t);
+    player.nextShotTick = this.tick + BOW_COOLDOWN_TICKS;
+  }
+
+  launchArrow(player, speed, damage, gravity, charge) {
     const s = player.state;
     const dir = lookDirection(s.yaw, s.pitch);
-    const arrow = new Arrow(this.nextId++, player, s.x, s.y + eyeHeight(s), s.z, dir.x * speed, dir.y * speed, dir.z * speed, t);
-    arrow.damage = Math.round(ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * t);
+    const arrow = new Arrow(this.nextId++, player, s.x, s.y + eyeHeight(s), s.z, dir.x * speed, dir.y * speed, dir.z * speed, charge);
+    arrow.damage = damage;
+    arrow.gravity = gravity;
     this.arrows.set(arrow.id, arrow);
-    player.nextShotTick = this.tick + BOW_COOLDOWN_TICKS;
     this.broadcast({ type: S2C.ENTITY_SPAWN, entity: arrow.describe() });
+  }
+
+  // One tick of the crossbow: holding right click (load) for
+  // CROSSBOW_LOAD_TICKS loads it, and it stays loaded until a click (fire)
+  // shoots a bolt. Letting go early loses the progress, as does putting it
+  // away. A right click that fires must be let go before loading again.
+  stepCrossbow(player, load, fire) {
+    if (player.held() !== ITEM.CROSSBOW) {
+      player.loadTicks = 0;
+      player.loaded = false;
+      player.loadNeedsRelease = false;
+      return;
+    }
+    const ranged = player.rangedStats();
+    if (fire && player.loaded) {
+      this.launchArrow(player, CROSSBOW_ARROW_SPEED * ranged.speedScale, CROSSBOW_ARROW_DAMAGE + ranged.damageBonus,
+        CROSSBOW_ARROW_GRAVITY, 1);
+      player.loaded = false;
+      player.loadTicks = 0;
+      player.loadNeedsRelease = load;
+      return;
+    }
+    if (!load) {
+      player.loadNeedsRelease = false;
+      if (!player.loaded) player.loadTicks = 0;
+      return;
+    }
+    if (player.loaded || player.loadNeedsRelease) return;
+    if (++player.loadTicks >= ranged.loadTicks) player.loaded = true;
   }
 
   // Moves every arrow. Returns the ones that moved (for STATE): flying, or
@@ -908,7 +986,8 @@ export class Game {
     const moved = [];
     for (const arrow of this.arrows.values()) {
       const flying = !arrow.stuckIn;
-      const result = arrow.step(this.world, [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team), ...this.cows.values(), ...this.dragons.values()]);
+      const result = arrow.step(this.world, [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
+        ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()]);
       if (result === 'gone' || arrow.y < this.world.voidY) {
         this.removeArrow(arrow);
       } else if (result?.hit) {
@@ -918,9 +997,7 @@ export class Game {
         t.kz += result.dir.z * ARROW_KNOCKBACK;
         t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
         t.onGround = false;
-        if (target instanceof Cow) this.hurtCow(target, arrow.damage, arrow.shooter);
-        else if (target instanceof Dragon) this.hurtDragon(target, arrow.damage, arrow.shooter);
-        else this.damage(target, arrow.damage, arrow.shooter);
+        this.hurt(target, arrow.damage, arrow.shooter);
         this.removeArrow(arrow);
       } else if (flying) {
         moved.push(arrow);
@@ -1015,24 +1092,31 @@ export class Game {
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: cow.id });
   }
 
-  // Rare dragons enter the match above grassy ground, clear of team keeps.
+  // Dragons at match start, each leashed to its home island (DRAGON_LEASH):
+  // centralDragons spread around the central island, teamDragons on each
+  // team island (well away from its keep, preferably on the far side), and
+  // one at each roost's nest. All spawn above open grass; none respawn.
   spawnDragons() {
     const config = WORLD_SIZES[this.worldSize];
-    const count = this.worldSize === 'large' ? 2 : 1;
-    const radius = config.centralRadius;
     const rand = mulberry32(this.seed ^ 0x8a7f219d);
+    const add = (x, ground, z, island, leash) => {
+      const dragon = new Dragon(this.nextId++, x + 0.5, Math.min(this.world.sizeY - 6, ground + 10), z + 0.5,
+        { x: island.x, z: island.z, radius: island.radius }, leash);
+      this.dragons.set(dragon.id, dragon);
+    };
+    const center = this.world.islands.find((island) => island.kind === 'center');
+    const count = config.centralDragons;
     const rotation = rand() * Math.PI * 2;
     for (let i = 0; i < count; i++) {
       for (let tries = 0; tries < 60; tries++) {
         const angle = rotation + i * Math.PI * 2 / count + (rand() - 0.5) * 0.45;
-        const distance = radius * (0.3 + rand() * 0.35);
-        const x = Math.floor(this.world.sizeX / 2 + Math.cos(angle) * distance);
-        const z = Math.floor(this.world.sizeZ / 2 + Math.sin(angle) * distance);
+        const distance = center.radius * (0.3 + rand() * 0.35);
+        const x = Math.floor(center.x + Math.cos(angle) * distance);
+        const z = Math.floor(center.z + Math.sin(angle) * distance);
         const ground = this.world.getSurfaceY(x, z, isSolid);
         if (ground < 0 || this.world.getBlock(x, ground, z) !== BLOCK.GRASS
           || this.world.keeps.some((keep) => Math.hypot(x - keep.cx, z - keep.cz) < 35)) continue;
-        const dragon = new Dragon(this.nextId++, x + 0.5, Math.min(this.world.sizeY - 6, ground + 10), z + 0.5);
-        this.dragons.set(dragon.id, dragon);
+        add(x, ground, z, center, DRAGON_LEASH.center);
         break;
       }
     }
@@ -1068,35 +1152,131 @@ export class Game {
           }
         }
         if (!site) continue;
-        const { x, z, ground } = site;
-        const dragon = new Dragon(this.nextId++, x + 0.5,
-          Math.min(this.world.sizeY - 6, ground + 10), z + 0.5,
-          { x: island.x, z: island.z, radius: island.radius });
-        this.dragons.set(dragon.id, dragon);
+        add(site.x, site.ground, site.z, island, DRAGON_LEASH.team);
       }
+    }
+    for (const roost of this.world.roosts) {
+      add(roost.x, roost.y, roost.z, this.world.islands[roost.island], DRAGON_LEASH.roost);
     }
   }
 
+  // Fire hits whoever is in the cone, except players in fire-immune armor.
   updateDragons() {
     const players = [...this.players.values()];
     for (const dragon of this.dragons.values()) {
       for (const target of dragon.step(this.world, players, this.tick)) {
-        this.damage(target, DRAGON_FIRE_DAMAGE, dragon);
+        if (!target.fireImmune()) this.damage(target, DRAGON_FIRE_DAMAGE, dragon, DEATH_CAUSE.MOB);
       }
     }
     // Flight and fire are sent every tick so the flame starts and stops promptly.
     return [...this.dragons.values()];
   }
 
+  // ---- Crawlers and Void Eels ----
+
+  // Crawlers at the spawn points world gen chose (dungeons, underside ruins, caverns).
+  spawnCrawlers() {
+    for (const { x, y, z } of this.world.mobSpawns.crawlers) {
+      const crawler = new Crawler(this.nextId++, x + 0.5, y, z + 0.5);
+      this.mobs.set(crawler.id, crawler);
+    }
+  }
+
+  // The size's eel count, homed in turn under the central island, then each
+  // team island, and around again (so the first is always under the center).
+  // Each patrols from just under its island's underside down toward the void.
+  spawnEels() {
+    const count = WORLD_SIZES[this.worldSize].eels;
+    const homes = [this.world.islands.find((island) => island.kind === 'center'),
+      ...this.world.islands.filter((island) => island.kind === 'team')];
+    for (let i = 0; i < count; i++) {
+      const island = homes[i % homes.length];
+      const top = island.bottomY - EEL_ZONE.belowUnderside;
+      const bottom = Math.min(top - 4, Math.max(this.world.voidY + EEL_ZONE.aboveVoid, top - EEL_ZONE.depth));
+      const eel = new VoidEel(this.nextId++, { x: island.x, z: island.z, radius: island.radius * 0.8, top, bottom });
+      // Spread eels that share an island around it.
+      const angle = i * 2.4;
+      eel.state.x += Math.cos(angle) * island.radius * 0.4;
+      eel.state.z += Math.sin(angle) * island.radius * 0.4;
+      this.mobs.set(eel.id, eel);
+    }
+  }
+
+  // Moves every Crawler and Eel and lands their bites. Crawlers go in STATE
+  // on ticks they moved; eels every tick, as they never stop swimming.
+  updateMobs() {
+    const players = [...this.players.values()];
+    const moved = [];
+    for (const mob of this.mobs.values()) {
+      const s = mob.state;
+      const before = `${s.x},${s.y},${s.z},${s.yaw}`;
+      const bitten = mob.step(this.world, players, this.tick);
+      if (s.y < this.world.voidY) {
+        this.removeMob(mob);
+        continue;
+      }
+      if (bitten) this.meleeHit(bitten, mob instanceof Crawler ? CRAWLER_DAMAGE : EEL_DAMAGE, mob);
+      if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(mob);
+    }
+    return moved;
+  }
+
+  removeMob(mob) {
+    mob.dead = true;
+    this.mobs.delete(mob.id);
+    this.broadcast({ type: S2C.ENTITY_DESPAWN, id: mob.id });
+  }
+
+  // A mob bite: damage and a small shove away from the mob, and Thorns hurts it back.
+  meleeHit(target, amount, mob) {
+    const t = target.state, s = mob.state;
+    let dx = t.x - s.x, dz = t.z - s.z;
+    const len = Math.hypot(dx, dz) || 1;
+    t.kx = dx / len * KNOCKBACK_SPEED * 0.6;
+    t.kz = dz / len * KNOCKBACK_SPEED * 0.6;
+    t.vy = Math.max(t.vy, KNOCKBACK_UP * 0.6);
+    t.onGround = false;
+    this.damage(target, amount, mob, DEATH_CAUSE.MOB);
+    const thorns = target.thorns?.() ?? 0;
+    if (thorns > 0 && !target.dead) this.hurt(mob, thorns, target);
+  }
+
+  // A Crawler or Eel took damage. A player's hit provokes it; a dead Crawler drops Silk.
+  hurtMob(mob, amount, attacker) {
+    if (mob.dead) return;
+    mob.hp = Math.max(0, mob.hp - amount);
+    this.broadcast({ type: S2C.DAMAGE, id: mob.id, attackerId: attacker?.id ?? null, hp: mob.hp });
+    if (attacker instanceof Player) mob.provocation.provoke(attacker, this.tick);
+    if (mob.hp > 0) return;
+    if (mob instanceof Crawler) {
+      const silk = CRAWLER_DROPS.silk[0] + Math.floor(Math.random() * (CRAWLER_DROPS.silk[1] - CRAWLER_DROPS.silk[0] + 1));
+      if (silk > 0) this.spawnItem(ITEM.SILK, silk, mob.state.x, mob.state.y + 0.3, mob.state.z,
+        (Math.random() - 0.5) * 2, ITEM_POP_SPEED, (Math.random() - 0.5) * 2, ITEM_PICKUP_DELAY);
+    }
+    this.removeMob(mob);
+  }
+
+  // Damage to anything a player can hit: a player, cow, dragon, Crawler or Eel.
+  hurt(target, amount, attacker) {
+    if (target instanceof Cow) this.hurtCow(target, amount, attacker);
+    else if (target instanceof Dragon) this.hurtDragon(target, amount, attacker);
+    else if (target instanceof Crawler || target instanceof VoidEel) this.hurtMob(target, amount, attacker);
+    else this.damage(target, amount, attacker);
+  }
+
+  // A player's hit provokes it. A dead dragon drops iron, leather and Dragon Scales.
   hurtDragon(dragon, amount, attacker) {
+    if (dragon.dead) return;
     dragon.hp = Math.max(0, dragon.hp - amount);
     this.broadcast({ type: S2C.DAMAGE, id: dragon.id, attackerId: attacker?.id ?? null, hp: dragon.hp });
+    if (attacker instanceof Player) dragon.provocation.provoke(attacker, this.tick);
     if (dragon.hp > 0) return;
     dragon.dead = true;
     this.dragons.delete(dragon.id);
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: dragon.id });
     const roll = ([lo, hi]) => lo + Math.floor(Math.random() * (hi - lo + 1));
-    for (const [item, count] of [[ITEM.IRON_INGOT, roll(DRAGON_DROPS.iron)], [ITEM.LEATHER, roll(DRAGON_DROPS.leather)]]) {
+    for (const [item, count] of [[ITEM.IRON_INGOT, roll(DRAGON_DROPS.iron)], [ITEM.LEATHER, roll(DRAGON_DROPS.leather)],
+      [ITEM.DRAGON_SCALE, roll(DRAGON_DROPS.scales)]]) {
       this.spawnItem(item, count, dragon.state.x, dragon.state.y, dragon.state.z,
         (Math.random() - 0.5) * 2, ITEM_POP_SPEED, (Math.random() - 0.5) * 2, ITEM_PICKUP_DELAY);
     }
@@ -1106,7 +1286,8 @@ export class Game {
 
   // A punch: confirmed by casting from the attacker's eyes along this input's
   // look direction. The nearest live, connected player in reach and in front of
-  // any block takes damage and knockback.
+  // any block takes damage and knockback (scaled by the weapon, which may also
+  // slow them with frost).
   stepAttack(player) {
     if (this.tick < player.nextAttackTick) return;
     const weapon = player.attackStats();
@@ -1116,8 +1297,8 @@ export class Game {
     const eye = { x: s.x, y: s.y + eyeHeight(s), z: s.z };
     const dir = lookDirection(s.yaw, s.pitch);
     const block = raycastBlock(this.world, eye, dir, REACH_DISTANCE, (id) => isTargetable(id) && !isWater(id));
-    const targets = [...this.players.values(), ...this.cows.values(), ...this.dragons.values()]
-      .filter((p) => p !== player && (p instanceof Cow || p instanceof Dragon || p.team !== player.team) && !p.dead && p.connected);
+    const targets = [...this.players.values(), ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()]
+      .filter((p) => p !== player && (!(p instanceof Player) || p.team !== player.team) && !p.dead && p.connected);
     const hit = raycastPlayers(eye, dir, block ? block.t : REACH_DISTANCE, targets, (p) => playerBoxOf(p.state), HIT_TOLERANCE);
     if (!hit) return;
 
@@ -1126,13 +1307,19 @@ export class Game {
     let dx = t.x - s.x, dz = t.z - s.z;
     const len = Math.hypot(dx, dz);
     if (len > 1e-6) { dx /= len; dz /= len; } else { dx = dir.x; dz = dir.z; }
-    t.kx = dx * KNOCKBACK_SPEED;
-    t.kz = dz * KNOCKBACK_SPEED;
-    t.vy = Math.max(t.vy, KNOCKBACK_UP);
+    const push = KNOCKBACK_SPEED * (weapon.knockback ?? 1);
+    t.kx = dx * push;
+    t.kz = dz * push;
+    t.vy = Math.max(t.vy, weapon.lift ?? KNOCKBACK_UP);
     t.onGround = false;
-    if (target instanceof Cow) this.hurtCow(target, weapon.damage, player);
-    else if (target instanceof Dragon) this.hurtDragon(target, weapon.damage, player);
-    else this.damage(target, weapon.damage, player);
+    if (weapon.frost && (target instanceof Player || target instanceof Cow || target instanceof Crawler)) {
+      t.slowTicks = ticks(FROST.seconds);
+    }
+    this.hurt(target, weapon.damage, player);
+    // Vampiric: a chance to heal 1 HP on a hit. Thorns: the target's armor hurts back.
+    if (weapon.heal && Math.random() < weapon.heal) player.hp = Math.min(player.maxHp(), player.hp + 1);
+    const thorns = target instanceof Player ? target.thorns() : 0;
+    if (thorns > 0) this.damage(player, thorns, target);
   }
 
   // attacker: the player who hit them, or null (fall damage). A death with no
@@ -1142,8 +1329,7 @@ export class Game {
     if (attacker && attacker.team === target.team) return;
     if (this.tick < target.invulnerableUntilTick) return;
     if (cause !== DEATH_CAUSE.FALL && cause !== DEATH_CAUSE.VOID) {
-      const points = getItemDef(target.inventory.armor?.item).armorPoints || 0;
-      amount = amount * 10 / (10 + points);
+      amount = amount * 10 / (10 + target.armorPoints());
     }
     const hp = Math.max(0, target.hp - amount);
     target.lastDamageTick = this.tick;
@@ -1168,7 +1354,7 @@ export class Game {
   // The player who hit this one within KILL_CREDIT_TIME, or null.
   recentAttacker(player) {
     const a = player.lastAttacker;
-    const attacker = a && (this.players.get(a.id) ?? this.dragons.get(a.id));
+    const attacker = a && (this.players.get(a.id) ?? this.dragons.get(a.id) ?? this.mobs.get(a.id));
     return (attacker && attacker.team !== player.team && this.tick - a.tick <= KILL_CREDIT_TICKS && attacker) || null;
   }
 
@@ -1198,7 +1384,8 @@ export class Game {
       // margin), so allow for that when counting whole blocks.
       const fall = player.fallTop - s.y + 0.01;
       player.fallTop = null;
-      const damage = Math.floor(fall - FALL_SAFE_DISTANCE);
+      // Cushioned accessories soften it.
+      const damage = Math.floor((fall - FALL_SAFE_DISTANCE) * player.fallDamageScale());
       if (damage > 0) this.damage(player, damage, null, DEATH_CAUSE.FALL);
     }
   }
@@ -1213,6 +1400,8 @@ export class Game {
     player.grab = null;
     player.viewing = null;
     player.drawTicks = 0;
+    player.loadTicks = 0;
+    player.loaded = false;
     player.eatTicks = 0;
     player.foodHealing.length = 0;
     if (player.carrying) this.dropFlag(player);
@@ -1221,7 +1410,7 @@ export class Game {
     if (cause !== DEATH_CAUSE.VOID) {
       const r = () => (Math.random() - 0.5) * 4;
       for (const stack of player.inventory.takeAll()) {
-        this.spawnItem(stack.item, stack.count, s.x, s.y + 0.5, s.z, r(), ITEM_POP_SPEED, r(), ITEM_PICKUP_DELAY);
+        this.spawnItem(stack.item, stack.count, s.x, s.y + 0.5, s.z, r(), ITEM_POP_SPEED, r(), ITEM_PICKUP_DELAY, stack.mods);
       }
     }
     player.inventory.takeAll();
@@ -1257,7 +1446,7 @@ export class Game {
     const spawn = this.keepSpawn(player.keep);
     player.state = createPlayerState(spawn.x, spawn.y, spawn.z);
     Object.assign(player.state, { yaw, pitch });
-    player.hp = maxHp(player);
+    player.hp = player.maxHp();
     player.dead = false;
     player.lastAttacker = null;
     player.lastDamageTick = -Infinity;
@@ -1267,7 +1456,7 @@ export class Game {
   // 1 HP every REGEN_INTERVAL (on the game clock) once REGEN_DELAY has passed since the last hit.
   regen(player) {
     if (player.dead) return;
-    const maximum = maxHp(player);
+    const maximum = player.maxHp();
     const accessory = accessoryDef(player.inventory.accessory?.item);
     const delayTicks = ticks(accessory?.regenDelay ?? REGEN_DELAY);
     const intervalTicks = ticks(accessory?.regenInterval ?? REGEN_INTERVAL);
@@ -1298,10 +1487,10 @@ export class Game {
     if (player.eatingItem !== held) player.eatTicks = 0;
     player.eatingItem = held;
     if (item.instantHeal) {
-      if (player.eatTicks === 0 && player.hp < maxHp(player)) {
+      if (player.eatTicks === 0 && player.hp < player.maxHp()) {
         player.inventory.takeOne(player.selected);
         player.inventoryDirty = true;
-        player.hp = maxHp(player);
+        player.hp = player.maxHp();
         player.foodHealing.length = 0;
       }
       player.eatTicks = 1;
@@ -1381,7 +1570,7 @@ export class Game {
         player.state.springCharge = 0;
         player.state.springBouncing = false;
       }
-      player.hp = Math.min(player.hp, maxHp(player));
+      player.hp = Math.min(player.hp, player.maxHp());
       if (player.dead || !player.connected) {
         player.grab = null;
         continue;
@@ -1407,6 +1596,12 @@ export class Game {
     }
   }
 
+  // Time of day, 0..1 (0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight),
+  // from the match clock. Clients keep it from `welcome` and the ticks in `state`.
+  dayTime() {
+    return (DAY_START + this.tick / (DAY_LENGTH * TICK_RATE)) % 1;
+  }
+
   inReach(player, pos) {
     const s = player.state;
     const dist = Math.hypot(pos.x + 0.5 - s.x, pos.y + 0.5 - (s.y + eyeHeight(s)), pos.z + 0.5 - s.z);
@@ -1430,8 +1625,15 @@ export class Game {
           player.state.springCharge = 0;
           player.state.springBouncing = false;
         }
-        // Drawing (and its slowdown) only counts with a bow in hand.
-        if (input.draw && player.held() !== ITEM.BOW) input.draw = false;
+        player.state.moveScale = player.moveScale();
+        // Drawing or loading (and its slowdown) only counts with a bow or
+        // crossbow in hand, firing with a crossbow, and hooking with a
+        // grappling hook (the physics also refuses it while carrying a flag
+        // or cooling down).
+        const held = player.held();
+        if (input.draw && held !== ITEM.BOW && held !== ITEM.CROSSBOW) input.draw = false;
+        if (input.fire && held !== ITEM.CROSSBOW) input.fire = false;
+        if (input.hook && held !== ITEM.GRAPPLING_HOOK) input.hook = false;
         if (input.eat && !getItemDef(player.held()).food) input.eat = false;
         if (input.glide && player.held() !== ITEM.GLIDER) input.glide = false;
         const prevY = player.state.y;
@@ -1446,6 +1648,7 @@ export class Game {
         if (input.rift) this.stepRift(player);
         if (input.drop) this.stepDrop(player, input.slot);
         this.stepBow(player, input.draw);
+        this.stepCrossbow(player, input.draw, input.fire);
         this.stepEating(player, input.eat);
       }
       player.inputQueue.length = 0;
@@ -1459,7 +1662,8 @@ export class Game {
     this.updatePortals();
     this.updateContainers();
 
-    const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateCows(), ...this.updateDragons()];
+    const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateCows(), ...this.updateDragons(),
+      ...this.updateMobs()];
 
     for (const player of this.players.values()) {
       if (!player.inventoryDirty) continue;

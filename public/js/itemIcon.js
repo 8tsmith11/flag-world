@@ -2,6 +2,8 @@
 // shaded square of their color, tools are drawn from simple shapes.
 
 import { getItemDef } from '/shared/items.js';
+import { getBlockDef } from '/shared/blocks.js';
+import { stackName, modLines } from '/shared/modifiers.js';
 
 let tooltip = null;
 let pointerX = 0, pointerY = 0;
@@ -24,6 +26,13 @@ function showTooltip(slot, event) {
   tooltip.style.top = `${Math.max(8, top)}px`;
 }
 
+const ICON_PARTS = {
+  axe: ['handle', 'bit left', 'bit right'],
+  crossbow: ['stock', 'limbs'],
+  grapple: ['shaft', 'prongs'],
+  rope: ['coil'],
+};
+
 export function cssColor(color) {
   return `#${color.toString(16).padStart(6, '0')}`;
 }
@@ -40,8 +49,9 @@ export function itemIcon(item) {
     head.className = 'head';
     head.style.background = cssColor(def.color);
     icon.append(handle, head);
-  } else if (def.tool === 'sword') {
+  } else if (def.tool === 'sword' || def.tool === 'iceSword') {
     icon.classList.add('sword');
+    if (def.tool === 'iceSword') icon.classList.add('ice');
     const blade = document.createElement('div');
     blade.className = 'blade';
     blade.style.background = cssColor(def.color);
@@ -50,6 +60,16 @@ export function itemIcon(item) {
     const grip = document.createElement('div');
     grip.className = 'grip';
     icon.append(blade, guard, grip);
+  } else if (def.tool === 'windAxe' || def.tool === 'crossbow' || def.tool === 'grapple' || def.shape === 'rope') {
+    // Drawn from parts in CSS, tinted by the item's color.
+    const kind = def.shape === 'rope' ? 'rope' : { windAxe: 'axe', crossbow: 'crossbow', grapple: 'grapple' }[def.tool];
+    icon.classList.add(kind);
+    icon.style.color = cssColor(def.color);
+    for (const part of ICON_PARTS[kind]) {
+      const piece = document.createElement('div');
+      piece.className = part;
+      icon.append(piece);
+    }
   } else if (def.tool === 'bow') {
     icon.classList.add('bow');
     icon.style.color = cssColor(def.color);
@@ -61,9 +81,18 @@ export function itemIcon(item) {
       piece.className = part;
       icon.append(piece);
     }
-  } else if (def.shape === 'leather' || def.shape === 'beef' || def.shape === 'armor' || def.shape === 'bucket') {
+  } else if (def.shape === 'leather' || def.shape === 'beef' || def.shape === 'armor' || def.shape === 'bucket'
+    || def.shape === 'scale' || def.shape === 'silk') {
     icon.classList.add(def.shape);
+    if (def.texture === 'scales') icon.classList.add('scaled');
     icon.style.background = cssColor(def.color);
+  } else if (def.block !== null && getBlockDef(def.block).shape === 'anvil') {
+    icon.classList.add('anvil');
+    for (const part of ['face', 'horn', 'waist', 'foot']) {
+      const piece = document.createElement('div');
+      piece.className = part;
+      icon.append(piece);
+    }
   } else if (def.shape === 'ingot') {
     icon.classList.add('ingot');
     icon.style.background = cssColor(def.color);
@@ -86,7 +115,11 @@ export function itemIcon(item) {
 export function renderStack(slot, stack) {
   // A fixed tooltip opens on the first pointer event, without the delay of title.
   if (slot.dataset.emptyTitle === undefined) slot.dataset.emptyTitle = slot.title;
-  slot.dataset.tooltip = stack ? getItemDef(stack.item).name : slot.dataset.emptyTitle;
+  // Modded items: their full name, then a line per modifier.
+  slot.dataset.tooltip = stack
+    ? [stackName(stack, getItemDef(stack.item).name), ...modLines(stack)].join('\n')
+    : slot.dataset.emptyTitle;
+  slot.classList.toggle('modded', !!stack?.mods?.length);
   slot.removeAttribute('title');
   if (!slot.dataset.tooltipBound) {
     slot.dataset.tooltipBound = 'true';

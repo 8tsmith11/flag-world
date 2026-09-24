@@ -39,6 +39,10 @@ export class LocalPlayer {
     s.accessory = snapshot.accessory ?? null;
     s.springCharge = snapshot.springCharge ?? 0;
     s.springBouncing = !!snapshot.springBouncing;
+    s.slowTicks = snapshot.slowTicks ?? 0;
+    s.grapple = snapshot.grapple ? { ...snapshot.grapple } : null;
+    s.hookCooldown = snapshot.hookCooldown ?? 0;
+    s.moveScale = snapshot.moveScale ?? 1;
     for (const input of this.pending) stepPlayer(s, input, this.world);
   }
 

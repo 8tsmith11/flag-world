@@ -108,6 +108,51 @@ function buildLooseChest(world, terrain, site, table, random) {
   placeChest(world, x, y, z, table, randInt(random, 0, 3));
 }
 
+// A dragon roost on a tiny island: a rough ring of logs and stone around the
+// middle, low at its edges so it blends into the grass, with scorched ground
+// inside and a little beyond, and the nest chest in the middle. Returns the
+// nest spot (where the chest stands) and the box it covers, or null.
+function buildRoost(world, terrain, random) {
+  let cx = Math.round(terrain.x), cz = Math.round(terrain.z);
+  for (let attempt = 0; terrain.getTop(cx, cz) === -32768 && attempt < 20; attempt++) {
+    cx = Math.round(terrain.x + (random() - 0.5) * 4);
+    cz = Math.round(terrain.z + (random() - 0.5) * 4);
+  }
+  const floor = terrain.getTop(cx, cz);
+  if (floor === -32768) return null;
+  const RING_IN = 2.6, RING_OUT = 4.3, SCORCH_OUT = 5.4;
+  for (let dz = -6; dz <= 6; dz++) for (let dx = -6; dx <= 6; dx++) {
+    const x = cx + dx, z = cz + dz, top = terrain.getTop(x, z);
+    if (top === -32768) continue;
+    const d = Math.hypot(dx, dz) + (random() - 0.5) * 0.7;
+    const soil = world.getBlock(x, top, z);
+    if (d < RING_IN || (d < SCORCH_OUT && d >= RING_OUT && random() < 0.45)) {
+      if (soil === BLOCK.GRASS || soil === BLOCK.DIRT) world.setBlock(x, top, z, BLOCK.SCORCHED_EARTH);
+      for (let y = top + 1; y <= top + 4; y++) if (world.getBlock(x, y, z) !== BLOCK.AIR) world.setBlock(x, y, z, BLOCK.AIR);
+    } else if (d < RING_OUT) {
+      // Taller in the middle of the ring's band, one block at its rims.
+      const height = Math.abs(d - (RING_IN + RING_OUT) / 2) < 0.55 && random() < 0.6 ? 2 : 1;
+      for (let y = top + 1; y <= top + height; y++) {
+        world.setBlock(x, y, z, random() < 0.6 ? BLOCK.WOOD : BLOCK.STONE);
+      }
+      if (random() < 0.5 && (soil === BLOCK.GRASS)) world.setBlock(x, top, z, BLOCK.DIRT);
+    }
+  }
+  placeChest(world, cx, floor + 1, cz, 'roost', randInt(random, 0, 3));
+  return { x: cx, y: floor + 1, z: cz,
+    box: { x0: cx - 5, x1: cx + 5, z0: cz - 5, z1: cz + 5, y0: floor, y1: floor + 3 } };
+}
+
+// Crawler spawn points: `count` distinct cells of `cells` ([{ x, y, z }]
+// feet positions) with two blocks of air and solid ground beneath.
+function addCrawlers(world, random, cells, count) {
+  const open = cells.filter(({ x, y, z }) => world.getBlock(x, y, z) === BLOCK.AIR
+    && world.getBlock(x, y + 1, z) === BLOCK.AIR && isSolid(world.getBlock(x, y - 1, z)));
+  for (let i = 0; i < count && open.length; i++) {
+    world.mobSpawns.crawlers.push(open.splice(Math.floor(random() * open.length), 1)[0]);
+  }
+}
+
 function caveFloor(world, terrain, random, requireRoom = false) {
   for (let attempt = 0; attempt < 600; attempt++) {
     const angle = random() * Math.PI * 2;
@@ -246,20 +291,34 @@ function buildHanging(world, site, random) {
   if (random() < 0.4) placeChest(world, x + 2, y + 1, z + 2, 'underside', 0);
 }
 
+// Structures, chests, dragon roosts (world.roosts) and Crawler spawn points
+// (world.mobSpawns.crawlers), all seeded. Mob spawns use their own random
+// stream so they don't move the structures.
 export function generateStructures(world, terrains, config, seed) {
   const placed = [];
   const settings = config.structures;
+  const crawlers = config.crawlers;
+  world.roosts = [];
+  world.mobSpawns = { crawlers: [] };
   for (const terrain of terrains) {
     const island = world.islands[terrain.index];
     const random = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x6c8e9cf5));
+    const mobRandom = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x2f6b1c3d));
+    const crawlerCount = () => randInt(mobRandom, ...crawlers.perStructure);
     const central = terrain.kind === 'center';
     if (terrain.kind === 'tiny') {
-      if (random() < settings.tinyChance) {
+      if (island.content === 'chest') {
         const site = surfaceSite(world, terrain, placed, random, 0, 0, 2, 2);
         if (site) {
           buildLooseChest(world, terrain, site, 'tinyIsland', random);
           record(world, placed, 'tinyChest', island, site.box);
         }
+      } else if (island.content === 'roost') {
+        const nest = buildRoost(world, terrain, random);
+        if (nest) {
+          record(world, placed, 'roost', island, nest.box);
+          world.roosts.push({ x: nest.x, y: nest.y, z: nest.z, island: terrain.index });
+        } else island.content = 'plain';
       }
       continue;
     }
@@ -343,6 +402,11 @@ export function generateStructures(world, terrains, config, seed) {
       if (!site) continue;
       buildDungeon(world, terrain, site, random, central ? 'dungeonCentral' : 'dungeon');
       record(world, placed, 'dungeon', island, site.box);
+      const cells = [];
+      for (let zz = site.box.z0 + 1; zz < site.box.z1; zz++) {
+        for (let xx = site.box.x0 + 1; xx < site.box.x1; xx++) cells.push({ x: xx, y: site.y, z: zz });
+      }
+      addCrawlers(world, mobRandom, cells, crawlerCount());
     }
 
     const caveCount = central ? settings.caveCentral : settings.caveTeam;
@@ -407,6 +471,25 @@ export function generateStructures(world, terrains, config, seed) {
       else buildHanging(world, site, random);
       record(world, placed, 'underside', island, site.box);
       world.structures.at(-1).variant = variant;
+      const cells = [];
+      for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) {
+        cells.push(variant === 'cliffside'
+          ? { x: site.x + site.outX * a - site.outZ * b, y: site.y + 1, z: site.z + site.outZ * a + site.outX * b }
+          : { x: site.x + a, y: site.y + 1, z: site.z + b });
+      }
+      addCrawlers(world, mobRandom, cells, crawlerCount());
+    }
+
+    // Now and then a Crawler in a dark cavern: a cave floor well under the surface.
+    for (let index = 0; index < crawlers.cavernCap; index++) {
+      if (mobRandom() >= crawlers.cavernChance) continue;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const cell = caveFloor(world, terrain, mobRandom);
+        if (!cell) break;
+        if (terrain.getTop(cell.x, cell.z) - cell.y < 10) continue;
+        addCrawlers(world, mobRandom, [cell], 1);
+        break;
+      }
     }
   }
 }

@@ -28,8 +28,13 @@ export const RECIPES = [
   { id: 'bucket', station: 'workbench', output: ITEM.EMPTY_BUCKET, count: 1, inputs: needs([ITEM.IRON_INGOT, 1]) },
   { id: 'leather_armor', station: 'workbench', output: ITEM.LEATHER_ARMOR, count: 1, inputs: needs([ITEM.LEATHER, 3]) },
   { id: 'iron_armor', station: 'workbench', output: ITEM.IRON_ARMOR, count: 1, inputs: needs([ITEM.IRON_INGOT, 10]) },
+  { id: 'anvil', station: 'workbench', output: BLOCK.ANVIL, count: 1, inputs: needs([ITEM.IRON_INGOT, 6]) },
+  { id: 'dragonscale_armor', station: 'workbench', output: ITEM.DRAGONSCALE_ARMOR, count: 1, inputs: needs([ITEM.DRAGON_SCALE, 8]) },
   { id: 'glider', station: 'workbench', output: ITEM.GLIDER, count: 1, inputs: needs([ITEM.LEATHER, 3], [BLOCK.WOOD, 2]) },
 ];
+
+// Rerolling an item's modifiers at an anvil costs this, from the inventory.
+export const ANVIL_REROLL_COST = needs([ITEM.IRON_INGOT, 2]);
 
 // Furnace: what each input smelts into, and how many items one fuel item
 // smelts. Smelting one item takes SMELT_TIME (shared/config.js).

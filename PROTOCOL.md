@@ -48,7 +48,7 @@ unique within the lobby (ignoring case).
 | `onGround` | bool    | Standing on a solid block |
 | `crouching` | bool   | Crouched (drawn shorter and leaning forward); the client copies it into its physics state |
 | `hp`       | number  | Health, 0..`maxHp`; armor can cause fractional damage |
-| `maxHp`    | number  | 20, or 25 while wearing a Heart Amulet |
+| `maxHp`    | number  | 20, plus 5 for a Heart Amulet and the worn accessory's Vital modifier |
 | `dead`     | bool    | Dead and waiting to respawn (or eliminated); not drawn, can't be hit, sends no inputs |
 | `eliminated` | bool  | Died while flagless; out of the match for good and spectating |
 | `carrying` | int \| null | Id of the flag they hold. Carriers walk at 60% speed (the client copies this into its physics state) |
@@ -59,7 +59,11 @@ unique within the lobby (ignoring case).
 | `springCharge` | int | Spring Boots charge in simulation ticks, 0..20 |
 | `springBouncing` | bool | Whether a Spring Boots landing can continue bouncing |
 | `gliding`  | bool | Glider open; also part of predicted movement state |
-| `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back |
+| `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back. With a crossbow in hand: how far it's loaded, 1 while loaded (the bolt shows on it) |
+| `slowTicks` | int    | Ticks of Ice Sword frost slow left (40 on a hit); movement is 40% slower while above 0 and frost flakes are drawn around them. Part of predicted movement state |
+| `grapple`  | object \| null | While a grappling hook pulls: `{ hx, hy, hz }` where the hook caught and `{ x, y, z }` where their feet are headed; drawn as a rope to the hook. Part of predicted movement state |
+| `hookCooldown` | int | Ticks until their grappling hook can fire again (60 after each shot). Part of predicted movement state |
+| `moveScale` | number | Walking speed multiplier from the worn armor's Light and accessory's Fleet modifiers (1 without). Part of predicted movement state |
 | `lastSeq`  | int     | Last input `seq` the server has simulated for this player |
 
 **BlockPos** — `{ x, y, z }`, integer block coordinates inside the world.
@@ -74,6 +78,8 @@ north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
 |-------|-------|----------|
 | 10–13 | ladder | `10 + facing`: the side of its cell it hangs on (toward the block holding it). Not solid |
 | 14–29 | door | `14 + facing + 4·open + 8·upper`: facing is the way the placer looked. Solid only when closed |
+| 52 | rope | Hung by a Rope Bundle. Not solid, climbable like a ladder, breaks in one tick and drops nothing |
+| 57 | scorched earth | The ground inside a dragon roost's nest; drops dirt |
 
 Other blocks added with crafting: 30 iron ore (hardness 3), 31 sand, 32
 workbench (right click: crafting screen).
@@ -86,8 +92,12 @@ front that faces the player who placed them. They have one id per facing
 |-----|-------|------|
 | 33, 38, 39, 40 | furnace (hardness 2) | 33, 38, 39, 40 |
 | 34–37 | chest (hardness 1) | 34, 35, 36, 37 |
+| 53–56 | anvil (hardness 2) | 53, 54, 55, 56. The horn is at the east end when it faces north |
 
-**ItemStack** — `{ item, count }`. Item ids (`shared/items.js`,
+**ItemStack** — `{ item, count, mods? }`. `mods`, only on weapons, tools,
+armor and accessories, is 1 or 2 modifiers `[{ id, value }]` (see
+**Modifiers** below); a stack with `mods` is one item instance and never
+merges with another. Item ids (`shared/items.js`,
 `shared/itemIds.js`): 0–255 are the blocks (placed as that block); 256 and up
 are other items: `256` wood hammer, `257` ladder, `258` door, `259` iron ingot,
 `260` stone hammer, `261` iron hammer, `262`–`264` wood / stone / iron sword,
@@ -98,8 +108,13 @@ glider, `274` tree seeds. Block id `48` is a sapling.
 bricks, mossy stone bricks, and cracked stone bricks. All three require an
 iron hammer to break. One stone crafts into one stone brick. `276`–`280`
 are loot-only Wind Boots, Spring Boots, Heart Amulet, Mending Charm and Ember
-Heart; `281` is a loot-only Rift Stone (stack size 4).
-Buckets, armor, gliders, hammers, swords and bows have stack size 1;
+Heart; `281` is a loot-only Rift Stone (stack size 4). `282`–`286` are
+loot-only Wind Axe, Ice Sword, crossbow, Rope Bundle (stack size 8) and
+grappling hook. `287` Dragon Scale (dropped by dragons), `288` Silk (dropped by
+Crawlers, no use yet) and `289` Dragonscale Armor. Block `53` (anvil) is also
+its item.
+Buckets, armor, accessories, gliders, hammers, swords, bows, crossbows, Wind
+Axes and grappling hooks have stack size 1;
 ordinary items stack to 64. What held tools do is in `shared/tools.js`.
 
 **InventoryState** — `{ slots, cursor, armor, accessory }`: `slots` is 36 × (ItemStack \| null).
@@ -121,7 +136,7 @@ armor stack or `null`. `accessory` is one worn accessory stack or `null`.
 |--------|------|-------|
 | `item` | int  | Item id, which picks the cube's color |
 
-**ArrowSnapshot** — an arrow's state at one server tick. Sent in `entitySpawn`
+**ArrowSnapshot** — an arrow's (or crossbow bolt's) state at one server tick. Sent in `entitySpawn`
 (as its info), then in `state` on every tick it flies and once as it sticks.
 Clients interpolate it and point the model along the velocity.
 
@@ -141,6 +156,29 @@ then in `state` only on ticks it moved.
 | `type`     | string | `"cow"` |
 | `x`,`y`,`z`| number | Feet position |
 | `yaw`      | number | Facing (0 looks toward -Z, like players) |
+
+**CrawlerSnapshot** — a Crawler. Sent in `entitySpawn` / `welcome`, then in
+`state` only on ticks it moved.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | Entity id |
+| `type` | string | `"crawler"` |
+| `name` | string | `"Crawler"`, used in the event feed |
+| `x`,`y`,`z` | number | Feet position (box 0.9 wide, 0.6 tall) |
+| `yaw` | number | Facing (0 looks toward -Z) |
+| `climbing` | bool | Climbing a wall (drawn tipped up it) |
+
+**VoidEelSnapshot** — a Void Eel's head. Sent in `welcome` and in every
+`state` tick. Clients draw its body trailing along the path the head swam.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | Entity id |
+| `type` | string | `"voidEel"` |
+| `name` | string | `"Void Eel"` |
+| `x`,`y`,`z` | number | Bottom of the head's box (1.2 wide, 0.8 tall) |
+| `yaw`,`pitch` | number | Heading and climb angle |
 
 **DragonSnapshot** — a flying or walking dragon. Sent in `welcome` at match
 start or on reclaim, and in every `state` tick so its movement and fire animate
@@ -238,7 +276,7 @@ gets the stack and the second finds the slot empty.
 | `container` | bool? | true: a slot of the container you opened (it must still exist and be in reach). Otherwise your inventory |
 | `armor` | bool? | true: the single armor slot. It accepts only armor; shift-click removes worn armor to inventory |
 | `accessory` | bool? | true: the single accessory slot. It accepts only accessories; shift-click removes it to inventory |
-| `slot`   | int    | Your inventory: 0..35. Chest: 0..26. Furnace: 0 input (smeltables only), 1 fuel (fuels only), 2 output (take only; a left click can add it to a matching cursor stack) |
+| `slot`   | int    | Your inventory: 0..35. Chest: 0..26. Furnace: 0 input (smeltables only), 1 fuel (fuels only), 2 output (take only; a left click can add it to a matching cursor stack). Anvil: 0 (weapons, tools, armor and accessories only) |
 | `shift`  | bool?  | Shift-click: move the whole stack across instead, as much as fits. Container slot → your inventory. Inventory slot → the open container (a furnace takes smeltables into the input and fuel into the fuel slot). With no container open, armor equips if the slot is free; otherwise hotbar ↔ main grid. `button` is ignored |
 | `button` | string | `"left"`: pick up the whole stack, or put the cursor down (merging into the same item up to its max, or swapping with a different one). `"right"`: pick up half (rounded up), or put one item from the cursor down |
 
@@ -250,7 +288,7 @@ goes back into the slots; whatever doesn't fit drops at your feet. Also stops
 
 ### `openContainer`
 
-Right click on a chest or furnace within reach: the server starts sending you
+Right click on a chest, furnace or anvil within reach: the server starts sending you
 its state (`container`) until you close the screen, walk out of reach, or it's
 broken (`containerClose`). Anyone can open any container, and any number of
 players can have the same one open.
@@ -258,6 +296,18 @@ players can have the same one open.
 | Field | Type | Notes |
 |-------|------|-------|
 | `x`,`y`,`z` | int | The chest or furnace block |
+
+### `anvilReroll`
+
+The Reroll button at an anvil you have open (`openContainer`, in reach). If
+its slot holds a weapon, tool, armor or accessory and your slots hold 2 iron
+ingots, the server takes the ingots and replaces the item's modifiers with a
+fresh roll (1 modifier 75%, 2 modifiers 25%), including on items that had
+none. The results arrive as `container` and `inventory`. Otherwise ignored.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `x`,`y`,`z` | int | The anvil block |
 
 ### `craft`
 
@@ -272,8 +322,9 @@ items). Inputs come out of the main grid before the hotbar.
 
 Recipes with `station: null` (planks, ladder, workbench) work anywhere; the
 rest only at a workbench. New recipes include an empty bucket (1 iron ingot),
-leather armor (3 leather), iron armor (10 iron ingots), and a glider
-(3 leather and 2 wood). Furnaces smelt raw beef into cooked beef in 5 s.
+leather armor (3 leather), iron armor (10 iron ingots), a glider
+(3 leather and 2 wood), an anvil (6 iron ingots) and Dragonscale Armor (8
+Dragon Scales). Crafted items have no modifiers. Furnaces smelt raw beef into cooked beef in 5 s.
 
 ### `reclaim`
 
@@ -296,7 +347,9 @@ Match players only. Sent once per simulation tick (20/s). Each input advances th
 | `strafe`  | number | -1..1 (D = 1, A = -1) |
 | `jump`    | bool   | Jump held (swim up in water, jump out at the surface) |
 | `crouch`  | bool   | Crouch held (Shift, only while no screen is open) |
-| `draw`    | bool   | Right mouse held with a bow in hand (the client sends it only then; the server ignores it without a bow) |
+| `draw`    | bool   | Right mouse held with a bow or crossbow in hand (the client sends it only then; the server ignores it without one): draws the bow or loads the crossbow |
+| `fire`    | bool   | A click (either button) with a loaded crossbow in hand: shoots its bolt this tick. Ignored without a crossbow |
+| `hook`    | bool   | Right-click edge with a grappling hook in hand: fires the hook this tick. Ignored without one; the shared physics also refuses it while carrying a flag, while already pulling, or during the cooldown |
 | `eat`     | bool   | Right mouse held with food in hand; raw/cooked beef takes 30 uninterrupted ticks and heals gradually, while golden beef heals to full immediately on press |
 | `glide`   | bool   | Right mouse held with a glider in hand; in the air it caps falling speed and drives forward motion |
 | `rift`    | bool   | Right-click edge with a Rift Stone selected; the server consumes one and opens a portal if outside every keep's no-build zone |
@@ -335,6 +388,10 @@ and is outside every keep's volume. Then, by item:
   player looks.
 - **Tree seeds:** right click the top of grass or dirt to place a sapling.
   It grows a tree after about 15 s if the trunk has room; blocked saplings retry.
+- **Rope Bundle:** any clicked face. Rope fills this cell and each cell
+  straight below it, up to 40 in all, stopping above the first cell that
+  isn't air or water (a solid block, for example) or is in a keep's no-build
+  zone. One bundle is used however long the column is.
 
 It then removes one from the stack and sends others a `swing`. `drop` throws
 one item from `slot` along the look direction. Both are applied after that
@@ -383,24 +440,73 @@ blocks (steps of one up or down, no water). Punches and arrows hit them (10 HP,
 knockback like players). When one is hurt, its whole herd runs away from the
 attacker for 5 s. A dead cow drops 0-2 leather and 1-3 beef.
 
-Dragons: one spawns on the central island in Small and Medium worlds, and two
-in Large worlds. Medium and Large also spawn one on each team island, at least
-25 blocks from the keep and team spawn, preferably on the far side. Team dragons
-stay within 15 blocks beyond their island's radius unless chasing a player, and
-return home after losing a target. All dragons spawn above open grass away from
-keeps. They wander around their spawn when no live,
-connected player is within 45 blocks, occasionally landing and walking on
-grass. In range, they take off, fly toward the nearest player, and breathe
-fire through a 14-block cone aimed at that player's center when they have
-clear sight. The fire effect is sent to every player in the dragon's state.
-The server applies 2.5 damage per fire pulse before armor reduction. Punches
-and arrows can hurt them (30 HP). A dead dragon drops 2–5 iron ingots and
-2–4 leather. Dragons do not respawn.
+Dragons (`centralDragons`, `teamDragons` and `roosts` in `WORLD_SIZES`): 2,
+3 or 5 spread around the central island (Small, Medium, Large), one on each
+team island in Medium and Large (at least 25 blocks from the keep and team
+spawn, preferably on the far side), and one at each dragon roost. Every dragon
+is leashed to its home island: it roams within the island's radius plus 20
+blocks (central, roost) or 15 (team), and only goes after players inside that
+radius. It returns home after losing a target. All dragons spawn above open
+grass away from keeps. They wander around their spawn when no live, connected
+player is in range, occasionally landing and walking on grass. For a player
+within 45 blocks (and inside the leash), they take off, fly toward the
+nearest, and breathe fire through a 14-block cone aimed at that player's
+center when they have clear sight. The fire effect is sent to every player in
+the dragon's state. The server applies 2.5 damage per fire pulse before armor
+reduction; Dragonscale Armor is immune. Punches and arrows can hurt them (30
+HP), and provoke them (see **Provocation**). A dead dragon drops 2–5 iron
+ingots, 2–4 leather and 2–4 Dragon Scales. Dragons do not respawn.
 
-Ladders: while a player overlaps a ladder there's no gravity. Holding W or
-jump climbs up, S climbs down (without walking off the ladder), and no input
-holds position. This is in the shared physics, so it's predicted like the
-rest of movement.
+Crawlers: spider-like mobs, 3–5 in every cave dungeon and underside ruin, and
+up to 2 per main island (each 40%) on cave floors at least 10 blocks under the
+surface, all chosen by world gen (`world.mobSpawns`). 12 HP, a 0.9 × 0.6 box,
+4.8 blocks/s. They use the player physics and climb any wall they walk into.
+Idle, they wander within 5 blocks of their spawn, minding ledges. They go after
+the nearest player they can see within 12 blocks, give up beyond 24, and bite
+for 3 (every 1 s, before armor) when within 0.6 blocks of the player's box. A
+dead Crawler drops 0–2 Silk.
+
+Void Eels: `eels` in `WORLD_SIZES` (2, 4, 6), homed in turn under the central
+island, then each team island, and around again. Each patrols a zone within
+80% of its island's radius, from 4 blocks under the island's underside down 22
+blocks (not closer than 6 to the void kill height), swimming through the air.
+It goes after a player within 15 blocks who is gliding, falling (faster than 6
+blocks/s) or on a ladder or rope, and drops them once they're on their feet or
+more than 30 blocks away, then swims home. 30 HP; a bite does 4 (every 1.2 s)
+within 1.2 blocks of the player's box. Clients draw a segmented body trailing
+along the head's path.
+
+Provocation: any damage from a player to a Crawler, Void Eel or dragon (a
+punch, arrow, crossbow bolt or Thorns, at any range) provokes it. It hunts that
+player, ignoring its aggro range, leash and home zone, until the player dies,
+disconnects or is eliminated, or it has had no line of sight to them for 10 s.
+Then it goes home. Mob bites and dragon fire are `damage` with the mob as
+`attackerId`; a death from them has cause `"mob"`.
+
+Ladders and rope: while a player overlaps a ladder or rope there's no
+gravity. Holding W or jump climbs up, S climbs down (without walking off the
+ladder), and no input holds position. On rope (with no ladder), W doesn't
+walk you off either; strafe to step off, or climb past the top. This is in
+the shared physics, so it's predicted like the rest of movement.
+
+Crossbows: while `draw` is held with a crossbow, it loads; after 1.2 s it is
+loaded and stays loaded (letting go sooner loses the progress, and so does
+putting it away). Loading slows walking like drawing a bow. A `fire` with it
+loaded shoots a bolt from the eyes along the look direction at 80 blocks/s
+with gravity 5 (a bow arrow's is 12) for 6 damage; otherwise bolts are
+arrows. After a right click fires it, right click must be let go before it
+loads again. Bolts are unlimited.
+
+Grappling hooks: a `hook` casts a ray from the eyes along the look direction
+up to 30 blocks, against solid blocks, and starts a 3 s cooldown whether it
+hits or not. On a hit, the player is pulled in a straight line at 20
+blocks/s toward the hook: onto a top face, or to bring the middle of their
+body to a side or bottom face. Gravity, walking and knockback don't apply
+during the pull. It ends on arrival or as soon as the move is blocked on any
+axis, leaving the player at rest, and at once if they start carrying a flag.
+A hook can't be fired while carrying a flag. The pull is part of the shared
+physics (`grapple` in the snapshot), so it's predicted, and fall damage
+counts from the highest point as usual once it ends.
 
 `attack` is confirmed by the server: it casts a ray from the attacker's eyes
 along this input's `yaw`/`pitch`, up to `REACH_DISTANCE` or the first block in
@@ -409,7 +515,10 @@ grown by `HIT_TOLERANCE`, since the attacker saw the target slightly in the
 past. The nearest live, connected player hit takes damage and knockback: away
 from the attacker plus a small hop. Damage and cooldown come from the item in
 `slot`: fists 2 every 0.4 s; wood / stone / iron sword 3 / 4 / 6 every 0.6 s
-(on the server's clock). Missed punches count too. A
+(on the server's clock). The loot-only Wind Axe does 3 every 0.8 s with 3×
+the knockback and a bigger upward lift, and can't break blocks at all. The
+loot-only Ice Sword does 5 every 0.6 s and slows what it hits by 40% for 2 s
+(`slowTicks`). Missed punches count too. A
 punch also takes priority over `breaking` in the client: while a player is
 under the crosshair it sends no `breaking`.
 
@@ -420,8 +529,8 @@ inventory.
 
 Fall damage: the server tracks the highest point since the player last stood
 on something, held a ladder or was in water. On landing, a fall of more than
-3 blocks costs 1 HP per whole block beyond 3 (a `damage` with `attackerId`
-null). Landing on or grabbing a ladder resets the fall. Void and fall deaths
+3 blocks costs 1 HP per whole block beyond 3, less the worn accessory's
+Cushioned cut (rounded down; a `damage` with `attackerId` null). Landing on or grabbing a ladder resets the fall. Void and fall deaths
 are credited to whoever last hit the player, if that was within 5 s. Inputs from a dead player are acknowledged (`lastSeq`) but not
 simulated.
 
@@ -472,6 +581,7 @@ reclaim.
 | `teamCount` | int         | Occupied teams when the match started; determines the number of keeps |
 | `worldSize` | string      | `WORLD_SIZES` key: `"small"`, `"medium"` or `"large"`; deterministic central, team, and tiny islands |
 | `tick`    | int           | Current server tick |
+| `dayTime` | number        | Time of day at `tick`, 0..1 (see **Day and night**). Clients advance it with the ticks in `state` |
 | `blocks`  | BlockChange[] | Every block changed since generation; apply after `generateWorld` |
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
 | `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Stone portals; `expiresTick` is a server tick |
@@ -480,7 +590,7 @@ reclaim.
 | `winnerId`| int \| null   | Set if the match is already over |
 | `winnerTeam` | int \| null | Winning team index, if over |
 | `winnerMembers` | string[] | Names on the winning team, if over |
-| `entities`| (ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot)[] | Dropped items, arrows, cows and dragons currently in the world |
+| `entities`| (ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | Dropped items, arrows, cows, dragons, Crawlers and Void Eels currently in the world |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
@@ -490,7 +600,7 @@ Broadcast every server tick (20/s).
 | Field      | Type             | Notes |
 |------------|------------------|-------|
 | `tick`     | int              | Server tick number |
-| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot)[] | All players and dragons, plus only the items, arrows and cows that moved this tick. One not listed stays where it was |
+| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | All players, dragons and Void Eels, plus only the items, arrows, cows and Crawlers that moved this tick. One not listed stays where it was |
 | `flags`    | FlagState[] | Every flag |
 
 ### `portalSpawn`, `portalDespawn`, `emberBurst`
@@ -556,14 +666,14 @@ to the player who swung; their own first-person arm animates locally.
 
 ### `damage`
 
-A player, cow or dragon took damage (a punch, an arrow, fire or a fall). Broadcast to every
+A player, cow, dragon, Crawler or Void Eel took damage (a punch, an arrow, a bite, fire, Thorns or a fall). Broadcast to every
 match player. Clients flash the
 target red, or shake the screen if they are the target.
 
 | Field        | Type | Notes |
 |--------------|------|-------|
 | `id`         | int  | Entity hit |
-| `attackerId` | int \| null | Player or dragon who hit them; `null` for fall damage |
+| `attackerId` | int \| null | Player or mob who hit them; `null` for fall damage |
 | `hp`         | number | Their HP after the hit |
 
 ### `death`
@@ -574,8 +684,8 @@ A player died. Broadcast to every match player, for the kill feed. Their
 | Field      | Type        | Notes |
 |------------|-------------|-------|
 | `id`       | int         | Player who died |
-| `killerId` | int \| null | Player or dragon who killed them. For `void`, whoever hit them in the last 5 s, else `null` |
-| `cause`    | string      | `"player"`, `"void"` or `"fall"` (`DEATH_CAUSE`). Feed text: "X killed Y" (fall with a killer too), "X knocked Y into the void", "Y fell into the void", "Y fell from a high place" |
+| `killerId` | int \| null | Player or mob who killed them. For `void`, whoever hit them in the last 5 s, else `null` |
+| `cause`    | string      | `"player"`, `"mob"` (dragon fire, a Crawler or Void Eel bite), `"void"` or `"fall"` (`DEATH_CAUSE`). Feed text: "X killed Y" (fall with a killer too), "X knocked Y into the void", "Y fell into the void", "Y fell from a high place" |
 | `eliminated` | bool      | They were flagless, so this death knocks them out of the match (see below) |
 
 ### `flagEvent`
@@ -638,8 +748,8 @@ The server runs these rules; the messages above carry the results.
   one team has players who are not eliminated, that team wins (`matchEnd`).
   Teammates cannot damage each
   other with punches or arrows. Armor reduces combat and arrow damage by
-  `damage * 10 / (10 + armorPoints)` (leather 3, iron 8); fall and void damage
-  ignore armor.
+  `damage * 10 / (10 + armorPoints)` (leather 3, iron 8, dragonscale 9, plus
+  Sturdy); fall and void damage ignore armor.
 
 ### `container`
 
@@ -655,8 +765,8 @@ smelt, the half-done item starts over.
 | Field       | Type   | Notes |
 |-------------|--------|-------|
 | `x`,`y`,`z` | int    | The block |
-| `kind`      | string | `"chest"` or `"furnace"` |
-| `slots`     | (ItemStack \| null)[] | Chest: 27. Furnace: input, fuel, output |
+| `kind`      | string | `"chest"`, `"furnace"` or `"anvil"` |
+| `slots`     | (ItemStack \| null)[] | Chest: 27. Furnace: input, fuel, output. Anvil: the one item slot (its `mods` are the preview) |
 | `burn`      | number | Furnace only: fuel left in the current fuel item, 0..1 |
 | `progress`  | number | Furnace only: smelting progress on the current item, 0..1 |
 
@@ -726,7 +836,8 @@ world center. Small, Medium and Large use central radii 110, 155 and 210;
 team radii 45, 65 and 90; and island spacing 12, 20 and 20 blocks.
 World generation also places cave chests, abandoned houses,
 stone-brick towers, underside ruins, and cave-connected dungeons.
-Tiny islands can have a single loose chest but no other structure. There are no
+Tiny islands have no caves or other structures; each holds at most one of a
+loose chest or a dragon roost (see **Tiny islands**). There are no
 loose surface chests on main islands. The counts and
 chances are in each `WORLD_SIZES` preset. Keeps and surface structures use
 median terrain height, filled foundations, and sloped margins; only keeps are
@@ -734,7 +845,9 @@ indestructible. Underside ruins are either cliffside rooms embedded near the
 lower island wall, with outward balconies, or hanging rooms built into the
 roots. They have no built-in ladder or route from the surface. Ruins have
 missing and weathered blocks. Generated chests use
-the tables in `shared/loot.js`; the server rolls their slots on first open from
+the tables in `shared/loot.js` (a `roost` table for roost nests; Rope Bundles are fairly common, crossbows
+and grappling hooks uncommon, and Wind Axes and Ice Swords rare, less so in
+central, dungeon and underside chests); the server rolls their slots on first open from
 the world seed and chest position. Breaking one before opening it drops its
 seeded contents. Player-placed chests start empty.
 When wood is removed, the server checks nearby leaves in bounded batches.
@@ -742,3 +855,72 @@ Leaves without a path to wood through at most six adjacent leaves decay and
 are sent as ordinary `blockChange` messages. Each decayed leaf has an 8%
 chance to drop tree seeds. The server schedules planted saplings to grow in
 15 s, sending the resulting tree as `blockChange` messages.
+
+## Tiny islands
+
+`WORLD_SIZES` in `shared/worldgen.js` holds the numbers. Small, Medium and
+Large have 14–20, 22–30 and 32–44 tiny islands of radius 4–10, 5–12 and 5–15.
+Each has an irregular, lobed outline, a grass surface over dirt with slight
+height variation, and a stone underside tapering from about 0.6× its radius
+deep in the middle, with root-like spurs. They have no caves or ponds. Radius
+7 and up grow 1–2 trees (not on roosts).
+
+About 35% ring the central island, 35% ring the team islands, 15% are
+scattered further out (up to team distance + team radius + 40 from the
+center) and 15% are stacked over (70%) or under (30%) a main island. Unstacked
+ones mostly (80%) sit near the height of the nearer main island's surface
+(offset by the average of two rolls in ±15); the rest anywhere from the
+central surface −25 to the team surface +40. Stacked ones sit 25–40 blocks
+above the terrain beneath or 15–30 below the underside. None reaches lower
+than 30 blocks under the lowest main island's underside. Spacing between
+islands and the keep buffer are as before.
+
+Each tiny island holds at most one of: a dragon roost (radius 8 and up, 12%
+chance, at most 1 / 2 / 4 per world by size), else a loose chest (40%,
+`tinyIsland` loot), else nothing. A roost is a rough ring of logs and stone
+on the surface with scorched earth inside and around it, and one chest in the
+nest (`roost` loot: iron gear, accessories, Golden Beef, Rift Stones, often
+modded). Its dragon is leashed to the island (radius + 20).
+
+## Modifiers
+
+Weapons, tools, armor and accessories can carry modifiers (`shared/modifiers.js`):
+an item has none, one or two, never the same twice, each with a value rolled in
+its range. The item's name gains them as prefixes ("Keen Heavy Iron Sword") and
+its tooltip lists each with its value.
+
+| Category | Items | Modifiers |
+|---|---|---|
+| Melee | swords, Ice Sword, Wind Axe | Sharp (+1–2 damage), Keen (−15–25% attack cooldown), Heavy (+30–60% knockback), Vampiric (25–50% chance to heal 1 HP on a hit) |
+| Ranged | bow, crossbow | Power (+1–2 arrow damage), Quickdraw (−20–35% draw and load time), Far (+20–40% arrow speed) |
+| Armor | leather, iron, dragonscale | Sturdy (+1–2 armor points), Light (+5–10% move speed), Thorns (a melee attacker, player or mob, takes 1–2 damage per hit) |
+| Accessory | all five | Vital (+1–2 max HP), Fleet (+5–10% move speed), Cushioned (−20–40% fall damage) |
+| Hammer | hammers | Efficient (+20–40% break speed) |
+
+Other items never have modifiers. Loot rolls them per chest entry
+(`modChance`: about 15% for wood and stone gear, bows and leather armor, 30%
+for iron gear and crossbows, 50% for the Wind Axe, Ice Sword and accessories,
+and 60–70% in roost nests); a modded item gets one modifier (75%) or
+two (25%). Crafted items have none. Light and Fleet multiply, and are part of
+the predicted movement (`moveScale`).
+
+The anvil (crafted at a workbench from 6 iron ingots) holds one moddable item.
+Its screen shows the item's modifiers and a Reroll button (`anvilReroll`)
+that spends 2 iron ingots to replace them with a fresh roll.
+
+## Dragonscale Armor
+
+Crafted at a workbench from 8 Dragon Scales; never found as loot. 9 armor
+points, and dragon fire does it no harm. It's drawn with the same armor pieces
+in a dark scaled texture, and takes armor modifiers like any armor.
+
+## Day and night
+
+A full day is `DAY_LENGTH` (24 minutes: 12 of day, 12 of night) of server
+ticks. Time of day is a fraction: 0 sunrise, 0.25 noon, 0.5 sunset, 0.75
+midnight; a match starts at `DAY_START` (0.04, early morning). The server
+sends it as `dayTime` in `welcome`; clients count on from the ticks in
+`state`. It's purely visual: the sun and moon cross the sky, the sky and fog
+color move through dawn, day, dusk and night, stars come out, lights dim to a
+blue moonlight (never pitch black) and fog draws in to 75% of the view
+distance at night. The HUD shows a small sun or moon on an arc.

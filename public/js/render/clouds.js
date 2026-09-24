@@ -59,13 +59,18 @@ export class Clouds {
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(world.sizeX / 2, world.sizeY * height, world.sizeZ / 2);
       this.group.add(mesh);
-      this.layers.push({ texture, drift: drift / 300 });
+      this.layers.push({ texture, drift: drift / 300, material: mesh.material });
     }
     scene.add(this.group);
   }
 
   update(dt) {
     for (const { texture, drift } of this.layers) texture.offset.x += drift * dt;
+  }
+
+  // Clouds take the sky's light: `color` is a THREE.Color (white at noon).
+  setTint(color) {
+    for (const { material } of this.layers) material.color.copy(color);
   }
 
   set visible(visible) {

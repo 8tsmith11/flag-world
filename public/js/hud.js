@@ -111,3 +111,31 @@ export class Label {
     this.element.hidden = !text;
   }
 }
+
+// A small sun or moon in the corner that rises and sets across a little arc
+// through the day or the night; hovering shows how long is left.
+export class DayIndicator {
+  constructor(element, dayLength) {
+    this.element = element;
+    this.dayLength = dayLength;
+    this.icon = document.createElement('span');
+    this.icon.className = 'icon';
+    element.append(this.icon);
+    this.lastKey = null;
+  }
+
+  // time: 0..1 time of day (0 sunrise, 0.5 sunset).
+  set(time) {
+    const day = time < 0.5;
+    const progress = (time % 0.5) / 0.5;
+    const key = `${day}${Math.round(progress * 200)}`;
+    if (key === this.lastKey) return;
+    this.lastKey = key;
+    this.element.classList.toggle('night', !day);
+    this.icon.textContent = day ? '☀' : '☾';
+    this.icon.style.left = `${progress * 100}%`;
+    this.icon.style.bottom = `${Math.sin(progress * Math.PI) * 60}%`;
+    const minutes = Math.ceil((1 - progress) * this.dayLength / 2 / 60);
+    this.element.title = `${day ? 'Day' : 'Night'}: about ${minutes} min left`;
+  }
+}

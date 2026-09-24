@@ -1,4 +1,4 @@
-// An arrow shot from a bow. It flies with gentle gravity and a little drag.
+// An arrow shot from a bow or crossbow. It flies with gentle gravity and a little drag.
 // Each tick its whole path is swept against blocks and players (so fast
 // arrows can't skip through thin walls or players). It sticks where it hits a
 // block, or hits a player and is gone. Arrows never damage blocks.
@@ -25,6 +25,8 @@ export class Arrow {
     this.charge = charge;
     this.x = x; this.y = y; this.z = z;
     this.vx = vx; this.vy = vy; this.vz = vz;
+    // Crossbow bolts fall slower than bow arrows.
+    this.gravity = ARROW_GRAVITY;
     this.age = 0;
     // Once it hits a block: that block, and ticks left before it disappears.
     this.stuckIn = null;
@@ -42,7 +44,7 @@ export class Arrow {
     }
     this.vx *= ARROW_DRAG;
     this.vz *= ARROW_DRAG;
-    this.vy = this.vy * ARROW_DRAG - ARROW_GRAVITY * TICK_DT;
+    this.vy = this.vy * ARROW_DRAG - this.gravity * TICK_DT;
     const len = Math.hypot(this.vx, this.vy, this.vz) * TICK_DT;
     if (len === 0) return null;
     const dir = { x: this.vx * TICK_DT / len, y: this.vy * TICK_DT / len, z: this.vz * TICK_DT / len };
