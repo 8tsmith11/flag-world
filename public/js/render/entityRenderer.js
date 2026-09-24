@@ -58,6 +58,7 @@ export function createSpriteModel(texture, width, height) {
 const MODEL_FACTORIES = {
   [ENTITY_TYPE.PLAYER]: createPlayerModel,
   [ENTITY_TYPE.ITEM]: createDroppedItemModel,
+  [ENTITY_TYPE.RIFT_ORB]: createDroppedItemModel,
   [ENTITY_TYPE.COW]: createCowModel,
   [ENTITY_TYPE.DRAGON]: createDragonModel,
   [ENTITY_TYPE.CRAWLER]: createCrawlerModel,
@@ -126,6 +127,7 @@ export class EntityRenderer {
       orbActive: !!snap.orbActive,
       slowed: snap.slowTicks > 0, grapple: snap.grapple ?? null,
       gliding: !!snap.gliding, breathing: !!snap.breathing, walking: !!snap.walking, climbing: !!snap.climbing,
+      coiling: !!snap.coiling, lunging: !!snap.lunging, night: !!snap.night, tail: snap.tail ?? null,
       onGround: !!snap.onGround,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
@@ -157,7 +159,10 @@ export class EntityRenderer {
       const box = MOB_BOXES[info.type];
       if (!box) continue;
       const { x, y, z } = object.position;
-      targets.push({ id, state: { x, y, z, box } });
+      const tail = info.type === ENTITY_TYPE.VOID_EEL ? this.entities.get(id).snapshots.at(-1)?.tail : null;
+      targets.push({ id, state: { x, y, z, box },
+        extraHitBoxes: tail ? () => [{ x: tail.x, y: tail.y - 0.2, z: tail.z,
+          halfW: 0.25, height: 0.4 }] : undefined });
     }
     return targets;
   }
@@ -199,7 +204,8 @@ export class EntityRenderer {
         if (vx || vy || vz) object.lookAt(object.position.x + vx, object.position.y + vy, object.position.z + vz);
       } else if (object.userData.eel) {
         // The body trails in world space; the head turns on its own.
-        animateEel(object, dt, lerpAngle(a.yaw, b.yaw, t), a.pitch + (b.pitch - a.pitch) * t);
+        animateEel(object, dt, lerpAngle(a.yaw, b.yaw, t), a.pitch + (b.pitch - a.pitch) * t,
+          !!b.coiling, !!b.night);
       } else if (spin) {
         object.rotation.y = now * ITEM_SPIN_SPEED + spin.phase;
         spin.inner.position.y = ITEM_BOB_HEIGHT * (1 + Math.sin(now * ITEM_BOB_SPEED + spin.phase));

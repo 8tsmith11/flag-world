@@ -40,7 +40,7 @@ const accessoryEntries = (weight) => [
   ITEM.WIND_BOOTS, ITEM.SPRING_BOOTS, ITEM.HEART_AMULET,
   ITEM.MENDING_CHARM, ITEM.EMBER_HEART,
 ].map((item) => ({ item, weight, min: 1, max: 1, modChance: RARE_MODS }));
-const riftStone = { item: ITEM.RIFT_STONE, weight: 3, min: 1, max: 1 };
+const riftOrb = { item: ITEM.RIFT_ORB, weight: 3, min: 1, max: 1 };
 // Loot-only gear: rope is common, the crossbow and grappling hook uncommon, and
 // the Wind Axe and Ice Sword rare (less so in central, dungeon and underside loot).
 const ropeBundles = { item: ITEM.ROPE_BUNDLE, weight: 8, min: 1, max: 3 };
@@ -52,22 +52,22 @@ const rareWeapons = (weight) => [ITEM.WIND_AXE, ITEM.ICE_SWORD].map((item) => ({
 const lootGear = (rareWeight) => [ropeBundles, ...uncommonGear, ...rareWeapons(rareWeight)];
 
 export const LOOT_TABLES = {
-  looseChest: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftStone, ...lootGear(1)] },
-  looseChestCentral: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(2), ...accessoryEntries(3), riftStone, ...lootGear(3)] },
-  tinyIsland: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(4), riftStone, ...lootGear(1)] },
-  house: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(1), ...accessoryEntries(1), riftStone, ...lootGear(1)] },
-  tower: { rolls: [3, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftStone, ...lootGear(1)] },
-  cave: { rolls: [4, 6], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftStone, ...lootGear(1)] },
-  caveCentral: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(3), ...accessoryEntries(3), riftStone, ...lootGear(3)] },
-  underside: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(4), ...accessoryEntries(4), riftStone, ...lootGear(4)] },
-  dungeon: { rolls: [5, 8], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(4), ...accessoryEntries(4), riftStone, ...lootGear(4)] },
+  looseChest: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
+  looseChestCentral: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(2), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
+  tinyIsland: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(4), riftOrb, ...lootGear(1)] },
+  house: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
+  tower: { rolls: [3, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
+  cave: { rolls: [4, 6], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
+  caveCentral: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(3), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
+  underside: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(4), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
+  dungeon: { rolls: [5, 8], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(4), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
   // The nest chest at a dragon roost: iron gear, accessories, Golden Beef and
-  // Rift Stones, modded more often than anywhere else.
+  // Rift Orbs, modded more often than anywhere else.
   roost: { rolls: [5, 8], entries: [...supplies.map((entry) => ({ ...entry, weight: entry.weight / 3 })),
     ...ironGear(4, 0.6), ...accessoryEntries(5).map((entry) => ({ ...entry, modChance: 0.7 })),
-    goldenBeef(6), { ...riftStone, weight: 6, max: 2 }, ...rareWeapons(3).map((entry) => ({ ...entry, modChance: 0.7 })),
+    goldenBeef(6), { ...riftOrb, weight: 6, max: 2 }, ...rareWeapons(3).map((entry) => ({ ...entry, modChance: 0.7 })),
     { ...uncommonGear[0], modChance: 0.6 }] },
-  dungeonCentral: { rolls: [6, 8], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(5), ...accessoryEntries(5), riftStone, ...lootGear(5)] },
+  dungeonCentral: { rolls: [6, 8], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(5), ...accessoryEntries(5), riftOrb, ...lootGear(5)] },
 };
 
 export function rollLoot(tableName, seed, x, y, z, slotCount = 27) {

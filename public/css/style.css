@@ -665,9 +665,8 @@ body.dead canvas {
   box-shadow: 0 0 5px var(--item-color);
 }
 .icon.rift {
-  transform: rotate(45deg);
   border: 3px solid #55406c;
-  border-radius: 4px;
+  border-radius: 50%;
   background: radial-gradient(circle, #f1d1ff 0 18%, var(--item-color) 25% 65%, #68459c 80%);
   box-shadow: 0 0 7px #aa6aff;
 }

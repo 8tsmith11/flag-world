@@ -73,6 +73,14 @@ export function raycastPlayers(origin, dir, maxDist, players, boxOf, grow = 0) {
     const w = box.halfW + grow;
     const t = rayBox(origin, dir, x - w, y - grow, z - w, x + w, y + box.height + grow, z + w);
     if (t !== null && t <= maxDist && (!best || t < best.t)) best = { player, t };
+    for (const extra of player.extraHitBoxes?.() ?? []) {
+      const ew = extra.halfW + grow;
+      const et = rayBox(origin, dir, extra.x - ew, extra.y - grow, extra.z - ew,
+        extra.x + ew, extra.y + extra.height + grow, extra.z + ew);
+      if (et !== null && et <= maxDist && (!best || et < best.t)) {
+        best = { player, t: et, damageScale: extra.damageScale ?? 1 };
+      }
+    }
   }
   return best;
 }

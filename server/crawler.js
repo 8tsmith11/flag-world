@@ -89,7 +89,8 @@ export class Crawler {
   step(world, players, tick) {
     const s = this.state;
     this.target = this.chooseTarget(world, players, tick);
-    const goal = this.target ? { x: this.target.state.x, z: this.target.state.z } : this.wander();
+    const goal = this.target ? { x: this.target.state.x + (this.approachOffset?.x ?? 0),
+      z: this.target.state.z + (this.approachOffset?.z ?? 0) } : this.wander();
     let forward = 0;
     if (goal) {
       const dx = goal.x - s.x, dz = goal.z - s.z;

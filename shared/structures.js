@@ -2,7 +2,7 @@
 // the flag on a pedestal in the middle), sand shores and trees. Also the
 // seeded PRNG all world gen uses.
 
-import { KEEP_SIZE, KEEP_HEIGHT, KEEP_MARGIN } from './config.js';
+import { KEEP_SIZE, KEEP_HEIGHT, KEEP_MARGIN, BIOME_SETTINGS } from './config.js';
 import { BLOCK, isSolid } from './blocks.js';
 
 // mulberry32: tiny seeded PRNG so world gen matches across machines.
@@ -131,15 +131,18 @@ export function plantTrees(world, seed, { requireFooting = false,
     for (let cx = Math.floor(bounds.x0 / TREE_CELL) * TREE_CELL; cx <= bounds.x1; cx += TREE_CELL) {
       // Always draw every number so each cell uses the same amount of the stream.
       const roll = random(), ox = random(), oz = random(), trunkRoll = random();
-      if (roll >= TREE_CHANCE) continue;
       const x = cx + Math.floor(ox * TREE_CELL), z = cz + Math.floor(oz * TREE_CELL);
+      const biome = world.biomeAt(x, z);
+      if (roll >= Math.min(0.95, TREE_CHANCE * BIOME_SETTINGS[biome].trees)) continue;
       if (x < bounds.x0 || x > bounds.x1 || z < bounds.z0 || z > bounds.z1) continue;
       if (x < LEAF_RADIUS || z < LEAF_RADIUS || x >= world.sizeX - LEAF_RADIUS || z >= world.sizeZ - LEAF_RADIUS) continue;
       if (world.keeps.some((k) => Math.abs(x - k.cx) <= clearOfKeeps && Math.abs(z - k.cz) <= clearOfKeeps)) continue;
       const ground = surfaceAt(x, z);
       if (ground < 0 || world.getBlock(x, ground, z) !== BLOCK.GRASS) continue;
       if (requireFooting && [[2, 0], [-2, 0], [0, 2], [0, -2]].some(([dx, dz]) => !isSolid(world.getBlock(x + dx, ground, z + dz)))) continue;
-      const trunk = TREE_MIN_TRUNK + Math.floor(trunkRoll * (TREE_MAX_TRUNK - TREE_MIN_TRUNK + 1));
+      const trunk = TREE_MIN_TRUNK + Math.floor(trunkRoll * (TREE_MAX_TRUNK - TREE_MIN_TRUNK + 1))
+        + (biome === 'forest' && trunkRoll < BIOME_SETTINGS.forestLargeTreeChance
+          ? BIOME_SETTINGS.forestLargeTreeExtra : 0);
       const top = ground + trunk;
       if (top + 2 >= world.sizeY) continue;
       growTree(world, x, ground, z, top);

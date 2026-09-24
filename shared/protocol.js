@@ -88,6 +88,7 @@ export const ENTITY_TYPE = {
   PLAYER: 'player',
   ITEM: 'item',
   ARROW: 'arrow',
+  RIFT_ORB: 'riftOrb',
   COW: 'cow',
   DRAGON: 'dragon',
   CRAWLER: 'crawler',

@@ -13,8 +13,9 @@ import {
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
   MAX_HP, REGEN_DELAY, REGEN_INTERVAL, EAT_TIME, FOOD_HEAL_TIME, HIT_TOLERANCE,
   KNOCKBACK_SPEED, KNOCKBACK_UP, RESPAWN_DELAY, KILL_CREDIT_TIME, FALL_SAFE_DISTANCE,
-  FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS, DRAGON_LEASH, CRAWLER_DROPS, EEL_ZONE, CRAWLER_DAMAGE, EEL_DAMAGE,
-  DAY_LENGTH, DAY_START,
+  FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS, DRAGON_LEASH, CRAWLER_DROPS, EEL_BAND, EEL_DROPS,
+  EEL_GLIDE_BREAK, CRAWLER_DAMAGE, EEL_DAMAGE,
+  DAY_LENGTH, DAY_START, BIOME_SETTINGS,
 } from '../shared/config.js';
 import {
   BLOCK, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
@@ -23,13 +24,14 @@ import {
 import { getItemDef, ITEM } from '../shared/items.js';
 import { accessoryDef } from '../shared/accessories.js';
 import { eggForItem } from '../shared/mobEggs.js';
-import { RIFT_STONE } from '../shared/accessories.js';
+import { RIFT_ORB } from '../shared/accessories.js';
 import { getRecipe, ANVIL_REROLL_COST } from '../shared/recipes.js';
 import { canHaveMods } from '../shared/modifiers.js';
 import { FROST } from '../shared/tools.js';
 import { Chest, createContainer } from './containers.js';
 import { clickSlot } from './inventory.js';
 import { Arrow } from './arrow.js';
+import { RiftOrbProjectile } from './riftOrb.js';
 import { Cow, Herd, COW_BOX } from './cow.js';
 import { Dragon, DRAGON_BOX } from './dragon.js';
 import { Crawler, CRAWLER_BOX } from './crawler.js';
@@ -52,6 +54,7 @@ import { WaterSimulation } from './water.js';
 import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
+import { assignMobSteering, steerGround, resolveMobOverlaps } from './mobSteering.js';
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -144,6 +147,7 @@ export class Game {
     // id space with players.
     this.items = new Map();
     this.arrows = new Map();
+    this.riftOrbs = new Map();
     this.cows = new Map();
     this.dragons = new Map();
     // Crawlers and Void Eels by entity id.
@@ -447,7 +451,7 @@ export class Game {
           return { x, y, z };
         }),
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
-      entities: [...this.items.values(), ...this.arrows.values(), ...this.cows.values(), ...this.dragons.values(),
+      entities: [...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
         ...this.mobs.values()].map((e) => e.describe()),
       inventory: player.inventory,
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
@@ -507,19 +511,58 @@ export class Game {
   }
 
   stepRift(player) {
-    if (player.held() !== ITEM.RIFT_STONE) return;
+    if (player.held() !== ITEM.RIFT_ORB) return;
     const state = player.state;
-    const blockX = Math.floor(state.x), blockZ = Math.floor(state.z);
-    if (this.world.keeps.some((keep) => Math.abs(blockX - keep.cx) <= KEEP_REACH
-      && Math.abs(blockZ - keep.cz) <= KEEP_REACH)) return;
-    if (!this.portalDestination(player.keep, player)) return;
+    const direction = lookDirection(state.yaw, state.pitch);
+    const start = { x: state.x + direction.x * RIFT_ORB.launchForward,
+      y: state.y + eyeHeight(state) - 0.2,
+      z: state.z + direction.z * RIFT_ORB.launchForward };
+    // The muzzle can be just inside a nearby wall even while the player's
+    // eyes are clear. Launch from the eyes in that case.
+    if (isSolid(this.world.getBlock(Math.floor(start.x), Math.floor(start.y), Math.floor(start.z)))) {
+      start.x = state.x;
+      start.y = state.y + eyeHeight(state);
+      start.z = state.z;
+    }
     player.inventory.takeOne(player.selected);
     player.inventoryDirty = true;
-    const portal = { id: this.nextId++, x: state.x, y: state.y + 0.9, z: state.z,
-      keep: player.keep, expiresTick: this.tick + ticks(RIFT_STONE.durationSeconds), inside: new Set([player.id]) };
+    const orb = new RiftOrbProjectile(this.nextId++, player, start.x, start.y, start.z, direction);
+    this.riftOrbs.set(orb.id, orb);
+    this.broadcast({ type: S2C.ENTITY_SPAWN, entity: orb.describe() });
+  }
+
+  updateRiftOrbs() {
+    const moving = [];
+    for (const orb of this.riftOrbs.values()) {
+      const result = orb.step(this.world);
+      if (!result) { moving.push(orb); continue; }
+      this.riftOrbs.delete(orb.id);
+      this.broadcast({ type: S2C.ENTITY_DESPAWN, id: orb.id });
+      if (result.lost) continue;
+      const { x, y, z } = result.hit;
+      if (this.world.keeps.some((keep) => Math.abs(x - keep.cx) <= KEEP_REACH
+        && Math.abs(z - keep.cz) <= KEEP_REACH)) {
+        this.spawnItem(ITEM.RIFT_ORB, 1, orb.x, orb.y, orb.z,
+          0, ITEM_POP_SPEED, 0, ITEM_PICKUP_DELAY);
+        continue;
+      }
+      const ground = this.world.getSurfaceY(x, z, isSolid);
+      const portalY = isSolid(this.world.getBlock(x, y, z))
+        && !isSolid(this.world.getBlock(x, y + 1, z)) ? y + 1.9
+          : ground >= this.world.voidY ? ground + 1.9 : orb.y;
+      const portal = { id: this.nextId++, x: x + 0.5, y: portalY, z: z + 0.5,
+        keep: orb.owner.keep, expiresTick: this.tick + ticks(RIFT_ORB.durationSeconds), inside: new Set() };
+      if (Math.hypot(portal.x - orb.owner.state.x, portal.z - orb.owner.state.z) < 1.5
+        && Math.abs(portal.y - orb.owner.state.y) < 2) {
+        this.spawnItem(ITEM.RIFT_ORB, 1, orb.x, orb.y, orb.z,
+          0, ITEM_POP_SPEED, 0, ITEM_PICKUP_DELAY);
+        continue;
+      }
     this.portals.set(portal.id, portal);
     this.broadcast({ type: S2C.PORTAL_SPAWN, portal: { id: portal.id, x: portal.x, y: portal.y,
       z: portal.z, expiresTick: portal.expiresTick } });
+    }
+    return moving;
   }
 
   updatePortals() {
@@ -731,11 +774,8 @@ export class Game {
         this.mobs.set(mob.id, mob);
         break;
       case 'voidEel': {
-        const top = island.surfaceY - EEL_ZONE.belowSurface;
-        const bottom = Math.min(top - 4, Math.max(this.world.voidY + EEL_ZONE.aboveVoid, top - EEL_ZONE.depth));
-        mob = new VoidEel(this.nextId++, { x: island.x, z: island.z,
-          radius: island.radius * 1.15, islandRadius: island.radius, surfaceY: island.surfaceY, top, bottom });
-        Object.assign(mob.state, { x, y, z });
+        const band = this.eelBand();
+        mob = new VoidEel(this.nextId++, band, { x, y, z });
         this.mobs.set(mob.id, mob);
         break;
       }
@@ -1076,7 +1116,7 @@ export class Game {
         t.kz += result.dir.z * ARROW_KNOCKBACK;
         t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
         t.onGround = false;
-        this.hurt(target, arrow.damage, arrow.shooter);
+        this.hurt(target, arrow.damage * (result.damageScale ?? 1), arrow.shooter);
         this.removeArrow(arrow);
       } else if (flying) {
         moved.push(arrow);
@@ -1116,7 +1156,8 @@ export class Game {
           const distance = Math.sqrt(rand()) * island.radius * 0.7;
           const cx = Math.floor(island.x + Math.cos(angle) * distance);
           const cz = Math.floor(island.z + Math.sin(angle) * distance);
-          if (grassy(cx, cz, island) === null || w.keeps.some((k) => Math.hypot(cx - k.cx, cz - k.cz) < 20)) continue;
+          if (grassy(cx, cz, island) === null || w.keeps.some((k) => Math.hypot(cx - k.cx, cz - k.cz) < 20)
+            || rand() > BIOME_SETTINGS[w.biomeAt(cx, cz)].cows / BIOME_SETTINGS.plains.cows) continue;
           const herd = new Herd(herdId++);
           const size = island.kind === 'tiny' ? 1
             : COW_HERD_SIZE[0] + Math.floor(rand() * (COW_HERD_SIZE[1] - COW_HERD_SIZE[0] + 1));
@@ -1141,6 +1182,7 @@ export class Game {
       const s = cow.state;
       const before = `${s.x},${s.y},${s.z},${s.yaw}`;
       cow.step(this.world, this.tick);
+      steerGround(cow, this.world);
       if (s.y < this.world.voidY) this.removeCow(cow);
       else if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(cow);
     }
@@ -1261,19 +1303,27 @@ export class Game {
     }
   }
 
-  // The size's eel count, homed in turn under the central island, then each
-  // team island, and around again (so the first is always under the center).
-  // They circle close to the underside, including the outer rim.
+  eelBand() {
+    const lowest = Math.min(...this.world.islands.map((island) => island.bottomY));
+    return { top: lowest - EEL_BAND.belowIsland, bottom: this.world.voidY + EEL_BAND.aboveVoid };
+  }
+
+  // Half start under the center; the others are spread across the world.
+  // Every eel can later roam the entire deep band.
   spawnEels() {
     const count = WORLD_SIZES[this.worldSize].eels;
-    const homes = [this.world.islands.find((island) => island.kind === 'center'),
-      ...this.world.islands.filter((island) => island.kind === 'team')];
+    const center = this.world.islands.find((island) => island.kind === 'center');
+    const band = this.eelBand();
+    const random = mulberry32(this.seed ^ 0x35bd248a);
     for (let i = 0; i < count; i++) {
-      const island = homes[i % homes.length];
-      const top = island.surfaceY - EEL_ZONE.belowSurface;
-      const bottom = Math.min(top - 4, Math.max(this.world.voidY + EEL_ZONE.aboveVoid, top - EEL_ZONE.depth));
-      const eel = new VoidEel(this.nextId++, { x: island.x, z: island.z,
-        radius: island.radius * 1.15, islandRadius: island.radius, surfaceY: island.surfaceY, top, bottom });
+      const angle = random() * Math.PI * 2;
+      const radius = Math.sqrt(random()) * center.radius * 0.8;
+      const x = i < Math.ceil(count / 2) ? center.x + Math.cos(angle) * radius
+        : 4 + random() * (this.world.sizeX - 8);
+      const z = i < Math.ceil(count / 2) ? center.z + Math.sin(angle) * radius
+        : 4 + random() * (this.world.sizeZ - 8);
+      const y = band.bottom + 4 + random() * (band.top - band.bottom - 8);
+      const eel = new VoidEel(this.nextId++, band, { x, y, z });
       this.mobs.set(eel.id, eel);
     }
   }
@@ -1286,12 +1336,22 @@ export class Game {
     for (const mob of this.mobs.values()) {
       const s = mob.state;
       const before = `${s.x},${s.y},${s.z},${s.yaw}`;
-      const bitten = mob.step(this.world, players, this.tick);
+      const time = this.dayTime();
+      const bitten = mob instanceof VoidEel
+        ? mob.step(this.world, players, this.tick, time >= 0.5 && time < 1)
+        : mob.step(this.world, players, this.tick);
+      if (mob instanceof Crawler) steerGround(mob, this.world);
       if (s.y < this.world.voidY) {
         this.removeMob(mob);
         continue;
       }
-      if (bitten) this.meleeHit(bitten, mob instanceof Crawler ? CRAWLER_DAMAGE : EEL_DAMAGE, mob);
+      if (bitten) {
+        if (mob instanceof VoidEel && bitten.state.gliding) {
+          bitten.state.gliding = false;
+          bitten.state.glideBlockedTicks = ticks(EEL_GLIDE_BREAK);
+        }
+        this.meleeHit(bitten, mob instanceof Crawler ? CRAWLER_DAMAGE : EEL_DAMAGE, mob);
+      }
       if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(mob);
     }
     return moved;
@@ -1328,6 +1388,11 @@ export class Game {
       const silk = CRAWLER_DROPS.silk[0] + Math.floor(Math.random() * (CRAWLER_DROPS.silk[1] - CRAWLER_DROPS.silk[0] + 1));
       if (silk > 0) this.spawnItem(ITEM.SILK, silk, mob.state.x, mob.state.y + 0.3, mob.state.z,
         (Math.random() - 0.5) * 2, ITEM_POP_SPEED, (Math.random() - 0.5) * 2, ITEM_PICKUP_DELAY);
+    }
+    if (mob instanceof VoidEel) {
+      const count = EEL_DROPS[0] + Math.floor(Math.random() * (EEL_DROPS[1] - EEL_DROPS[0] + 1));
+      this.spawnItem(ITEM.RIFT_ORB, count, mob.state.x, mob.state.y, mob.state.z,
+        0, ITEM_POP_SPEED, 0, ITEM_PICKUP_DELAY);
     }
     this.removeMob(mob);
   }
@@ -1391,7 +1456,7 @@ export class Game {
     if (weapon.frost && (target instanceof Player || target instanceof Cow || target instanceof Crawler)) {
       t.slowTicks = ticks(FROST.seconds);
     }
-    this.hurt(target, weapon.damage, player);
+    this.hurt(target, weapon.damage * (hit.damageScale ?? 1), player);
     // Vampiric: a chance to heal 1 HP on a hit. Thorns: the target's armor hurts back.
     if (weapon.heal && Math.random() < weapon.heal) player.hp = Math.min(player.maxHp(), player.hp + 1);
     const thorns = target instanceof Player ? target.thorns() : 0;
@@ -1742,8 +1807,13 @@ export class Game {
     this.updatePortals();
     this.updateContainers();
 
-    const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateCows(), ...this.updateDragons(),
+    const livingMobs = [...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()];
+    const crowdGrid = assignMobSteering(livingMobs);
+    const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateRiftOrbs(), ...this.updateCows(), ...this.updateDragons(),
       ...this.updateMobs()];
+    for (const mob of resolveMobOverlaps(this.world, livingMobs.filter((mob) => !mob.dead), crowdGrid)) {
+      if (!movedItems.includes(mob)) movedItems.push(mob);
+    }
 
     for (const player of this.players.values()) {
       if (!player.inventoryDirty) continue;

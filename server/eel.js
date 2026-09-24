@@ -1,61 +1,57 @@
-// Void Eels: long serpents that swim through the air under an island. Each
-// has a home island and patrols a zone below its underside, above the void.
-// It goes after players who glide, fall or climb within EEL_AGGRO_RANGE,
-// drops them once they're back on their feet or out of EEL_LOSE_RANGE, and
-// swims home. Provoked (see provocation.js), it hunts its attacker anywhere.
-//
-// The server moves only the head; clients draw the body trailing behind it.
-// Its box is around the head (y is the bottom of the head).
-
+// Deep-void swimmers. Natural worldgen terrain blocks their vertical detection;
+// player-built bridges do not. The server owns movement, targeting and bites.
 import {
-  TICK_RATE, TICK_DT, EEL_HP, EEL_SPEED, EEL_CHASE_SPEED, EEL_REACH, EEL_AGGRO_RANGE, EEL_LOSE_RANGE,
-  EEL_ATTACK_COOLDOWN,
+  TICK_RATE, TICK_DT, EEL_HP, EEL_SPEED, EEL_CHASE_SPEED, EEL_LUNGE_SPEED,
+  EEL_LUNGE_WINDUP, EEL_REACH, EEL_DETECT_RADIUS, EEL_DETECT_HEIGHT,
+  EEL_NIGHT_DETECT_SCALE, EEL_NIGHT_RISE_SCALE, EEL_FORGET_TIME,
+  EEL_LOSE_RANGE, EEL_WANDER_RADIUS, EEL_ATTACK_COOLDOWN,
+  EEL_LUNGE_DURATION, EEL_TURN_RATE,
 } from '../shared/config.js';
 import { isSolid } from '../shared/blocks.js';
-import { playerBoxOf, isOnLadder } from '../shared/physics.js';
+import { playerBoxOf } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { Provocation, huntable } from './provocation.js';
 
 export const EEL_BOX = { halfW: 0.6, height: 0.8 };
-const ATTACK_TICKS = Math.round(EEL_ATTACK_COOLDOWN * TICK_RATE);
-const TURN_PER_TICK = 0.12;
-// A player falling faster than this (blocks/s) counts as falling, not jumping.
-const FALLING_SPEED = 6;
+const WINDUP_TICKS = Math.round(EEL_LUNGE_WINDUP * TICK_RATE);
+const LUNGE_TICKS = Math.round(EEL_LUNGE_DURATION * TICK_RATE);
+const FORGET_TICKS = Math.round(EEL_FORGET_TIME * TICK_RATE);
+const COOLDOWN_TICKS = Math.round(EEL_ATTACK_COOLDOWN * TICK_RATE);
 
-function turnToward(current, wanted, rate) {
+function turnToward(current, wanted) {
   let difference = (wanted - current + Math.PI) % (Math.PI * 2);
   if (difference < 0) difference += Math.PI * 2;
-  difference -= Math.PI;
-  return current + Math.max(-rate, Math.min(rate, difference));
-}
-
-// Gliding, falling or on a ladder or rope: what draws an eel.
-function exposed(player, world) {
-  const s = player.state;
-  return s.gliding || (!s.onGround && s.vy < -FALLING_SPEED) || isOnLadder(s, world);
+  return current + Math.max(-EEL_TURN_RATE, Math.min(EEL_TURN_RATE, difference - Math.PI));
 }
 
 export class VoidEel {
-  // zone: { x, z, radius, islandRadius, surfaceY, top, bottom }.
-  constructor(id, zone) {
+  // band: {top,bottom}; spawn: {x,y,z}. The spawn point biases initial roaming,
+  // but does not leash the eel to an island.
+  constructor(id, band, spawn) {
     this.id = id;
     this.type = ENTITY_TYPE.VOID_EEL;
     this.name = 'Void Eel';
-    this.zone = zone;
-    const y = (zone.top + zone.bottom) / 2;
-    this.state = { x: zone.x, y, z: zone.z, yaw: Math.random() * Math.PI * 2, pitch: 0, box: EEL_BOX,
-      kx: 0, kz: 0, vy: 0 };
+    this.band = band;
+    this.state = { ...spawn, yaw: Math.random() * Math.PI * 2, pitch: 0,
+      box: EEL_BOX, kx: 0, kz: 0, vy: 0 };
     this.hp = EEL_HP;
     this.dead = false;
     this.connected = true;
     this.provocation = new Provocation();
     this.target = null;
+    this.lastSeenTick = 0;
     this.nextAttackTick = 0;
-    this.phase = Math.random() * Math.PI * 2;
-    const start = this.patrolGoal(0);
-    this.state.x = start.x;
-    this.state.y = start.y;
-    this.state.z = start.z;
+    this.windupTicks = 0;
+    this.lungeTicks = 0;
+    this.lungeDirection = null;
+    this.wanderGoal = null;
+    this.wanderUntil = 0;
+    this.trail = Array.from({ length: 16 }, (_, i) => ({
+      x: spawn.x + Math.sin(this.state.yaw) * i * 0.55,
+      y: spawn.y + EEL_BOX.height / 2,
+      z: spawn.z + Math.cos(this.state.yaw) * i * 0.55,
+    }));
+    this.escapeTrail = [];
   }
 
   center() {
@@ -63,110 +59,199 @@ export class VoidEel {
     return { x: s.x, y: s.y + EEL_BOX.height / 2, z: s.z };
   }
 
-  inZone(x, y, z) {
-    const zone = this.zone;
-    return Math.hypot(x - zone.x, z - zone.z) <= zone.radius && y >= zone.bottom && y <= zone.top;
+  exposed(world, player) {
+    const c = this.center(), p = player.state;
+    return !world.naturalTerrainBetween(p.x, p.z, c.y, p.y + 0.1);
   }
 
-  chooseTarget(world, players, tick) {
-    const provoked = this.provocation.current(world, this.center(), tick);
-    if (provoked) return provoked;
-    const c = this.center();
-    const distance = (p) => Math.hypot(p.state.x - c.x, p.state.y + 0.9 - c.y, p.state.z - c.z);
-    if (this.target && huntable(this.target) && exposed(this.target, world)
-      && distance(this.target) <= EEL_LOSE_RANGE) return this.target;
-    let best = null;
+  detectable(world, player, night) {
+    if (!huntable(player) || !this.exposed(world, player)) return false;
+    const c = this.center(), p = player.state;
+    const height = EEL_DETECT_HEIGHT * (night ? EEL_NIGHT_DETECT_SCALE : 1);
+    return p.y >= c.y && p.y - c.y <= height
+      && Math.hypot(p.x - c.x, p.z - c.z) <= EEL_DETECT_RADIUS;
+  }
+
+  chooseTarget(world, players, tick, night) {
+    const provoked = this.provocation.target;
+    if (provoked && tick - this.provocation.lastSeenTick <= FORGET_TICKS
+      && huntable(provoked) && this.exposed(world, provoked)) {
+      this.target = provoked;
+      this.lastSeenTick = this.provocation.lastSeenTick;
+      return provoked;
+    }
+    if (this.target && huntable(this.target) && this.exposed(world, this.target)) {
+      const p = this.target.state, c = this.center();
+      if (this.detectable(world, this.target, night)) this.lastSeenTick = tick;
+      if (Math.hypot(p.x - c.x, p.z - c.z) <= EEL_LOSE_RANGE
+        && tick - this.lastSeenTick <= FORGET_TICKS) return this.target;
+    }
+    this.target = null;
+    this.provocation.target = null;
+    let nearest = null;
     for (const player of players) {
-      if (!huntable(player) || !exposed(player, world)) continue;
-      const d = distance(player);
-      if (d <= EEL_AGGRO_RANGE && (!best || d < best.d)) best = { player, d };
+      if (!this.detectable(world, player, night)) continue;
+      const p = player.state, c = this.center();
+      const distance = Math.hypot(p.x - c.x, p.z - c.z);
+      if (!nearest || distance < nearest.distance) nearest = { player, distance };
     }
-    return best?.player ?? null;
-  }
-
-  // Orbit near the underside, drifting between the inner slope and just
-  // outside the island edge. The underside rises toward the rim.
-  patrolGoal(tick) {
-    const zone = this.zone;
-    // Keep the goal slower than the eel even on a large island, so it can
-    // follow the rim instead of cutting tight circles around the center.
-    const angle = tick * (EEL_SPEED * TICK_DT * 0.7 / (zone.radius * 0.75)) + this.phase;
-    const radius = zone.radius * (0.8 + 0.15 * Math.sin(tick * 0.0008 + this.phase));
-    const fromCenter = Math.min(1, radius / zone.islandRadius);
-    const underside = zone.surfaceY - (12 + zone.islandRadius * 0.28 * (1 - fromCenter) ** 1.4);
-    const y = underside - 9 + 3 * Math.sin(tick * 0.006 + this.phase);
-    return {
-      x: zone.x + Math.cos(angle) * radius,
-      y: Math.max(zone.bottom + 2, Math.min(zone.top - 2, y)),
-      z: zone.z + Math.sin(angle) * radius,
-    };
-  }
-
-  homeGoal() {
-    const s = this.state, zone = this.zone;
-    const dx = s.x - zone.x, dz = s.z - zone.z;
-    const distance = Math.hypot(dx, dz);
-    if (s.y > zone.top && distance < zone.islandRadius * 1.08) {
-      const angle = distance > 0.01 ? Math.atan2(dz, dx) : this.phase;
-      return { x: zone.x + Math.cos(angle) * zone.islandRadius * 1.12,
-        y: s.y, z: zone.z + Math.sin(angle) * zone.islandRadius * 1.12 };
+    if (nearest) {
+      this.target = nearest.player;
+      this.lastSeenTick = tick;
     }
-    return this.patrolGoal(0);
+    return this.target;
   }
 
-  // One tick. Returns the player bitten this tick, or null.
-  step(world, players, tick) {
+  wander(world, tick) {
     const s = this.state;
-    this.target = this.chooseTarget(world, players, tick);
-    const home = !this.target && !this.inZone(s.x, s.y, s.z);
-    const goal = this.target
-      ? { x: this.target.state.x, y: this.target.state.y + playerBoxOf(this.target.state).height / 2, z: this.target.state.z }
-      : home ? this.homeGoal() : this.patrolGoal(tick);
-    const c = this.center();
-    const dx = goal.x - c.x, dy = goal.y - c.y, dz = goal.z - c.z;
-    const horizontal = Math.hypot(dx, dz);
-    if (horizontal > 0.2) s.yaw = turnToward(s.yaw, Math.atan2(-dx, -dz), TURN_PER_TICK);
-    s.pitch = turnToward(s.pitch, Math.max(-0.9, Math.min(0.9, Math.atan2(dy, Math.max(0.5, horizontal)))), TURN_PER_TICK);
-    const travel = (this.target || home ? EEL_CHASE_SPEED : EEL_SPEED) * TICK_DT;
-    const speed = this.target || home ? travel : Math.min(travel, Math.hypot(dx, dy, dz));
-    const step = {
-      x: -Math.sin(s.yaw) * Math.cos(s.pitch) * speed,
-      y: Math.sin(s.pitch) * speed,
-      z: -Math.cos(s.yaw) * Math.cos(s.pitch) * speed,
+    if (this.wanderGoal && tick < this.wanderUntil
+      && Math.hypot(s.x - this.wanderGoal.x, s.y - this.wanderGoal.y, s.z - this.wanderGoal.z) > 3) return this.wanderGoal;
+    this.wanderUntil = tick + TICK_RATE * (6 + Math.floor(Math.random() * 7));
+    this.wanderGoal = {
+      x: Math.max(4, Math.min(world.sizeX - 4, s.x + (Math.random() - 0.5) * EEL_WANDER_RADIUS * 2)),
+      y: this.band.bottom + 4 + Math.random() * Math.max(1, this.band.top - this.band.bottom - 8),
+      z: Math.max(4, Math.min(world.sizeZ - 4, s.z + (Math.random() - 0.5) * EEL_WANDER_RADIUS * 2)),
     };
-    // Close in, but not through the target; slide around blocks, trying up
-    // or down when the way ahead is solid.
-    if (!(this.target && Math.hypot(dx, dy, dz) < EEL_REACH * 0.6)) {
-      const blocked = (x, y, z) => isSolid(world.getBlock(Math.floor(x), Math.floor(y + EEL_BOX.height / 2), Math.floor(z)));
-      for (const lift of [0, speed, -speed]) {
-        if (!blocked(s.x + step.x, s.y + step.y + lift, s.z + step.z)) {
-          s.x += step.x;
-          s.y += step.y + lift;
-          s.z += step.z;
-          break;
-        }
+    return this.wanderGoal;
+  }
+
+  returnGoal(world, tick) {
+    const s = this.state;
+    if (s.y > this.band.top) {
+      while (this.escapeTrail.length && Math.hypot(s.x - this.escapeTrail.at(-1).x,
+        s.y - this.escapeTrail.at(-1).y, s.z - this.escapeTrail.at(-1).z) < 1) this.escapeTrail.pop();
+      if (this.escapeTrail.length) return this.escapeTrail.at(-1);
+      const island = world.islands?.filter((entry) => entry.kind !== 'tiny'
+        && s.y >= entry.bottomY - 3
+        && Math.hypot(s.x - entry.x, s.z - entry.z) < entry.radius + 8)
+        .sort((a, b) => Math.hypot(s.x - a.x, s.z - a.z) - Math.hypot(s.x - b.x, s.z - b.z))[0];
+      if (island) {
+        const dx = s.x - island.x, dz = s.z - island.z;
+        const angle = Math.hypot(dx, dz) > 0.01 ? Math.atan2(dz, dx) : this.id;
+        return { x: island.x + Math.cos(angle) * (island.radius + 12),
+          y: s.y, z: island.z + Math.sin(angle) * (island.radius + 12) };
+      }
+      return { x: s.x, y: this.band.top - 5, z: s.z };
+    }
+    return this.wander(world, tick);
+  }
+
+  clear(world, x, y, z) {
+    if (x < 1 || z < 1 || x >= world.sizeX - 1 || z >= world.sizeZ - 1
+      || y < world.voidY + 1 || y >= world.sizeY - EEL_BOX.height) return false;
+    for (const dx of [-EEL_BOX.halfW, EEL_BOX.halfW]) for (const dz of [-EEL_BOX.halfW, EEL_BOX.halfW]) {
+      for (const dy of [0.1, EEL_BOX.height - 0.1]) {
+        if (isSolid(world.getBlock(Math.floor(x + dx), Math.floor(y + dy), Math.floor(z + dz)))) return false;
       }
     }
-    s.y = Math.max(world.voidY + 2, Math.min(world.sizeY - 2, s.y));
+    return true;
+  }
 
-    if (this.target && tick >= this.nextAttackTick) {
-      const t = this.target.state, box = playerBoxOf(t);
-      const nearestY = Math.max(t.y, Math.min(t.y + box.height, c.y));
-      if (Math.hypot(Math.max(0, Math.abs(t.x - c.x) - box.halfW), nearestY - c.y,
-        Math.max(0, Math.abs(t.z - c.z) - box.halfW)) <= EEL_REACH) {
-        this.nextAttackTick = tick + ATTACK_TICKS;
-        return this.target;
+  swim(world, goal, speed, night) {
+    const s = this.state, c = this.center();
+    const dx = goal.x - c.x, dy = goal.y - c.y, dz = goal.z - c.z;
+    const length = Math.hypot(dx, dy, dz);
+    if (length < 0.05) return;
+    const horizontal = Math.hypot(dx, dz);
+    if (horizontal > 0.05) s.yaw = turnToward(s.yaw, Math.atan2(-dx, -dz));
+    s.pitch = turnToward(s.pitch, Math.atan2(dy, Math.max(0.01, horizontal)));
+    const step = Math.min(length, speed * (night && dy > 0 ? EEL_NIGHT_RISE_SCALE : 1) * TICK_DT);
+    const vx = dx / length * step, vy = dy / length * step, vz = dz / length * step;
+    for (const [ox, oy, oz] of [[vx, vy, vz], [vx, 0, vz], [0, vy, 0],
+      [-vz, vy, vx], [vz, vy, -vx]]) {
+      if (!this.clear(world, s.x + ox, s.y + oy, s.z + oz)) continue;
+      s.x += ox; s.y += oy; s.z += oz;
+      this.rememberTrail();
+      return;
+    }
+  }
+
+  rememberTrail() {
+    const point = this.center();
+    if (!this.trail.length || Math.hypot(point.x - this.trail[0].x,
+      point.y - this.trail[0].y, point.z - this.trail[0].z) > 0.2) this.trail.unshift(point);
+    let length = 0;
+    for (let i = 1; i < this.trail.length; i++) {
+      length += Math.hypot(this.trail[i].x - this.trail[i - 1].x,
+        this.trail[i].y - this.trail[i - 1].y, this.trail[i].z - this.trail[i - 1].z);
+      if (length > 8) { this.trail.length = i + 1; break; }
+    }
+  }
+
+  tailTip() {
+    return this.trail.at(-1) ?? { x: this.state.x + Math.sin(this.state.yaw) * 7.7,
+      y: this.state.y + EEL_BOX.height / 2, z: this.state.z + Math.cos(this.state.yaw) * 7.7 };
+  }
+
+  extraHitBoxes() {
+    const tail = this.tailTip();
+    return [{ x: tail.x, y: tail.y - 0.2, z: tail.z, halfW: 0.25, height: 0.4,
+      damageScale: 2 }];
+  }
+
+  inBiteReach(player) {
+    const c = this.center(), t = player.state, box = playerBoxOf(t);
+    const gapX = Math.max(0, Math.abs(t.x - c.x) - box.halfW);
+    const gapZ = Math.max(0, Math.abs(t.z - c.z) - box.halfW);
+    const gapY = Math.max(t.y - c.y, c.y - t.y - box.height, 0);
+    return Math.hypot(gapX, gapY, gapZ) <= EEL_REACH;
+  }
+
+  step(world, players, tick, night = false) {
+    this.night = night;
+    const target = this.chooseTarget(world, players, tick, night);
+    if (!target) { this.windupTicks = 0; this.lungeTicks = 0; }
+    if (target && this.lungeTicks > 0) {
+      this.lungeTicks--;
+      const c = this.center(), d = this.lungeDirection;
+      this.swim(world, { x: c.x + d.x * 4, y: c.y + d.y * 4, z: c.z + d.z * 4 }, EEL_LUNGE_SPEED, night);
+      if (this.inBiteReach(target)) {
+        this.lungeTicks = 0;
+        this.nextAttackTick = tick + COOLDOWN_TICKS;
+        return target;
       }
+      if (this.lungeTicks === 0) this.nextAttackTick = tick + COOLDOWN_TICKS;
+      return null;
+    }
+    if (target && this.windupTicks > 0) {
+      if (--this.windupTicks === 0) {
+        const c = this.center(), p = target.state;
+        const dx = p.x - c.x, dy = p.y + playerBoxOf(p).height / 2 - c.y, dz = p.z - c.z;
+        const length = Math.hypot(dx, dy, dz) || 1;
+        this.lungeDirection = { x: dx / length, y: dy / length, z: dz / length };
+        this.lungeTicks = LUNGE_TICKS;
+      }
+      return null;
+    }
+    const goal = target
+      ? { x: target.state.x + (this.approachOffset?.x ?? 0),
+        y: target.state.y + playerBoxOf(target.state).height / 2,
+        z: target.state.z + (this.approachOffset?.z ?? 0) }
+      : this.returnGoal(world, tick);
+    goal.x += this.separation?.x ?? 0;
+    goal.y += this.separation?.y ?? 0;
+    goal.z += this.separation?.z ?? 0;
+    this.swim(world, goal, target ? EEL_CHASE_SPEED : EEL_SPEED, night);
+    if (target && this.state.y > this.band.top) {
+      const last = this.escapeTrail.at(-1);
+      if (!last || Math.hypot(this.state.x - last.x, this.state.y - last.y,
+        this.state.z - last.z) > 1) this.escapeTrail.push({ x: this.state.x, y: this.state.y, z: this.state.z });
+      if (this.escapeTrail.length > 500) this.escapeTrail.shift();
+    } else if (this.state.y <= this.band.top) this.escapeTrail.length = 0;
+    if (target && tick >= this.nextAttackTick
+      && Math.hypot(target.state.x - this.state.x, target.state.y - this.state.y, target.state.z - this.state.z) < 5) {
+      this.windupTicks = WINDUP_TICKS;
     }
     return null;
   }
 
-  describe() {
-    return this.snapshot();
-  }
+  describe() { return this.snapshot(); }
 
   snapshot() {
     const { x, y, z, yaw, pitch } = this.state;
-    return { id: this.id, type: this.type, name: this.name, x, y, z, yaw, pitch };
+    const tail = this.tailTip();
+    return { id: this.id, type: this.type, name: this.name, x, y, z, yaw, pitch,
+      coiling: this.windupTicks > 0, lunging: this.lungeTicks > 0, night: !!this.night,
+      tail: { x: tail.x, y: tail.y, z: tail.z } };
   }
 }

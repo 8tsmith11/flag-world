@@ -669,7 +669,7 @@ function frame(now) {
     if (controls.eat) controls.place = false;
     controls.glide = heldItem() === ITEM.GLIDER && input.secondaryDown;
     if (controls.glide) controls.place = false;
-    controls.rift = heldItem() === ITEM.RIFT_STONE && controls.place;
+    controls.rift = heldItem() === ITEM.RIFT_ORB && controls.place;
     if (controls.rift) { controls.place = false; viewModel.push(); }
     controls.spawnEgg = getItemDef(heldItem()).mobType && controls.place && target
       ? { x: target.x, y: target.y, z: target.z } : null;

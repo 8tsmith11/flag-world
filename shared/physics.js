@@ -44,6 +44,7 @@ export function createPlayerState(x, y, z) {
   return {
     x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0,
     onGround: false, carrying: false, crouching: false, gliding: false, flying: false, creative: false,
+    glideBlockedTicks: 0,
     accessory: null, springCharge: 0, springBouncing: false,
     slowTicks: 0, grapple: null, hookCooldown: 0, moveScale: 1,
   };
@@ -185,6 +186,7 @@ function feetInWater(state, world) {
 export function stepPlayer(state, input, world) {
   state.yaw = input.yaw;
   state.pitch = input.pitch;
+  if (state.glideBlockedTicks > 0) state.glideBlockedTicks--;
 
   // Crouch while asked; standing back up needs room for the full height.
   if (input.crouch) state.crouching = true;
@@ -231,7 +233,8 @@ export function stepPlayer(state, input, world) {
   const spring = accessory?.visual === 'spring' ? accessory : null;
   if (!spring) { state.springCharge = 0; state.springBouncing = false; }
   if (inWater || onLadder) { state.springCharge = 0; state.springBouncing = false; }
-  state.gliding = !!input.glide && !state.onGround && !inWater && !onLadder;
+  state.gliding = !!input.glide && !state.onGround && !inWater && !onLadder
+    && !(state.glideBlockedTicks > 0);
 
   // Horizontal movement is direct (no acceleration) for responsive controls.
   let fwd = Math.max(-1, Math.min(1, input.forward));

@@ -54,7 +54,7 @@ export class Arrow {
     const blockT = block ? block.t : len;
     const targets = [...players].filter((p) => !p.dead && p.connected && (p !== this.shooter || this.age > SAFE_TICKS));
     const hit = raycastPlayers(from, dir, blockT, targets, (p) => playerBoxOf(p.state), HIT_GROW);
-    if (hit) return { hit: hit.player, dir };
+    if (hit) return { hit: hit.player, dir, damageScale: hit.damageScale ?? 1 };
     if (block) {
       // Stick at the point of impact.
       this.x += dir.x * block.t;

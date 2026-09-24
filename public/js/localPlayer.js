@@ -36,6 +36,7 @@ export class LocalPlayer {
     s.crouching = snapshot.crouching;
     s.onGround = snapshot.onGround;
     s.gliding = snapshot.gliding;
+    s.glideBlockedTicks = snapshot.glideBlockedTicks ?? 0;
     s.flying = !!snapshot.flying;
     s.accessory = snapshot.accessory ?? null;
     s.springCharge = snapshot.springCharge ?? 0;

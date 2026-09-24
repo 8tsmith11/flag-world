@@ -59,6 +59,7 @@ export const BLOCK = {
   // The darkened ground inside a dragon roost's nest.
   SCORCHED_EARTH: 57,
   QUARRY_STONE: 58,
+  SNOW: 59,
 };
 
 export function isWater(id) {
@@ -168,6 +169,7 @@ define(BLOCK.GRASS, 'grass', { color: 0x5da83a, breakTime: 0.6, drops: BLOCK.DIR
 define(BLOCK.DIRT, 'dirt', { color: 0x8a5a36, breakTime: 0.5 });
 define(BLOCK.STONE, 'stone', { color: 0x8a8a8a, hardness: 2, breakTime: 1.5 });
 define(BLOCK.QUARRY_STONE, 'quarry stone', { color: 0x343b42, hardness: 8, breakTime: 4 });
+define(BLOCK.SNOW, 'snow', { color: 0xe7f2f8, hardness: 0.5, breakTime: 0.4 });
 define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: 4, breakTime: 1.5 });
 define(BLOCK.MOSSY_STONE_BRICKS, 'mossy stone bricks', { color: 0x778a70, hardness: 4, breakTime: 1.5 });
 define(BLOCK.CRACKED_STONE_BRICKS, 'cracked stone bricks', { color: 0x858480, hardness: 4, breakTime: 1.5 });

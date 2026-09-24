@@ -3,10 +3,14 @@
 import { createNoise2D, createNoise3D } from 'simplex-noise';
 import { BLOCK, isSolid } from './blocks.js';
 import { World } from './world.js';
-import { CHUNK_SIZE, KEEP_HEIGHT } from './config.js';
+import { CHUNK_SIZE, KEEP_HEIGHT, CENTRAL_EXTRA_DEPTH, VOID_BELOW_LOWEST_ISLAND,
+  EEL_BAND } from './config.js';
 import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores, surfaceStats, growTree } from './structures.js';
 import { generateStructures } from './worldStructures.js';
 import { placeQuarries } from './quarryPlacement.js';
+import { generateRivers } from './rivers.js';
+import { biomeWeights, biomeParameters, surfaceBiome, biomeCode } from './biomes.js';
+import { BIOME_SETTINGS } from './config.js';
 
 const EDGE_SHELL = 3;
 const KEEP_CLEARANCE = KEEP_REACH + 6;
@@ -24,7 +28,7 @@ function islandBounds(kind, radius, surfaceY) {
       bottomY: Math.floor(surfaceY - 2 - tinyDepth(radius) * 1.35) };
   }
   return { topY: Math.ceil(surfaceY + 24),
-    bottomY: Math.floor(surfaceY - 24 - (12 + radius * 0.28) * 1.1) };
+    bottomY: Math.floor(surfaceY - 24 - (12 + radius * 0.28 + (kind === 'center' ? CENTRAL_EXTRA_DEPTH : 0)) * 1.1) };
 }
 
 function planIslands(seed, teamCount, config) {
@@ -73,21 +77,26 @@ function planIslands(seed, teamCount, config) {
         const minRadius = larger ? config.tinyRadius[1] + 1 : config.tinyRadius[0];
         const maxRadius = config.tinyRadius[larger ? 2 : 1];
         const radius = minRadius + Math.floor(rand() * (maxRadius - minRadius + 1));
-        const angle = rand() * Math.PI * 2;
+        const spread = attempt < config.placementAttempts / 2 ? 0.65 : 2.5;
+        const angle = (i + (rand() - 0.5) * spread) * Math.PI * 2 / counts[category];
         let x, z, surfaceY, stackedOn = null, stackAbove = null, stackOffset = 0;
         if (category === 0) {
           const distance = config.centralRadius + radius + config.islandSpacing
-            + rand() * config.centerRingWidth;
+            + Math.sqrt(rand()) * config.centerRingWidth;
           x = Math.cos(angle) * distance;
           z = Math.sin(angle) * distance;
         } else if (category === 1 && teamCount > 0) {
-          const team = islands[1 + Math.floor(rand() * teamCount)];
+          const teamIndex = i % teamCount;
+          const team = islands[1 + teamIndex];
+          const teamSlot = Math.floor(i / teamCount);
+          const teamTotal = Math.ceil((counts[category] - teamIndex) / teamCount);
+          const teamAngle = (teamSlot + (rand() - 0.5) * spread) * Math.PI * 2 / teamTotal;
           const distance = team.radius + radius + config.islandSpacing
-            + rand() * config.teamRingWidth;
-          x = team.x + Math.cos(angle) * distance;
-          z = team.z + Math.sin(angle) * distance;
+            + Math.sqrt(rand()) * config.teamRingWidth;
+          x = team.x + Math.cos(teamAngle) * distance;
+          z = team.z + Math.sin(teamAngle) * distance;
         } else if (category === 3) {
-          stackedOn = Math.floor(rand() * (teamCount + 1));
+          stackedOn = rand() < 0.6 ? 0 : 1 + Math.floor(rand() * teamCount);
           const big = islands[stackedOn];
           const distance = Math.sqrt(rand()) * big.radius * 0.75;
           x = big.x + Math.cos(angle) * distance;
@@ -99,7 +108,7 @@ function planIslands(seed, teamCount, config) {
             : big.bottomY - 15 - stackOffset - 3;
         } else {
           const distance = teamDistance + config.teamRadius + config.islandSpacing
-            + rand() * config.outerReach;
+            + Math.sqrt(rand()) * config.outerReach;
           x = Math.cos(angle) * distance;
           z = Math.sin(angle) * distance;
         }
@@ -175,12 +184,15 @@ function terrainColumn(island, x, z, noise, detail) {
   const distance = Math.hypot(dx, dz);
   if (distance >= edge) return null;
   const t = distance / edge;
-  const hill = 10 * noise(x / 48, z / 48) + 5 * detail(x / 17, z / 17)
-    + 9 * noise(x / 105 + 200, z / 105 + 200);
-  const yTop = Math.round(island.surfaceY + hill * (1 - t * t));
+  const weights = biomeWeights(island.kind, x, z, (bx, bz) => noise(bx + 800, bz - 600));
+  const biome = biomeParameters(weights);
+  const hill = biome.hill * (noise(x / 48, z / 48) + 0.35 * detail(x / 17, z / 17)
+    + 0.3 * noise(x / 105 + 200, z / 105 + 200));
+  const yTop = Math.round(island.surfaceY + biome.offset + hill * (1 - t * t));
   const jag = 0.78 + 0.32 * detail(x / 7 + 100, z / 7 + 100);
-  const depth = Math.round((12 + island.radius * 0.28 * (1 - t) ** 1.4) * jag);
-  return { yTop, yBottom: yTop - depth };
+  const depth = Math.round((12 + island.radius * 0.28 * (1 - t) ** 1.4
+    + (island.kind === 'center' ? CENTRAL_EXTRA_DEPTH * (1 - t) ** 1.3 : 0)) * jag);
+  return { yTop, yBottom: yTop - depth, weights };
 }
 
 function alignStackedTiny(islands, noise, detail) {
@@ -232,12 +244,32 @@ function terrainFor(world, island, noise, detail) {
     const column = terrainColumn(island, x, z, noise, detail);
     if (!column) continue;
     const { yTop, yBottom } = column;
+    const weights = island.kind === 'tiny'
+      ? { plains: 0, forest: 0, mountains: 0, swamp: 0, [island.biomeOverride ?? 'forest']: 1 }
+      : column.weights;
+    const biome = surfaceBiome(weights, x, z, detail);
+    world.biomeCodes[x + world.sizeX * z] = biomeCode(biome);
     const dirt = island.kind === 'tiny' ? 2
       : 3 + Math.floor(2 * (detail(x / 11 + 40, z / 11) + 1));
     top[index(x, z)] = yTop;
     bottom[index(x, z)] = yBottom;
+    world.recordNaturalTerrain(x, z, yBottom, yTop);
     for (let y = yBottom; y <= yTop; y++) {
-      world.setBlock(x, y, z, y === yTop ? BLOCK.GRASS : y > yTop - dirt ? BLOCK.DIRT : BLOCK.STONE);
+      const snowy = biome === 'mountains' && yTop >= island.surfaceY + BIOME_SETTINGS.snowHeight;
+      world.setBlock(x, y, z, y === yTop ? (snowy ? BLOCK.SNOW : BLOCK.GRASS)
+        : y > yTop - dirt ? BLOCK.DIRT : BLOCK.STONE);
+    }
+  }
+  if (island.kind !== 'tiny') {
+    for (let z = z0; z < z0 + width; z++) for (let x = x0; x < x0 + width; x++) {
+      const y = getTop(x, z);
+      if (y === -32768 || world.biomeAt(x, z) !== 'mountains') continue;
+      const slope = Math.max(...HORIZONTAL.map(([dx, dz]) => Math.abs(y - getTop(x + dx, z + dz))));
+      if (slope < BIOME_SETTINGS.cliffSlope) continue;
+      for (let yy = y; yy >= y - 3; yy--) {
+        if (world.getBlock(x, yy, z) === BLOCK.GRASS || world.getBlock(x, yy, z) === BLOCK.DIRT
+          || world.getBlock(x, yy, z) === BLOCK.SNOW) world.setBlock(x, yy, z, BLOCK.STONE);
+      }
     }
   }
   return { ...island, x0, z0, width, top, bottom, getTop, getBottom,
@@ -323,13 +355,17 @@ function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea) {
 function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
   const { radius, x: ix, z: iz, getTop } = terrain;
   const tiny = terrain.kind === 'tiny';
-  const count = tiny ? 0 : Math.max(6, Math.round(radius * radius / pondArea));
+  const count = tiny ? 0 : Math.max(6, Math.round(radius * radius / pondArea))
+    * (terrain.kind === 'center' ? BIOME_SETTINGS.swampPondScale : 1);
   for (let i = 0; i < count; i++) for (let attempt = 0; attempt < 40; attempt++) {
     const angle = rand() * Math.PI * 2, distance = Math.sqrt(rand()) * radius * (tiny ? 0.3 : 0.72);
     const cx = Math.floor(ix + Math.cos(angle) * distance);
     const cz = Math.floor(iz + Math.sin(angle) * distance);
+    const swamp = world.biomeAt(cx, cz) === 'swamp';
+    if (terrain.kind === 'center' && !swamp && rand() < 0.65) continue;
     const r = tiny ? 1.7 + rand() * 1.3 : 4 + rand() * 5;
-    const reach = Math.ceil(r + (tiny ? 1 : 3));
+    const reach = Math.ceil(r + (tiny ? 1 : 3)
+      + (swamp ? BIOME_SETTINGS.waterRimClearance : 0));
     if (nearKeep(cx, cz)) continue;
     const cells = [];
     let level = Infinity, highest = -Infinity, valid = true;
@@ -337,16 +373,31 @@ function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
       const x = cx + dx, z = cz + dz, top = getTop(x, z);
       if (top === -32768 || world.getBlock(x, top, z) !== BLOCK.GRASS || nearKeep(x, z)) { valid = false; break; }
       level = Math.min(level, top);
-      if (Math.hypot(dx, dz) < r * (1 + 0.15 * noise(x / 4, z / 4))) {
+      if (Math.hypot(dx, dz) < r * (1 + 0.15 * noise(x / 4, z / 4))
+        && !(swamp && noise(x / 3 + 200, z / 3 - 100) > 0.55)) {
         cells.push({ x, z, top });
         highest = Math.max(highest, top);
       }
     }
     if (!valid || highest - level > (tiny ? 2 : 6)
       || cells.some(({ x, z }) => !isSolid(world.getBlock(x, level - (tiny ? 1 : 3), z)))) continue;
+    const waterDepth = swamp ? BIOME_SETTINGS.swampWaterDepth[0]
+      + Math.floor(rand() * (BIOME_SETTINGS.swampWaterDepth[1] - BIOME_SETTINGS.swampWaterDepth[0] + 1)) : 1;
+    const pondCells = new Set(cells.map(({ x, z }) => `${x},${z}`));
     for (const { x, z, top } of cells) {
       for (let y = level; y <= top + 2; y++) world.setBlock(x, y, z, BLOCK.AIR);
+      for (let y = level - 3; y < level - waterDepth; y++) {
+        if (world.getBlock(x, y, z) === BLOCK.AIR) world.setBlock(x, y, z, BLOCK.STONE);
+      }
+      if (waterDepth > 1) world.setBlock(x, level - 1, z, BLOCK.WATER);
       world.setBlock(x, level, z, BLOCK.WATER);
+      for (const [dx, dz] of HORIZONTAL) {
+        const bx = x + dx, bz = z + dz;
+        if (pondCells.has(`${bx},${bz}`)) continue;
+        for (let y = level - waterDepth; y <= level; y++) {
+          if (world.getBlock(bx, y, bz) === BLOCK.AIR) world.setBlock(bx, y, bz, BLOCK.DIRT);
+        }
+      }
     }
     sandShores(world, noise, cx - reach - 3, cz - reach - 3,
       cx + reach + 3, cz + reach + 3, getTop);
@@ -398,6 +449,15 @@ export function generateIslandWorld(seed, teamCount, config) {
   for (const keep of keeps) { keep.cx += origin; keep.cz += origin; }
   const noise = createNoise2D(mulberry32(seed ^ 0x68e31da4));
   const detail = createNoise2D(mulberry32(seed ^ 0xb742c35e));
+  for (const tiny of islands.filter((entry) => entry.kind === 'tiny')) {
+    const nearest = islands.filter((entry) => entry.kind !== 'tiny').reduce((best, entry) =>
+      Math.hypot(tiny.x - entry.x, tiny.z - entry.z) < Math.hypot(tiny.x - best.x, tiny.z - best.z)
+        ? entry : best);
+    const far = Math.hypot(tiny.x - nearest.x, tiny.z - nearest.z) > nearest.radius + config.gap;
+    const weights = biomeWeights(far ? 'tinyFar' : nearest.kind, tiny.x, tiny.z,
+      (bx, bz) => noise(bx + 800, bz - 600));
+    tiny.biomeOverride = Object.keys(weights).sort((a, b) => weights[b] - weights[a])[0];
+  }
   alignStackedTiny(islands, noise, detail);
   chooseTinyContents(islands, seed, config);
   const lowest = Math.min(...islands.map((island) => island.bottomY));
@@ -406,16 +466,34 @@ export function generateIslandWorld(seed, teamCount, config) {
     ...islands.filter((island) => island.kind === 'team').map((island) => island.surfaceY));
   const world = new World(seed, width, width, {
     sizeY: Math.ceil(Math.max(highest + 20, highestTeamSurface + 121)),
-    minY: Math.floor(lowest - 20),
+    minY: Math.floor(lowest - Math.max(VOID_BELOW_LOWEST_ISLAND,
+      EEL_BAND.belowIsland + EEL_BAND.aboveVoid + EEL_BAND.minHeight)),
   });
   world.tinyPlacementStats = plan.tinyPlacementStats;
   world.islands = islands.map(({ x, z, radius, surfaceY, topY, bottomY,
-    kind, teamIndex, tinyGroup, stackedOn, stackAbove, content }) =>
-    ({ x, z, radius, surfaceY, topY, bottomY, kind, teamIndex, tinyGroup, stackedOn, stackAbove, content: content ?? null }));
+    kind, teamIndex, tinyGroup, stackedOn, stackAbove, content, biomeOverride }) =>
+    ({ x, z, radius, surfaceY, topY, bottomY, kind, teamIndex, tinyGroup, stackedOn, stackAbove,
+      biomeOverride, content: content ?? null }));
   const noise3 = createNoise3D(mulberry32(seed ^ 0x1b873593));
   const nearKeep = (x, z) => keeps.some((site) =>
     Math.abs(x - site.cx) <= KEEP_CLEARANCE && Math.abs(z - site.cz) <= KEEP_CLEARANCE);
   const terrains = islands.map((island, index) => terrainFor(world, { ...island, index }, noise, detail));
+  for (const terrain of terrains) {
+    let actualTop = -Infinity, actualBottom = Infinity;
+    for (let i = 0; i < terrain.top.length; i++) {
+      if (terrain.top[i] === -32768) continue;
+      actualTop = Math.max(actualTop, terrain.top[i]);
+      actualBottom = Math.min(actualBottom, terrain.bottom[i]);
+    }
+    if (Number.isFinite(actualTop)) {
+      terrain.topY = actualTop; terrain.bottomY = actualBottom;
+      world.islands[terrain.index].topY = actualTop;
+      world.islands[terrain.index].bottomY = actualBottom;
+    }
+  }
+  const actualLowest = Math.min(...world.islands.map((entry) => entry.bottomY));
+  world.voidY = actualLowest - Math.max(VOID_BELOW_LOWEST_ISLAND,
+    EEL_BAND.belowIsland + EEL_BAND.aboveVoid + EEL_BAND.minHeight);
   for (const site of keeps) {
     const terrain = terrains[islands.indexOf(site.island)];
     let best = null;
@@ -444,7 +522,9 @@ export function generateIslandWorld(seed, teamCount, config) {
       const x = chunk.cx * CHUNK_SIZE + lx, y = chunk.cy * CHUNK_SIZE + ly, z = chunk.cz * CHUNK_SIZE + lz;
       const exposed = HORIZONTAL.some(([dx, dz]) => world.getBlock(x + dx, y, z + dz) === BLOCK.AIR)
         || world.getBlock(x, y - 1, z) === BLOCK.AIR || world.getBlock(x, y + 1, z) === BLOCK.AIR;
-      if (noise3(x / 5 + 2000, y / 5, z / 5 + 2000) > (exposed ? 0.69 : 0.83)) {
+      const threshold = exposed && world.biomeAt(x, z) === 'mountains'
+        ? BIOME_SETTINGS.mountainOreThreshold : exposed ? 0.69 : 0.83;
+      if (noise3(x / 5 + 2000, y / 5, z / 5 + 2000) > threshold) {
         world.setBlock(x, y, z, BLOCK.IRON_ORE);
       }
     }
@@ -465,6 +545,7 @@ export function generateIslandWorld(seed, teamCount, config) {
     else plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
       { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop });
   }
+  generateRivers(world, terrains[0], seed, config.rivers);
   generateStructures(world, terrains, config, seed);
   placeQuarries(world, terrains, seed, config.quarry);
   return world;

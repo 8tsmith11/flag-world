@@ -98,6 +98,7 @@ export class Dragon {
   step(world, players, tick) {
     const s = this.state;
     const target = this.chooseTarget(world, players, tick);
+    this.target = target;
     const returning = !target && Math.hypot(s.x - this.home.x, s.z - this.home.z) > 20;
     if (returning) {
       this.walking = false;
@@ -158,11 +159,15 @@ export class Dragon {
     const patrolAngle = tick * 0.007 + this.id * 1.7;
     const patrolRadius = 16 + 5 * Math.sin(tick * 0.003 + this.id);
     const goal = target
-      ? { x: target.state.x, y: target.state.y + 3.2, z: target.state.z }
+      ? { x: target.state.x + (this.approachOffset?.x ?? 0),
+        y: target.state.y + 3.2, z: target.state.z + (this.approachOffset?.z ?? 0) }
       : returning ? this.home
       : { x: this.home.x + Math.cos(patrolAngle) * patrolRadius,
         y: this.home.y + 3 * Math.sin(tick * 0.009 + this.id),
         z: this.home.z + Math.sin(patrolAngle) * patrolRadius };
+    goal.x += this.separation?.x ?? 0;
+    goal.y += this.separation?.y ?? 0;
+    goal.z += this.separation?.z ?? 0;
     const dx = goal.x - s.x, dz = goal.z - s.z;
     const horizontalDistance = Math.hypot(dx, dz);
     if (horizontalDistance > 0.1) s.yaw = turnToward(s.yaw, Math.atan2(-dx, -dz));

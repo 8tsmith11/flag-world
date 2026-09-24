@@ -153,6 +153,7 @@ export class Player {
       onGround: s.onGround,
       crouching: s.crouching,
       gliding: s.gliding,
+      glideBlockedTicks: s.glideBlockedTicks ?? 0,
       flying: s.flying,
       orbActive: this.creative && s.accessory === ITEM.FLIGHT_ORB,
       hp: this.hp,
