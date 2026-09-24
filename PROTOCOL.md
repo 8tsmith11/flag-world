@@ -59,6 +59,7 @@ unique within the lobby (ignoring case).
 | `springCharge` | int | Spring Boots charge in simulation ticks, 0..20 |
 | `springBouncing` | bool | Whether a Spring Boots landing can continue bouncing |
 | `gliding`  | bool | Glider open; also part of predicted movement state |
+| `glideBlockedTicks` | int | Ticks left before a Void Eel bite permits gliding again; part of predicted movement state |
 | `flying` | bool | Flight Orb flight active; part of predicted movement state |
 | `orbActive` | bool | Creative player wearing a Flight Orb; draw its orbiting glow |
 | `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back. With a crossbow in hand: how far it's loaded, 1 while loaded (the bolt shows on it) |
@@ -83,6 +84,7 @@ north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
 | 52 | rope | Hung by a Rope Bundle. Not solid, climbable like a ladder, breaks in one tick and drops nothing |
 | 57 | scorched earth | The ground inside a dragon roost's nest; drops dirt |
 | 58 | Quarry Stone | Dark, glowing cracked stone; hardness 8, drops itself, regrows stone on each clear face every 5 s |
+| 59 | Snow | Soft, pale mountain cap with procedural flecks; low hardness |
 
 Other blocks added with crafting: 30 iron ore (hardness 3), 31 sand, 32
 workbench (right click: crafting screen).
@@ -111,7 +113,7 @@ glider, `274` tree seeds. Block id `48` is a sapling.
 bricks, mossy stone bricks, and cracked stone bricks. All three require an
 iron hammer to break. One stone crafts into one stone brick. `276`–`280`
 are loot-only Wind Boots, Spring Boots, Heart Amulet, Mending Charm and Ember
-Heart; `281` is a loot-only Rift Stone (stack size 4). `282`–`286` are
+Heart; `281` is a loot-only Rift Orb (stack size 4). `282`–`286` are
 loot-only Wind Axe, Ice Sword, crossbow, Rope Bundle (stack size 8) and
 grappling hook. `287` Dragon Scale (dropped by dragons), `288` Silk (dropped by
 Crawlers, no use yet) and `289` Dragonscale Armor. Block `53` (anvil) is also
@@ -214,6 +216,20 @@ its `climbing`, `mining` or `carrying` changed.
 | `name` | string | `"Void Eel"` |
 | `x`,`y`,`z` | number | Bottom of the head's box (1.2 wide, 0.8 tall) |
 | `yaw`,`pitch` | number | Heading and climb angle |
+| `coiling`,`lunging` | bool | One-second bite warning and fast strike animation |
+| `night` | bool | Faint night glow |
+| `tail` | `{x,y,z}` | Tail-tip weak point; melee and projectiles deal double damage there |
+
+**RiftOrbSnapshot** — a thrown Rift Orb in flight. Sent in `entitySpawn` and
+each `state` tick until it lands or falls into the void.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | Entity id |
+| `type` | string | `"riftOrb"` |
+| `item` | int | `ITEM.RIFT_ORB` |
+| `x`,`y`,`z` | number | Orb position |
+| `vx`,`vy`,`vz` | number | Velocity |
 
 **DragonSnapshot** — a flying or walking dragon. Sent in `welcome` at match
 start or on reclaim, and in every `state` tick so its movement and fire animate
@@ -397,7 +413,7 @@ Match players only. Sent once per simulation tick (20/s). Each input advances th
 | `hook`    | bool   | Right-click edge with a grappling hook in hand: fires the hook this tick. Ignored without one; the shared physics also refuses it while carrying a flag, while already pulling, or during the cooldown |
 | `eat`     | bool   | Right mouse held with food in hand; raw/cooked beef takes 30 uninterrupted ticks and heals gradually, while golden beef heals to full immediately on press |
 | `glide`   | bool   | Right mouse held with a glider in hand; in the air it caps falling speed and drives forward motion |
-| `rift`    | bool   | Right-click edge with a Rift Stone selected; the server consumes one and opens a portal if outside every keep's no-build zone |
+| `rift`    | bool   | Right-click edge with a Rift Orb selected; the server consumes one and throws it in an arc. A portal opens where it lands, or the orb drops if it lands in a keep zone |
 | `spawnEgg` | BlockPos \| null | Right-clicked solid block while holding a spawn egg. The server spawns that mob on top if there is room, consumes one egg, and uses that position as its home (nearest island for Void Eels) |
 | `yaw`     | number | Look yaw |
 | `pitch`   | number | Look pitch, clamped to ±π/2 |
@@ -512,21 +528,25 @@ the nearest player they can see within 12 blocks, give up beyond 24, and bite
 for 3 (every 1 s, before armor) when within 0.6 blocks of the player's box. A
 dead Crawler drops 0–2 Silk.
 
-Void Eels: `eels` in `WORLD_SIZES` (2, 4, 6), homed in turn under the central
-island, then each team island, and around again. Each patrols a zone within
-80% of its island's radius, from 4 blocks under the island's underside down 22
-blocks (not closer than 6 to the void kill height), swimming through the air.
-It goes after a player within 15 blocks who is gliding, falling (faster than 6
-blocks/s) or on a ladder or rope, and drops them once they're on their feet or
-more than 30 blocks away, then swims home. 30 HP; a bite does 4 (every 1.2 s)
-within 1.2 blocks of the player's box. Clients draw a segmented body trailing
-along the head's path.
+Void Eels: `eels` in `WORLD_SIZES` (4, 7, 10) roam a deep void band from
+30 blocks below the lowest natural island underside to 10 blocks above the
+void kill height. Half start under the central island. An eel detects a player
+in a 12-block-radius column extending 90 blocks above it (30% farther at
+night) when no natural island terrain separates them. Player-built blocks do
+not block detection. It rises toward exposed players, chases up to about 30
+blocks away, and returns to the deep band after losing a target for 10 s or
+when the target dies or moves over natural island terrain. It retraces its
+approach and skirts island edges when returning. 30 HP; a bite does 4 with
+a 1.2 s cooldown. It coils and glows for 1 s with a hiss, then lunges. A bite
+stops gliding for 1.5 s. Its faintly glowing tail tip takes double damage.
+At night it glows faintly and rises 30% faster. A dead eel drops 1–2 Rift Orbs.
 
 Provocation: any damage from a player to a Crawler, Void Eel, dragon or Goblin King (a
 punch, arrow, crossbow bolt or Thorns, at any range) provokes it. It hunts that
 player, ignoring its aggro range, leash and home zone, until the player dies,
 disconnects or is eliminated, or it has had no line of sight to them for 10 s.
-Then it goes home. Mob bites and dragon fire are `damage` with the mob as
+Then it goes home. Eels use the natural-terrain mask and a 10 s memory in
+place of line of sight. Mob bites and dragon fire are `damage` with the mob as
 `attackerId`; a death from them has cause `"mob"`.
 
 Ladders and rope: while a player overlaps a ladder or rope there's no
@@ -631,13 +651,13 @@ reclaim.
 | `creative` | bool | Whether this connection's player has creative mode active |
 | `blocks`  | BlockChange[] | Every block changed since generation; apply after `generateWorld` |
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
-| `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Stone portals; `expiresTick` is a server tick |
+| `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Orb portals; `expiresTick` is a server tick |
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
 | `flags`   | FlagInfo[]    | One flag per occupied team |
 | `winnerId`| int \| null   | Set if the match is already over |
 | `winnerTeam` | int \| null | Winning team index, if over |
 | `winnerMembers` | string[] | Names on the winning team, if over |
-| `entities`| (ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | Dropped items, arrows, cows, dragons, Crawlers, Void Eels and goblins currently in the world |
+| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | Dropped items, projectiles, mobs and goblins currently in the world |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
@@ -647,12 +667,12 @@ Broadcast every server tick (20/s).
 | Field      | Type             | Notes |
 |------------|------------------|-------|
 | `tick`     | int              | Server tick number |
-| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | All players, dragons and Void Eels, plus only the items, arrows, cows, Crawlers and goblins that moved (or changed, see their snapshots) this tick. One not listed stays where it was |
+| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | All players, dragons and Void Eels, plus only the items, projectiles, cows, Crawlers and goblins that moved (or changed, see their snapshots) this tick. One not listed stays where it was |
 | `flags`    | FlagState[] | Every flag |
 
 ### `portalSpawn`, `portalDespawn`, `emberBurst`
 
-`portalSpawn` broadcasts `{portal: {id,x,y,z,expiresTick}}` when a Rift Stone
+`portalSpawn` broadcasts `{portal: {id,x,y,z,expiresTick}}` when a Rift Orb
 creates a portal. `portalDespawn` broadcasts `{id}` when it expires.
 `emberBurst` broadcasts `{id,x,y,z}` when a player's Ember Heart breaks;
 clients render a burst of ember particles at that player.
@@ -897,16 +917,48 @@ and heals one HP every two seconds. Ember Heart breaks on the first otherwise
 fatal non-void hit, leaving 10 HP and one second of invulnerability; the
 server broadcasts `emberBurst`. All worn accessories drop on death.
 
-Rift Stone opens a glowing oval portal at the user's feet for 10 seconds.
+Throwing a Rift Orb opens a glowing oval portal at the impact surface for 10 seconds.
 Any player entering it, except a flag carrier, teleports to safe ground outside
-the portal owner's team keep. A Rift Stone cannot be used in a keep's no-build
-zone. The server owns portal collision, expiry, and destination.
+the portal owner's team keep. An orb landing in a keep's no-build zone
+fizzles and drops as an item. An orb lost in the void is gone.
+The portal never opens on top of the thrower. The server owns projectile
+collision, portal collision, expiry, and destination.
 
 The only world sizes are Small, Medium and Large. `WORLD_SIZES` in
 `shared/worldgen.js` holds the layout values for each size. The seed,
 occupied team count and world size determine one central island, one raised
 island per occupied team, and tiny islands distributed in rings, farther out,
 and above or below larger islands. Island planning finishes before terrain
+is written. The central island keeps its root-like taper but extends about
+45 blocks deeper than before. The void kill height is set well below the
+lowest generated island, leaving an eel band at least 40 blocks high.
+
+Natural terrain's top and bottom Y ranges are stored in a compact per-column
+mask during generation. Later block placement and breaking do not alter it.
+Eels use this mask to distinguish exposed bridges from protected island ground.
+
+## Biomes and rivers
+
+Low-frequency noise selects plains and forest on team islands, and plains,
+forest, mountains and swamp on the central island. Height and tree density
+blend across a broad transition band, while scattered surface patches avoid
+hard color boundaries. Tiny islands inherit the nearest main island's biome;
+faraway ones are plains or forest. Plains have low hills and more cows. Forests
+have denser, sometimes larger trees and darker grass. Mountains have tall
+peaks, exposed stone, more exposed iron ore and soft Snow caps. Swamps have
+low ground, darker grass, shallow contained water and trees on dry hummocks.
+Houses occur in forest or plains; mountain sites favor towers. Loose chests
+and underside ruins keep their normal placement rules.
+
+The central island has 1 / 2 / 3 downhill rivers on Small / Medium / Large.
+They start on high ground, prefer mountains, and carve channels 3–5 blocks
+wide. Banks keep water in its channel until it reaches an edge. Generated
+rivers avoid keeps and all structures. Ponds and swamp water stay inside the
+island rim; river waterfalls may run into the void.
+
+## Island generation
+
+Island planning finishes before terrain
 generation; each island has seeded terrain, while the larger islands have
 caves, ore, ponds and trees. Team islands have keeps and spawn points.
 Team island centers are `centralRadius + gap + teamRadius` blocks from the
@@ -937,15 +989,16 @@ chance to drop tree seeds. The server schedules planted saplings to grow in
 ## Tiny islands
 
 `WORLD_SIZES` in `shared/worldgen.js` holds the numbers. Small, Medium and
-Large have 14–20, 22–30 and 32–44 tiny islands of radius 4–10, 5–12 and 5–15.
+Large have 22–30, 34–45 and 50–66 tiny islands of radius 4–14, 5–17 and 5–20.
 Each has an irregular, lobed outline, a grass surface over dirt with slight
 height variation, and a stone underside tapering from about 0.6× its radius
 deep in the middle, with root-like spurs. They have no caves or ponds. Radius
 7 and up grow 1–2 trees (not on roosts).
 
-About 35% ring the central island, 35% ring the team islands, 15% are
+About 45% ring the central island, 25% ring the team islands, 15% are
 scattered further out (up to team distance + team radius + 40 from the
-center) and 15% are stacked over (70%) or under (30%) a main island. Unstacked
+center) and 15% are stacked over (70%) or under (30%) a main island, with
+stacked locations weighted toward the center. Unstacked
 ones mostly (80%) sit near the height of the nearer main island's surface
 (offset by the average of two rolls in ±15); the rest anywhere from the
 central surface −25 to the team surface +40. Stacked ones sit 25–40 blocks
@@ -957,7 +1010,7 @@ Each tiny island holds at most one of: a dragon roost (radius 8 and up, 12%
 chance, at most 1 / 2 / 4 per world by size), else a loose chest (40%,
 `tinyIsland` loot), else nothing. A roost is a rough ring of logs and stone
 on the surface with scorched earth inside and around it, and one chest in the
-nest (`roost` loot: iron gear, accessories, Golden Beef, Rift Stones, often
+nest (`roost` loot: iron gear, accessories, Golden Beef, Rift Orbs, often
 modded). Its dragon is leashed to the island (radius + 20).
 
 ## Modifiers

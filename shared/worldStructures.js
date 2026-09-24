@@ -1,5 +1,6 @@
 import { BLOCK, facedBlock, ladderBlock, doorBlock, isSolid } from './blocks.js';
 import { KEEP_REACH, mulberry32, prepareSurface, surfaceStats } from './structures.js';
+import { BIOME_SETTINGS } from './config.js';
 
 const randInt = (random, min, max) => min + Math.floor(random() * (max - min + 1));
 const chestKey = (x, y, z) => `${x},${y},${z}`;
@@ -18,6 +19,13 @@ function placeChest(world, x, y, z, table, facing = 0) {
 }
 
 function overlaps(world, placed, box) {
+  if (world.riverColumns) {
+    for (let z = box.z0 - 2; z <= box.z1 + 2; z++) {
+      for (let x = box.x0 - 2; x <= box.x1 + 2; x++) {
+        if (world.riverColumns.has(`${x},${z}`)) return true;
+      }
+    }
+  }
   if (world.keeps.some((keep) => box.x0 <= keep.cx + KEEP_REACH + 2
     && box.x1 >= keep.cx - KEEP_REACH - 2
     && box.z0 <= keep.cz + KEEP_REACH + 2
@@ -33,12 +41,14 @@ function record(world, placed, kind, island, box) {
     x: Math.floor((box.x0 + box.x1) / 2), y: box.y0, z: Math.floor((box.z0 + box.z1) / 2), box: { ...box } });
 }
 
-function surfaceSite(world, terrain, placed, random, halfX, halfZ, height, maxVariance = 4) {
+function surfaceSite(world, terrain, placed, random, halfX, halfZ, height, maxVariance = 4,
+  acceptsBiome = () => true) {
   for (let attempt = 0; attempt < 300; attempt++) {
     const angle = random() * Math.PI * 2;
     const distance = Math.sqrt(random()) * Math.max(1, terrain.radius - Math.max(halfX, halfZ) - 7);
     const x = Math.round(terrain.x + Math.cos(angle) * distance);
     const z = Math.round(terrain.z + Math.sin(angle) * distance);
+    if (!acceptsBiome(world.biomeAt(x, z), random)) continue;
     const x0 = x - halfX, x1 = x + halfX, z0 = z - halfZ, z1 = z + halfZ;
     const stats = surfaceStats(terrain.getTop, x0, z0, x1, z1);
     if (!stats || stats.variance > maxVariance) continue;
@@ -300,9 +310,9 @@ export function generateStructures(world, terrains, config, seed, reserved = [])
       }
       continue;
     }
-    const addSurface = (kind, count, halfX, halfZ, height, build) => {
+    const addSurface = (kind, count, halfX, halfZ, height, build, acceptsBiome) => {
       for (let index = 0; index < count; index++) {
-        const site = surfaceSite(world, terrain, placed, random, halfX, halfZ, height);
+        const site = surfaceSite(world, terrain, placed, random, halfX, halfZ, height, 4, acceptsBiome);
         if (!site) continue;
         build(site);
         record(world, placed, kind, island, site.box);
@@ -311,13 +321,14 @@ export function generateStructures(world, terrains, config, seed, reserved = [])
     const houseCount = central ? settings.houseCentral
       : randInt(random, ...settings.houseTeam);
     addSurface('house', houseCount, 3, 3, 8,
-      (site) => buildHouse(world, terrain, site, random));
+      (site) => buildHouse(world, terrain, site, random),
+      (biome) => biome === 'plains' || biome === 'forest');
     const towerCount = central ? settings.towerCentral : Number(random() < settings.towerTeamChance);
     addSurface('tower', towerCount, 2, 2, 19,
       (site) => {
         site.box.y1 = site.floorY + randInt(random, 12, 18) + 1;
         buildTower(world, terrain, site, random);
-      });
+      }, (biome, random) => biome === 'mountains' || random() < BIOME_SETTINGS.towerOtherBiomeChance);
     const dungeonCount = central ? settings.dungeonCentral : settings.dungeonTeam;
     for (let index = 0; index < dungeonCount; index++) {
       let site = null;

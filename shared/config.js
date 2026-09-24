@@ -104,6 +104,26 @@ export const KNOCKBACK_GROUND_DECAY = 0.6;
 export const RESPAWN_DELAY = 3;
 // Falling below this y kills the player.
 export const VOID_Y = -20;
+export const VOID_BELOW_LOWEST_ISLAND = 95;
+export const EEL_BAND = { belowIsland: 30, aboveVoid: 10, minHeight: 40 };
+export const CENTRAL_EXTRA_DEPTH = 45;
+export const BIOME_SETTINGS = {
+  noiseScale: 95, blend: 0.17, surfacePatchScale: 7,
+  plains: { hill: 4, offset: 0, trees: 0.35, grassTint: 0xffffff, cows: 1.8 },
+  forest: { hill: 10, offset: 1, trees: 1.8, grassTint: 0xb5d59b, cows: 0.8 },
+  mountains: { hill: 27, offset: 8, trees: 0.22, grassTint: 0xd2d5bb, cows: 0.25 },
+  swamp: { hill: 2, offset: -7, trees: 0.8, grassTint: 0x799b78, cows: 0.3 },
+  snowHeight: 17, cliffSlope: 5, mountainOreThreshold: 0.54,
+  forestLargeTreeChance: 0.28, forestLargeTreeExtra: 2,
+  towerOtherBiomeChance: 0.22,
+  swampPondScale: 3, swampWaterDepth: [1, 2], waterRimClearance: 7,
+};
+export const RIVER_SETTINGS = { width: [3, 5], channelDepth: 2, bankWidth: 2,
+  sourceMinHeight: 10, sourceSearch: 300, pathStep: 2, maxSteps: 250,
+  rimMargin: 4, pondAvoidance: 3, endPoolRadius: 5,
+  placementAttempts: 100, sourceJitter: 20 };
+export const MOB_SEPARATION = { rangeScale: 1.5, strength: 2.8, minGap: 0.05,
+  approachRadius: 2.5, gridSize: 6 };
 // A void or fall death is credited to whoever hit the player within this long before.
 export const KILL_CREDIT_TIME = 5;
 // Falls up to this many blocks are free; each block further costs 1 HP.
@@ -147,7 +167,7 @@ export const ARROW_KNOCKBACK = 3;
 export const CROSSBOW_LOAD_TIME = 1.2;
 export const CROSSBOW_ARROW_SPEED = ARROW_SPEED[1] * 1.6;
 export const CROSSBOW_ARROW_GRAVITY = 5;
-export const CROSSBOW_ARROW_DAMAGE = 6;
+export const CROSSBOW_ARROW_DAMAGE = ARROW_DAMAGE[1] + 2;
 
 // Rope Bundles hang a column of rope at most this many blocks long.
 export const ROPE_LENGTH = 40;
@@ -207,21 +227,29 @@ export const CRAWLER_GIVE_UP_RANGE = 24;
 export const CRAWLER_WANDER_RADIUS = 5;
 export const CRAWLER_DROPS = { silk: [0, 2] };
 
-// Void Eels patrol under their home island, above the void.
+// Void Eels roam the open deep band, rising after players above exposed void.
 export const EEL_HP = 30;
 export const EEL_DAMAGE = 4;
 export const EEL_ATTACK_COOLDOWN = 1.2;
-export const EEL_SPEED = 4;
-export const EEL_CHASE_SPEED = 8;
+export const EEL_SPEED = 5;
+export const EEL_CHASE_SPEED = 10;
+export const EEL_LUNGE_SPEED = 20;
+export const EEL_LUNGE_WINDUP = 1;
+export const EEL_LUNGE_DURATION = 0.45;
+export const EEL_TURN_RATE = 0.2;
+export const EEL_GLIDE_BREAK = 1.5;
+export const EEL_DETECT_RADIUS = 12;
+export const EEL_DETECT_HEIGHT = 90;
+export const EEL_NIGHT_DETECT_SCALE = 1.3;
+export const EEL_NIGHT_RISE_SCALE = 1.3;
+export const EEL_FORGET_TIME = 10;
+export const EEL_WANDER_RADIUS = 65;
+export const EEL_DROPS = [1, 2];
 // Bite reach from the head's center to the target's box.
 export const EEL_REACH = 1.2;
-// Attacks players gliding, falling or climbing this close; loses them beyond
-// EEL_LOSE_RANGE or once they're back on their feet.
-export const EEL_AGGRO_RANGE = 15;
 export const EEL_LOSE_RANGE = 30;
-// Patrol altitude range, measured below the island surface; eels circle near
-// the underside and reach a little past the rim.
-export const EEL_ZONE = { belowSurface: 8, depth: 42, aboveVoid: 6 };
+export const RIFT_ORB = { durationSeconds: 10, maxStack: 4, throwSpeed: 13,
+  gravity: 20, radius: 0.18, launchLift: 0.35, launchForward: 0.7 };
 
 // Day/night: one full cycle in seconds (half day, half night). Time of day is
 // a fraction of the cycle: 0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight.

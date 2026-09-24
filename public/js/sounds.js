@@ -115,6 +115,16 @@ export class Sounds {
         }
         continue;
       }
+      if (type === ENTITY_TYPE.VOID_EEL) {
+        present.add(id);
+        const coiling = !!entity.snapshots.at(-1)?.coiling;
+        if (coiling && !this.firing.has(id)) {
+          this.noiseBurst(0.8, 3200, 0.18, entity.object.position, listener);
+          this.tone(650, 210, 0.9, 0.08, entity.object.position, listener, 'sine');
+        }
+        if (coiling) this.firing.add(id); else this.firing.delete(id);
+        continue;
+      }
       if (type !== ENTITY_TYPE.COW && type !== ENTITY_TYPE.DRAGON) continue;
       present.add(id);
       const position = entity.object.position;

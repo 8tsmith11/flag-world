@@ -5,7 +5,7 @@ import { getItemDef } from '/shared/items.js';
 import { BLOCK, getBlockDef } from '/shared/blocks.js';
 import { stackName, modLines } from '/shared/modifiers.js';
 import { ITEM } from '/shared/itemIds.js';
-import { ACCESSORIES, RIFT_STONE } from '/shared/accessories.js';
+import { ACCESSORIES, RIFT_ORB } from '/shared/accessories.js';
 import { attackStats, breakingStats, rangedStats, FROST } from '/shared/tools.js';
 import { ARROW_DAMAGE, CROSSBOW_ARROW_DAMAGE, TICK_RATE, GRAPPLE_RANGE, GRAPPLE_COOLDOWN, ROPE_LENGTH,
   QUARRY_REGROW_TIME } from '/shared/config.js';
@@ -94,7 +94,8 @@ function tooltipDetails(stack) {
   if (stack.item === BLOCK.QUARRY_STONE) effects.push(`Each open face regrows stone every ${QUARRY_REGROW_TIME}s`, 'Requires tool strength 8 to break');
   if (stack.item === BLOCK.GOBLIN_BRICKS) effects.push('Requires tool strength 8 to break');
   if (def.mobType) effects.push(`Right click a block to spawn a ${def.name.replace(' spawn egg', '')}`);
-  if (stack.item === ITEM.RIFT_STONE) effects.push(`Creates a ${RIFT_STONE.durationSeconds}s portal back to your keep`, 'Use away from keeps; consumed on use');
+  if (stack.item === ITEM.RIFT_ORB) effects.push(`Throw to create a ${RIFT_ORB.durationSeconds}s portal where it lands`,
+    'Fizzles into a dropped orb inside a keep zone');
   if (stack.item === ITEM.GOLDEN_BEEF) effects.push('Fully restores HP instantly when eaten');
   else if (def.food) effects.push(`Restores ${def.food} HP over time when eaten`);
   if (stack.item === ITEM.GLIDER) effects.push('Hold right click in the air to glide');

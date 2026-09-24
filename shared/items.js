@@ -19,7 +19,7 @@
 import { MAX_STACK } from './config.js';
 import { BLOCK, getBlockDef, ladderBlock, doorBlock } from './blocks.js';
 import { ITEM } from './itemIds.js';
-import { ACCESSORIES, RIFT_STONE } from './accessories.js';
+import { ACCESSORIES, RIFT_ORB } from './accessories.js';
 import { MOB_EGGS } from './mobEggs.js';
 
 export { ITEM };
@@ -83,7 +83,7 @@ defineItem(ITEM.CROSSBOW, 'crossbow', { maxStack: 1, tool: 'crossbow', color: 0x
 defineItem(ITEM.ROPE_BUNDLE, 'rope bundle', { maxStack: 8, places: 'rope', shape: 'rope', color: getBlockDef(BLOCK.ROPE).color });
 // Right click to fire; pulls you to the block it hits.
 defineItem(ITEM.GRAPPLING_HOOK, 'grappling hook', { maxStack: 1, tool: 'grapple', color: 0x8d9299 });
-defineItem(ITEM.RIFT_STONE, 'rift stone', { maxStack: RIFT_STONE.maxStack, shape: 'rift', color: 0xa66aff });
+defineItem(ITEM.RIFT_ORB, 'rift orb', { maxStack: RIFT_ORB.maxStack, shape: 'rift', color: 0xa66aff });
 
 const blockItems = new Map();
 

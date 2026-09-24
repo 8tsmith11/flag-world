@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { CHUNK_SIZE } from '/shared/config.js';
 import { BLOCK, getBlockDef, ladderFacing, doorState, blockBase, isWater, waterLevel } from '/shared/blocks.js';
 import { ANVIL_PARTS } from './models.js';
+import { BIOME_SETTINGS } from '/shared/config.js';
 
 // Corner offsets are wound counter-clockwise when viewed from outside.
 // Triangles per face: (0,1,2) and (2,1,3). `shade` fakes directional variation.
@@ -96,6 +97,20 @@ function pushQuarryFace(opaque, glow, face, x, y, z, light) {
       : [u, v, u + 0.018, Math.min(0.94, v + length)];
     pushFaceRect(opaque, face, x, y, z, ...rect, hexColor(0x101a20), light, 0.004);
     if (i % 3 === 0) pushFaceRect(glow, face, x, y, z, ...rect, hexColor(0x579da6), 0.55, 0.006);
+  }
+}
+
+function pushSnowFace(buf, face, x, y, z, light) {
+  pushFace(buf, face, x, y, z, hexColor(0xe8f1f5), light);
+  let seed = (Math.imul(x + 17, 73856093) ^ Math.imul(y + 31, 19349663)
+    ^ Math.imul(z + 43, 83492791)) >>> 0;
+  for (let i = 0; i < 8; i++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const u = 0.07 + (seed & 255) / 330;
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const v = 0.07 + (seed & 255) / 330;
+    pushFaceRect(buf, face, x, y, z, u, v, u + 0.025, v + 0.025,
+      hexColor(i % 3 ? 0xffffff : 0xc7dce9), light, 0.004);
   }
 }
 
@@ -332,7 +347,9 @@ export function meshChunk(world, chunk) {
         if (id === BLOCK.AIR) continue;
         const def = getBlockDef(id);
         const x = ox + lx, y = oy + ly, z = oz + lz;
-        const color = blockColor(id);
+        const color = id === BLOCK.GRASS
+          ? blockColor(id).clone().multiply(hexColor(BIOME_SETTINGS[world.biomeAt(x, z)].grassTint))
+          : blockColor(id);
         const j = jitter(x, y, z);
         // Thin shapes (ladders, doors) are drawn whole; nothing culls them.
         if (def.shape) {
@@ -373,6 +390,15 @@ export function meshChunk(world, chunk) {
             const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
             if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
             pushQuarryFace(opaque, glow, face, x, y, z, face.shade * j);
+          }
+          continue;
+        }
+
+        if (id === BLOCK.SNOW) {
+          for (const face of FACES) {
+            const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
+            if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
+            pushSnowFace(opaque, face, x, y, z, face.shade * j);
           }
           continue;
         }

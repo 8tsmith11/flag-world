@@ -291,11 +291,9 @@ function createEquipmentItem(item, def, size) {
     const loop = add(new THREE.TorusGeometry(size * 0.36, size * 0.035, 5, 16), 0xd6c28e, 0, 0.53, 0.02);
     loop.rotation.x = Math.PI / 2;
     add(new THREE.SphereGeometry(size * 0.1, 6, 4), 0xfff1b6, 0, 0.88);
-  } else if (item === ITEM.RIFT_STONE) {
-    const stone = add(new THREE.OctahedronGeometry(size * 0.52), 0x674693, 0, 0.5);
-    stone.rotation.set(0.25, 0.4, 0.2);
-    const core = add(new THREE.OctahedronGeometry(size * 0.27), def.color, 0, 0.5, -0.34);
-    core.rotation.z = Math.PI / 4;
+  } else if (item === ITEM.RIFT_ORB) {
+    add(new THREE.SphereGeometry(size * 0.48, 12, 8), 0x674693, 0, 0.5);
+    add(new THREE.SphereGeometry(size * 0.27, 10, 7), def.color, 0, 0.5, -0.28);
   } else if (item === ITEM.FLIGHT_ORB) {
     add(new THREE.IcosahedronGeometry(size * 0.38, 1), def.color, 0, 0.5);
     const ring = add(new THREE.TorusGeometry(size * 0.53, size * 0.045, 5, 16), 0xd5e7ff, 0, 0.5);
@@ -614,14 +612,17 @@ export function createEelModel() {
     group.add(segment);
     segments.push(segment);
   }
-  group.userData.eel = { head, segments, trail: [], time: Math.random() * 10 };
+  segments.at(-1).material = new THREE.MeshBasicMaterial({ color: 0x76b7cf });
+  group.userData.eel = { head, segments, skin, belly, trail: [], time: Math.random() * 10 };
   return group;
 }
 
 // Per frame, with the head's world position (the group's position), yaw and pitch.
-export function animateEel(model, dt, yaw, pitch) {
+export function animateEel(model, dt, yaw, pitch, coiling = false, night = false) {
   const eel = model.userData.eel;
   eel.time += dt;
+  eel.skin.emissive.setHex(coiling ? 0x7442a5 : night ? 0x15142a : 0x080611);
+  eel.belly.emissive.setHex(coiling ? 0x8b5bb7 : night ? 0x201840 : 0x0d0820);
   const p = model.position;
   const head = new THREE.Vector3(p.x, p.y + 0.4, p.z);
   const trail = eel.trail;
@@ -651,8 +652,11 @@ export function animateEel(model, dt, yaw, pitch) {
     const span = a.distanceTo(b) || 1;
     const point = a.clone().lerp(b, Math.min(1, (want - walked) / span));
     const along = previous.clone().sub(point).normalize();
-    const across = new THREE.Vector3(-along.z, 0, along.x).normalize();
-    point.addScaledVector(across, Math.sin(eel.time * 2.2 - i * 0.6) * 0.18 * (0.3 + i / EEL_SEGMENTS));
+    const across = Math.abs(along.y) > 0.8
+      ? new THREE.Vector3(0, -along.z, along.y).normalize()
+      : new THREE.Vector3(-along.z, 0, along.x).normalize();
+    point.addScaledVector(across, Math.sin(eel.time * (coiling ? 8 : 2.2) - i * 0.6)
+      * (coiling ? 0.34 : 0.18) * (0.3 + i / EEL_SEGMENTS));
     segment.position.copy(point).sub(p);
     if (along.lengthSq() > 0) segment.lookAt(p.x + segment.position.x + along.x, p.y + segment.position.y + along.y,
       p.z + segment.position.z + along.z);
@@ -820,7 +824,12 @@ export function setHandItem(hand, item) {
   // not its side, faces the way it swings. Blocks just sit in the fist.
   const tool = getItemDef(item).tool;
   if (tool === 'hammer') model.rotation.set(-Math.PI / 2, Math.PI / 2, 0);
-  else if (tool === 'bow' || tool === 'crossbow') model.position.set(0, -0.02, 0); // built in the hand's frame already
+  else if (tool === 'windAxe') model.rotation.set(-Math.PI / 2, Math.PI / 2, Math.PI / 2, 'ZXY');
+  else if (tool === 'crossbow') {
+    model.scale.setScalar(1.25);
+    model.position.set(0, 0.07, -0.15);
+  }
+  else if (tool === 'bow') model.position.set(0, -0.02, 0); // built in the hand's frame already
   else if (tool) model.rotation.x = -Math.PI / 2;
   else model.position.set(0, -0.1, -0.05);
   hand.add(model);

@@ -10,7 +10,7 @@ export const ACCESSORIES = {
   [ITEM.FLIGHT_ORB]: { name: 'flight orb', color: 0x89bbff, visual: 'orb' },
 };
 
-export const RIFT_STONE = { durationSeconds: 10, maxStack: 4 };
+export { RIFT_ORB } from './config.js';
 
 export function accessoryDef(item) {
   return ACCESSORIES[item] ?? null;
