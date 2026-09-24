@@ -5,7 +5,7 @@
 // the inventory screen or a workbench) or 'workbench' (only at a workbench).
 // `id` is what the client sends to craft it.
 
-import { BLOCK } from './blocks.js';
+import { BLOCK, creativeBlockIds } from './blocks.js';
 import { ITEM } from './itemIds.js';
 
 const needs = (...pairs) => pairs.map(([item, count]) => ({ item, count }));
@@ -33,6 +33,13 @@ export const RECIPES = [
   { id: 'glider', station: 'workbench', output: ITEM.GLIDER, count: 1, inputs: needs([ITEM.LEATHER, 3], [BLOCK.WOOD, 2]) },
 ];
 
+// Server checks creative permission before accepting these ids. The client
+// shows the full catalogue even when the player has no dirt yet.
+export const CREATIVE_RECIPES = [...new Set([...creativeBlockIds(), ...Object.values(ITEM)])]
+  .map((item) => ({ id: `creative:${item}`, creative: true, station: null,
+    output: item, count: 1, inputs: needs([BLOCK.DIRT, 1]) }));
+const creativeById = new Map(CREATIVE_RECIPES.map((recipe) => [recipe.id, recipe]));
+
 // Rerolling an item's modifiers at an anvil costs this, from the inventory.
 export const ANVIL_REROLL_COST = needs([ITEM.IRON_INGOT, 2]);
 
@@ -49,12 +56,12 @@ export const FUEL = {
 };
 
 export function getRecipe(id) {
-  return RECIPES.find((r) => r.id === id) ?? null;
+  return RECIPES.find((r) => r.id === id) ?? creativeById.get(id) ?? null;
 }
 
 // Recipes usable at a station (null = just the inventory screen).
-export function recipesAt(station) {
-  return RECIPES.filter((r) => r.station === null || r.station === station);
+export function recipesAt(station, creative = false) {
+  return creative ? CREATIVE_RECIPES : RECIPES.filter((r) => r.station === null || r.station === station);
 }
 
 // Total count of each item across inventory slots (null = empty).

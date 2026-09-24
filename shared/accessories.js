@@ -7,6 +7,7 @@ export const ACCESSORIES = {
   [ITEM.HEART_AMULET]: { name: 'heart amulet', color: 0xdd3e4d, visual: 'heart', maxHpBonus: 5 },
   [ITEM.MENDING_CHARM]: { name: 'mending charm', color: 0x79dcb0, visual: 'mending', regenDelay: 5, regenInterval: 2 },
   [ITEM.EMBER_HEART]: { name: 'ember heart', color: 0xff7b28, visual: 'ember', rescueHp: 10, invulnerableSeconds: 1 },
+  [ITEM.FLIGHT_ORB]: { name: 'flight orb', color: 0x89bbff, visual: 'orb' },
 };
 
 export const RIFT_STONE = { durationSeconds: 10, maxStack: 4 };

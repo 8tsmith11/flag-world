@@ -8,9 +8,8 @@ import { CHUNK_SIZE } from '/shared/config.js';
 import { chunkKey } from '/shared/world.js';
 import { meshChunk } from './mesher.js';
 
-// Meshes built per frame: normally, and while the debug overview loads everything.
+// Meshes built per frame.
 const BUILDS_PER_FRAME = 4;
-const BUILDS_PER_FRAME_FAST = 24;
 // Loaded chunks are kept until this much past the view distance, so walking
 // back and forth over the edge doesn't rebuild them.
 const UNLOAD_MARGIN = CHUNK_SIZE * 2;
@@ -53,10 +52,11 @@ export class ChunkRenderer {
     // Chunks in range, nearest first; recomputed when the camera changes chunk.
     this.queue = [];
     this.queueFrom = null;
-    this.fast = false;
 
     this.opaqueMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.oreMaterial = new THREE.MeshLambertMaterial({ map: ironTexture() });
+    this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
+      opacity: 0.75, depthWrite: false });
     this.transparentMaterial = new THREE.MeshLambertMaterial({
       vertexColors: true,
       transparent: true,
@@ -68,10 +68,8 @@ export class ChunkRenderer {
     world.onBlockChanged = (x, y, z) => this.markBlockDirty(x, y, z);
   }
 
-  // fast: build more per frame (the debug overview, which loads the whole world).
-  setViewDistance(distance, fast = false) {
+  setViewDistance(distance) {
     this.viewDistance = distance;
-    this.fast = fast;
     this.queueFrom = null;
   }
 
@@ -112,7 +110,7 @@ export class ChunkRenderer {
       }
     }
 
-    let budget = this.fast ? BUILDS_PER_FRAME_FAST : BUILDS_PER_FRAME;
+    let budget = BUILDS_PER_FRAME;
     for (const { chunk } of this.queue) {
       if (budget === 0) break;
       const k = chunkKey(chunk.cx, chunk.cy, chunk.cz);
@@ -141,10 +139,12 @@ export class ChunkRenderer {
       chunk,
       opaque: geo.opaque && new THREE.Mesh(geo.opaque, this.opaqueMaterial),
       ore: geo.ore && new THREE.Mesh(geo.ore, this.oreMaterial),
+      glow: geo.glow && new THREE.Mesh(geo.glow, this.glowMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
     };
     if (entry.opaque) this.scene.add(entry.opaque);
     if (entry.ore) this.scene.add(entry.ore);
+    if (entry.glow) { entry.glow.renderOrder = 2; this.scene.add(entry.glow); }
     if (entry.transparent) {
       entry.transparent.renderOrder = 1;
       this.scene.add(entry.transparent);
@@ -155,7 +155,7 @@ export class ChunkRenderer {
   unload(key) {
     const entry = this.meshes.get(key);
     if (!entry) return;
-    for (const mesh of [entry.opaque, entry.ore, entry.transparent]) {
+    for (const mesh of [entry.opaque, entry.ore, entry.glow, entry.transparent]) {
       if (!mesh) continue;
       this.scene.remove(mesh);
       mesh.geometry.dispose();

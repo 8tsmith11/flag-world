@@ -73,10 +73,28 @@ function pushFaceRect(buf, face, x, y, z, u0, v0, u1, v1, color, light, offset =
         + right[axis] * u * (1 - v) + lowerRight[axis] * u * v;
       buf.positions.push([x, y, z][axis] + position + face.dir[axis] * offset);
       buf.normals.push(face.dir[axis]);
-      buf.colors.push([color.r, color.g, color.b][axis] * light);
     }
+    buf.colors.push(color.r * light, color.g * light, color.b * light);
   }
   buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+}
+
+// Deterministic hairline cracks over a dark face. A separate unlit buffer
+// gives a few segments a faint glow in caves without adding a texture file.
+function pushQuarryFace(opaque, glow, face, x, y, z, light) {
+  pushFace(opaque, face, x, y, z, hexColor(0x303840), light);
+  let seed = Math.imul(x + 71, 73856093) ^ Math.imul(y + 37, 19349663)
+    ^ Math.imul(z + 13, 83492791) ^ Math.imul(face.dir[0] + 3 * face.dir[1] + 9 * face.dir[2], 2654435761);
+  const next = () => { seed = Math.imul(seed ^ (seed >>> 15), 2246822519); return (seed >>> 0) / 4294967296; };
+  for (let i = 0; i < 6; i++) {
+    const u = 0.08 + next() * 0.72, v = 0.08 + next() * 0.72;
+    const horizontal = next() < 0.5;
+    const length = 0.08 + next() * 0.22;
+    const rect = horizontal ? [u, v, Math.min(0.94, u + length), v + 0.018]
+      : [u, v, u + 0.018, Math.min(0.94, v + length)];
+    pushFaceRect(opaque, face, x, y, z, ...rect, hexColor(0x101a20), light, 0.004);
+    if (i % 3 === 0) pushFaceRect(glow, face, x, y, z, ...rect, hexColor(0x579da6), 0.55, 0.006);
+  }
 }
 
 function pushPatternedFace(buf, face, x, y, z, id, light) {
@@ -300,6 +318,7 @@ export function meshChunk(world, chunk) {
   const opaque = createBuffers();
   const transparent = createBuffers();
   const ore = createBuffers();
+  const glow = createBuffers();
   const ox = chunk.cx * CHUNK_SIZE, oy = chunk.cy * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
 
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
@@ -336,6 +355,15 @@ export function meshChunk(world, chunk) {
           continue;
         }
 
+        if (id === BLOCK.QUARRY_STONE) {
+          for (const face of FACES) {
+            const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
+            if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
+            pushQuarryFace(opaque, glow, face, x, y, z, face.shade * j);
+          }
+          continue;
+        }
+
         if (id === BLOCK.STONE_BRICKS || id === BLOCK.MOSSY_STONE_BRICKS
           || id === BLOCK.CRACKED_STONE_BRICKS || id === BLOCK.WOOD || id === BLOCK.PLANKS) {
           for (const face of FACES) {
@@ -355,5 +383,6 @@ export function meshChunk(world, chunk) {
     }
   }
 
-  return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), ore: toGeometry(ore) };
+  return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), ore: toGeometry(ore),
+    glow: toGeometry(glow) };
 }

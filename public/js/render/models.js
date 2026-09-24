@@ -262,6 +262,75 @@ function createRopeBundle(color, size) {
   return group;
 }
 
+// Small world/hand models for equipment and loot that has no tool model.
+function createEquipmentItem(item, def, size) {
+  const group = new THREE.Group();
+  const add = (geometry, color, x = 0, y = 0, z = 0) => {
+    const mesh = new THREE.Mesh(geometry, lambert(color));
+    mesh.position.set(x * size, y * size, z * size);
+    group.add(mesh);
+    return mesh;
+  };
+  if (item === ITEM.WIND_BOOTS || item === ITEM.SPRING_BOOTS) {
+    for (const side of [-1, 1]) {
+      add(new THREE.BoxGeometry(size * 0.36, size * 0.5, size * 0.5), def.color, side * 0.25, 0.4);
+      add(new THREE.BoxGeometry(size * 0.38, size * 0.15, size * 0.7), 0x53626b, side * 0.25, 0.09, -0.08);
+      if (item === ITEM.WIND_BOOTS) {
+        const wing = add(new THREE.ConeGeometry(size * 0.18, size * 0.42, 4), 0x8ec8dc, side * 0.46, 0.53);
+        wing.rotation.z = side * 0.5;
+      } else {
+        for (const y of [0.16, 0.28]) {
+          const coil = add(new THREE.TorusGeometry(size * 0.15, size * 0.035, 5, 10), 0xb99b5c, side * 0.25, y);
+          coil.rotation.x = Math.PI / 2;
+        }
+      }
+    }
+  } else if (item === ITEM.HEART_AMULET || item === ITEM.MENDING_CHARM || item === ITEM.EMBER_HEART) {
+    const gem = add(new THREE.OctahedronGeometry(size * (item === ITEM.MENDING_CHARM ? 0.36 : 0.43)), def.color, 0, 0.45);
+    if (item === ITEM.MENDING_CHARM) gem.rotation.z = Math.PI / 4;
+    const loop = add(new THREE.TorusGeometry(size * 0.36, size * 0.035, 5, 16), 0xd6c28e, 0, 0.53, 0.02);
+    loop.rotation.x = Math.PI / 2;
+    add(new THREE.SphereGeometry(size * 0.1, 6, 4), 0xfff1b6, 0, 0.88);
+  } else if (item === ITEM.RIFT_STONE) {
+    const stone = add(new THREE.OctahedronGeometry(size * 0.52), 0x674693, 0, 0.5);
+    stone.rotation.set(0.25, 0.4, 0.2);
+    const core = add(new THREE.OctahedronGeometry(size * 0.27), def.color, 0, 0.5, -0.34);
+    core.rotation.z = Math.PI / 4;
+  } else if (item === ITEM.FLIGHT_ORB) {
+    add(new THREE.IcosahedronGeometry(size * 0.38, 1), def.color, 0, 0.5);
+    const ring = add(new THREE.TorusGeometry(size * 0.53, size * 0.045, 5, 16), 0xd5e7ff, 0, 0.5);
+    ring.rotation.x = 0.5;
+  } else if (def.shape === 'bucket') {
+    add(new THREE.CylinderGeometry(size * 0.4, size * 0.32, size * 0.55, 8, 1, true), 0xa6a9ad, 0, 0.31);
+    add(new THREE.CylinderGeometry(size * 0.32, size * 0.32, size * 0.05, 8), def.block === null ? 0x777b80 : def.color, 0, 0.57);
+    const handle = add(new THREE.TorusGeometry(size * 0.38, size * 0.035, 5, 12, Math.PI), 0xd9d9de, 0, 0.67);
+    handle.rotation.z = Math.PI;
+  } else if (def.shape === 'armor') {
+    add(new THREE.BoxGeometry(size * 0.68, size * 0.68, size * 0.3), def.color, 0, 0.5);
+    for (const side of [-1, 1]) add(new THREE.BoxGeometry(size * 0.22, size * 0.35, size * 0.35), def.color, side * 0.44, 0.66);
+    add(new THREE.BoxGeometry(size * 0.42, size * 0.16, size * 0.32), 0x514238, 0, 0.12);
+  } else if (def.shape === 'glider') {
+    const glider = createGliderModel();
+    glider.scale.setScalar(size * 0.6);
+    glider.position.y = size * 0.42;
+    group.add(glider);
+  } else if (def.shape === 'beef') {
+    const meat = add(new THREE.SphereGeometry(size * 0.42, 7, 5), def.color, -0.12, 0.44);
+    meat.scale.set(1.2, 0.7, 0.65);
+    add(new THREE.BoxGeometry(size * 0.38, size * 0.12, size * 0.13), 0xe6d7bd, 0.28, 0.4);
+  } else if (def.shape === 'leather') {
+    const hide = add(new THREE.BoxGeometry(size * 0.8, size * 0.06, size * 0.66), def.color, 0, 0.14);
+    hide.rotation.y = 0.2;
+  } else if (def.shape === 'egg') {
+    const shell = add(new THREE.SphereGeometry(size * 0.42, 10, 8), def.color, 0, 0.5);
+    shell.scale.y = 1.25;
+    for (const [x, y, z] of [[-0.17, 0.36, -0.37], [0.2, 0.64, -0.34], [0, 0.2, -0.4]]) {
+      add(new THREE.SphereGeometry(size * 0.09, 6, 5), def.spots, x, y, z);
+    }
+  }
+  return group;
+}
+
 // Pulls a bow model's string back by `amount` (0..1) and nocks an arrow. For a
 // crossbow, `amount` is how far it's loaded; the bolt shows once it's loaded.
 export function setBowDraw(model, amount) {
@@ -677,6 +746,9 @@ export function createItemModel(item, blockSize = 0.25) {
   if (def.tool === 'crossbow') return createCrossbow(def.color);
   if (def.tool === 'grapple') return createGrapplingHook(def.color);
   if (def.shape === 'rope') return createRopeBundle(def.color, blockSize);
+  if (def.shape === 'accessory' || ['rift', 'bucket', 'armor', 'glider', 'beef', 'leather', 'egg'].includes(def.shape)) {
+    return createEquipmentItem(item, def, blockSize);
+  }
   if (def.block !== null && getBlockDef(def.block).shape === 'anvil') {
     const group = new THREE.Group();
     const anvil = createAnvilModel(blockSize * 1.3);
@@ -839,6 +911,14 @@ export function createPlayerModel({ color }) {
     new THREE.MeshBasicMaterial({ color: 0xff842b }));
   ember.position.set(0, 0.84, -BODY_RADIUS - 0.08);
   addAccessory(ITEM.EMBER_HEART, ember);
+  const orbOrbit = new THREE.Group();
+  orbOrbit.position.y = 0.95;
+  const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.105, 1),
+    new THREE.MeshBasicMaterial({ color: 0x9bcaff }));
+  orb.position.x = BODY_RADIUS + 0.23;
+  orbOrbit.add(orb);
+  orbOrbit.visible = false;
+  torso.add(orbOrbit);
 
   // Frost: flakes drifting down around the body while an Ice Sword slows them.
   const frost = new THREE.Group();
@@ -853,7 +933,7 @@ export function createPlayerModel({ color }) {
   group.add(frost);
 
   group.userData.player = { torso, head, shoulder, hand, armorParts: [chest, helmet, sleeve], armorMaterial, glider,
-    accessoryParts, frost, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
+    accessoryParts, orbOrbit, frost, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
   return group;
 }
 
@@ -869,9 +949,11 @@ export function handItem(hand) {
 // Per frame. speed: horizontal blocks/s; pitch: look pitch; crouching: squash
 // and lean; draw: how far a bow is drawn (0..1), which raises the arm forward.
 export function animatePlayer(model, { dt, speed, pitch, held, armor = null, accessory = null,
-  crouching = false, draw = 0, gliding = false, slowed = false }) {
+  crouching = false, draw = 0, gliding = false, slowed = false, orbActive = false }) {
   const p = model.userData.player;
   p.glider.visible = gliding;
+  p.orbOrbit.visible = orbActive;
+  if (orbActive) p.orbOrbit.rotation.y += dt * 1.5;
   p.frost.visible = slowed;
   if (slowed) {
     // Flakes spiral down from above the head and start over at the top.

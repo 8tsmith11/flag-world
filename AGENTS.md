@@ -45,7 +45,7 @@ including the host, plays by opening `http://<host-ip>:3000`.
   block, and `getBlock` returns air for missing ones. Clients mesh only chunks
   within the view distance (a client setting, `VIEW_DISTANCE`), nearest first,
   with fog ending at that distance.
-- With `DEBUG` on, M toggles a top-down overview camera of the whole world. Block changes made after generation go through `world.setBlock`;
+- Block changes made after generation go through `world.setBlock`;
   the server records them, broadcasts `blockChange` and sends the full list in
   `welcome`.
 - Block types live in `shared/blocks.js` with their properties (solid,
@@ -163,7 +163,6 @@ public/
       scene.js               Renderer, camera, lights, fog tied to view distance
       clouds.js              Drifting cloud layers (island worlds)
       sky.js                 Day/night: sun, moon, stars, sky and fog color, lights
-      overview.js            Debug top-down camera of the whole world
       mesher.js              Chunk -> BufferGeometry (visible cube faces; shaped blocks as colored boxes)
       chunkRenderer.js       Meshes chunks within the view distance, nearest first; unloads far ones
       entityRenderer.js      Remote entity models, snapshot interpolation, player animation

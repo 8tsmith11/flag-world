@@ -24,6 +24,8 @@ export class Input {
     this.dropPressed = false;
     this.slot = 0;
     this.lastForwardTap = -Infinity;
+    this.lastJumpTap = -Infinity;
+    this.flyTogglePressed = false;
     this.doubleTapSprint = false;
 
     window.addEventListener('keydown', (e) => {
@@ -32,6 +34,11 @@ export class Input {
         const now = performance.now();
         this.doubleTapSprint = now - this.lastForwardTap <= DOUBLE_TAP_MS;
         this.lastForwardTap = now;
+      }
+      if (e.code === 'Space' && !e.repeat && !this.keys.has('Space')) {
+        const now = performance.now();
+        this.flyTogglePressed = now - this.lastJumpTap <= DOUBLE_TAP_MS;
+        this.lastJumpTap = now;
       }
       this.keys.add(e.code);
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
@@ -81,6 +88,8 @@ export class Input {
   release() {
     this.keys.clear();
     this.lastForwardTap = -Infinity;
+    this.lastJumpTap = -Infinity;
+    this.flyTogglePressed = false;
     this.primaryDown = false;
     this.secondaryDown = false;
     this.attackPressed = false;
@@ -112,7 +121,9 @@ export class Input {
   // the one-shot attack/place/drop presses.
   sample() {
     const attack = this.attackPressed, place = this.placePressed, drop = this.dropPressed;
+    const flyToggle = this.flyTogglePressed;
     this.attackPressed = this.placePressed = this.dropPressed = false;
+    this.flyTogglePressed = false;
     return {
       attack,
       place,
@@ -122,6 +133,7 @@ export class Input {
       sprint: this.keys.has('KeyW') && (this.doubleTapSprint || this.keys.has('ControlLeft') || this.keys.has('ControlRight')),
       strafe: this.axis('KeyD', 'KeyA'),
       jump: this.keys.has('Space'),
+      flyToggle,
       crouch: this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'),
       yaw: this.yaw,
       pitch: this.pitch,

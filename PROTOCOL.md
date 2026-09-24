@@ -59,6 +59,8 @@ unique within the lobby (ignoring case).
 | `springCharge` | int | Spring Boots charge in simulation ticks, 0..20 |
 | `springBouncing` | bool | Whether a Spring Boots landing can continue bouncing |
 | `gliding`  | bool | Glider open; also part of predicted movement state |
+| `flying` | bool | Flight Orb flight active; part of predicted movement state |
+| `orbActive` | bool | Creative player wearing a Flight Orb; draw its orbiting glow |
 | `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back. With a crossbow in hand: how far it's loaded, 1 while loaded (the bolt shows on it) |
 | `slowTicks` | int    | Ticks of Ice Sword frost slow left (40 on a hit); movement is 40% slower while above 0 and frost flakes are drawn around them. Part of predicted movement state |
 | `grapple`  | object \| null | While a grappling hook pulls: `{ hx, hy, hz }` where the hook caught and `{ x, y, z }` where their feet are headed; drawn as a rope to the hook. Part of predicted movement state |
@@ -80,6 +82,7 @@ north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
 | 14–29 | door | `14 + facing + 4·open + 8·upper`: facing is the way the placer looked. Solid only when closed |
 | 52 | rope | Hung by a Rope Bundle. Not solid, climbable like a ladder, breaks in one tick and drops nothing |
 | 57 | scorched earth | The ground inside a dragon roost's nest; drops dirt |
+| 58 | Quarry Stone | Dark, glowing cracked stone; hardness 8, drops itself, regrows stone on each clear face every 5 s |
 
 Other blocks added with crafting: 30 iron ore (hardness 3), 31 sand, 32
 workbench (right click: crafting screen).
@@ -113,6 +116,10 @@ loot-only Wind Axe, Ice Sword, crossbow, Rope Bundle (stack size 8) and
 grappling hook. `287` Dragon Scale (dropped by dragons), `288` Silk (dropped by
 Crawlers, no use yet) and `289` Dragonscale Armor. Block `53` (anvil) is also
 its item.
+`290` is the creative-only Flight Orb accessory. `291`–`294` are Cow,
+Dragon, Crawler and Void Eel spawn eggs; their definitions live in
+`shared/mobEggs.js`. All egg types are creative-only to obtain, but anyone
+holding one can use it. Grass and dirt both drop dirt.
 Buckets, armor, accessories, gliders, hammers, swords, bows, crossbows, Wind
 Axes and grappling hooks have stack size 1;
 ordinary items stack to 64. What held tools do is in `shared/tools.js`.
@@ -325,6 +332,15 @@ rest only at a workbench. New recipes include an empty bucket (1 iron ingot),
 leather armor (3 leather), iron armor (10 iron ingots), a glider
 (3 leather and 2 wood), an anvil (6 iron ingots) and Dragonscale Armor (8
 Dragon Scales). Crafted items have no modifiers. Furnaces smelt raw beef into cooked beef in 5 s.
+While creative mode is enabled, `creative:<itemId>` recipes provide every
+canonical block and non-block item for one dirt each, without a station or
+modifiers. The server rejects those recipe ids for other players.
+
+### `creativeToggle`
+
+No fields. Only a connection from localhost that has joined the lobby or a
+match may toggle its own creative mode. Other requests are silently ignored.
+The server responds only to that connection with `creative`.
 
 ### `reclaim`
 
@@ -346,6 +362,7 @@ Match players only. Sent once per simulation tick (20/s). Each input advances th
 | `sprint`  | bool | Run while moving forward (Ctrl held or W tapped twice within 300 ms); ignored in water, on ladders, while crouching, eating or drawing a bow |
 | `strafe`  | number | -1..1 (D = 1, A = -1) |
 | `jump`    | bool   | Jump held (swim up in water, jump out at the surface) |
+| `flyToggle` | bool | Double-tap jump within 300 ms. Toggles flight only while creative and wearing a Flight Orb |
 | `crouch`  | bool   | Crouch held (Shift, only while no screen is open) |
 | `draw`    | bool   | Right mouse held with a bow or crossbow in hand (the client sends it only then; the server ignores it without one): draws the bow or loads the crossbow |
 | `fire`    | bool   | A click (either button) with a loaded crossbow in hand: shoots its bolt this tick. Ignored without a crossbow |
@@ -353,6 +370,7 @@ Match players only. Sent once per simulation tick (20/s). Each input advances th
 | `eat`     | bool   | Right mouse held with food in hand; raw/cooked beef takes 30 uninterrupted ticks and heals gradually, while golden beef heals to full immediately on press |
 | `glide`   | bool   | Right mouse held with a glider in hand; in the air it caps falling speed and drives forward motion |
 | `rift`    | bool   | Right-click edge with a Rift Stone selected; the server consumes one and opens a portal if outside every keep's no-build zone |
+| `spawnEgg` | BlockPos \| null | Right-clicked solid block while holding a spawn egg. The server spawns that mob on top if there is room, consumes one egg, and uses that position as its home (nearest island for Void Eels) |
 | `yaw`     | number | Look yaw |
 | `pitch`   | number | Look pitch, clamped to ±π/2 |
 | `slot`    | int    | Selected hotbar slot, 0..8: the item in hand (tool strength, placing, dropping, `held`) |
@@ -582,6 +600,7 @@ reclaim.
 | `worldSize` | string      | `WORLD_SIZES` key: `"small"`, `"medium"` or `"large"`; deterministic central, team, and tiny islands |
 | `tick`    | int           | Current server tick |
 | `dayTime` | number        | Time of day at `tick`, 0..1 (see **Day and night**). Clients advance it with the ticks in `state` |
+| `creative` | bool | Whether this connection's player has creative mode active |
 | `blocks`  | BlockChange[] | Every block changed since generation; apply after `generateWorld` |
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
 | `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Stone portals; `expiresTick` is a server tick |
@@ -619,6 +638,20 @@ player who caused it.
 |-----------|------|-------|
 | `x`,`y`,`z` | int | Block position |
 | `id`      | int  | New block id |
+
+### `creative`
+
+Sent only to the localhost player after an accepted `creativeToggle`.
+`{enabled: boolean}` controls the private Creative Mode label and crafting
+catalogue. Creative players keep their inventory on death, but take normal
+damage. Turning creative mode off keeps all acquired items.
+
+### `quarryPuff`
+
+`{x,y,z}` marks a stone block regrown by a Quarry Stone. Clients draw a short
+stone particle puff. The block itself arrives through `blockChange`. Each
+Quarry Stone face retries independently every 5 s; occupied player and mob
+cells are skipped, while dropped items are moved to nearby air.
 
 ### `entitySpawn`
 
@@ -913,6 +946,38 @@ that spends 2 iron ingots to replace them with a fresh roll.
 Crafted at a workbench from 8 Dragon Scales; never found as loot. 9 armor
 points, and dragon fire does it no harm. It's drawn with the same armor pieces
 in a dark scaled texture, and takes armor modifiers like any armor.
+
+## Quarry Stones
+
+Each team island contains 2 / 3 / 4 Quarry Stones on Small / Medium / Large.
+At least 1 / 1 / 2 of them border an underground cave or cavern. Other stones
+are buried in natural stone; each tiny island independently has a 5% chance
+of one in its underside. Placement avoids keeps and generated structures.
+An iron hammer meets their hardness 8. Breaking one drops the Quarry Stone.
+Each of its six faces independently attempts to grow ordinary stone into air
+every `QUARRY_REGROW_TIME` (5 s). A player or mob blocks growth in that cell;
+dropped items are pushed to nearby air. Clients show glowing cracks, occasional
+sparkles and a particle puff on growth.
+
+## Creative mode and spawn eggs
+
+Only a localhost connection can toggle creative mode. The client gesture is
+a double-click on the Flag World title, then clicks in the top-left, top-right,
+bottom-right and bottom-left screen quadrants within 3 s. The server confirms
+the toggle with `creative`; only that client shows the Creative Mode label.
+Clicking the label while the pointer is unlocked turns creative off. Creative
+mode gives access to the one-dirt catalogue and retains inventory on death;
+damage still applies normally and acquired items remain when it is turned off.
+
+The Flight Orb is a creative-only accessory. While creative is active and it
+is equipped, double-tap jump to toggle flight. Jump rises, crouch descends,
+horizontal flight is twice walking speed, and flight has no gravity or fall
+damage. The orb glows as it orbits the player.
+
+Spawn eggs exist for Cow, Dragon, Crawler and Void Eel. Right-clicking a solid
+block with one spawns its normal mob on top and consumes the egg. Cow, Dragon
+and Crawler use the spawn position as home or leash center; a Void Eel uses
+the nearest island. Anyone holding an egg can use it.
 
 ## Day and night
 

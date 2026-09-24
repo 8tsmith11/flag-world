@@ -149,8 +149,19 @@ export function plantTrees(world, seed, { requireFooting = false,
 
 // Trunk from ground + 1 to top; leaves: two wide layers around the top of the
 // trunk, then a narrow cap. Leaves only fill air.
+export function canGrowTree(world, x, ground, z, top) {
+  if (top + 2 >= world.sizeY) return false;
+  const soil = world.getBlock(x, ground, z);
+  if (soil !== BLOCK.GRASS && soil !== BLOCK.DIRT) return false;
+  for (let y = ground + 1; y <= top; y++) {
+    const block = world.getBlock(x, y, z);
+    if (block !== BLOCK.AIR && !(y === ground + 1 && block === BLOCK.SAPLING)) return false;
+  }
+  return true;
+}
+
 export function growTree(world, x, ground, z, top) {
-  world.setBlock(x, ground, z, BLOCK.DIRT);
+  if (!canGrowTree(world, x, ground, z, top)) return false;
   for (let y = ground + 1; y <= top; y++) world.setBlock(x, y, z, BLOCK.WOOD);
   const layers = [[top - 1, LEAF_RADIUS], [top, LEAF_RADIUS], [top + 1, 1], [top + 2, 0]];
   for (const [y, r] of layers) {
@@ -161,4 +172,5 @@ export function growTree(world, x, ground, z, top) {
       }
     }
   }
+  return true;
 }

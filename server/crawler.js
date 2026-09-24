@@ -13,6 +13,7 @@ import {
   CRAWLER_ATTACK_COOLDOWN,
 } from '../shared/config.js';
 import { createPlayerState, stepPlayer, playerBoxOf, isInWater } from '../shared/physics.js';
+import { isSolid } from '../shared/blocks.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { Provocation, canSee, huntable } from './provocation.js';
 
@@ -100,12 +101,20 @@ export class Crawler {
     }
     // Only idle crawlers mind the edge; hunting ones follow you off it.
     s.edgeGuard = !this.target;
-    // Up a wall: cancel this tick's gravity and rise at climbing speed.
-    if (this.climbing && forward > 0) s.vy = CRAWLER_CLIMB_SPEED + GRAVITY * TICK_DT;
+    // Climb only toward a player above us. Idle wandering into a ruin wall
+    // should choose another stroll, and a roof must stop a climb.
+    const above = this.target && this.target.state.y > s.y + CRAWLER_HEIGHT;
+    const ceiling = isSolid(world.getBlock(Math.floor(s.x), Math.floor(s.y + CRAWLER_HEIGHT + 0.1), Math.floor(s.z)));
+    if (this.climbing && forward > 0 && above && !ceiling) s.vy = CRAWLER_CLIMB_SPEED + GRAVITY * TICK_DT;
     const { x, z } = s;
     stepPlayer(s, { forward, strafe: 0, jump: isInWater(s, world), yaw: s.yaw, pitch: 0 }, world);
     const expected = CRAWLER_SPEED * forward * TICK_DT;
-    this.climbing = forward > 0 && Math.hypot(s.x - x, s.z - z) < expected * 0.25;
+    const blocked = forward > 0 && Math.hypot(s.x - x, s.z - z) < expected * 0.25;
+    this.climbing = !!above && !ceiling && blocked;
+    if (blocked && !this.target) {
+      this.wanderGoal = null;
+      this.wait = Math.floor((1 + Math.random() * 2) * TICK_RATE);
+    }
 
     if (this.target && tick >= this.nextAttackTick && this.inReach(this.target)) {
       this.nextAttackTick = tick + ATTACK_TICKS;

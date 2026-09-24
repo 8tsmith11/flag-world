@@ -1,7 +1,7 @@
 // Server-owned sapling timers. Only due timers are visited on each tick.
 import { TICK_RATE } from '../shared/config.js';
 import { BLOCK } from '../shared/blocks.js';
-import { growTree } from '../shared/structures.js';
+import { canGrowTree, growTree } from '../shared/structures.js';
 
 const GROW_TICKS = 15 * TICK_RATE;
 const RETRY_TICKS = 5 * TICK_RATE;
@@ -32,14 +32,8 @@ export class SaplingGrowth {
 
   canGrow(x, y, z, top) {
     const world = this.world;
-    if (top + 2 >= world.sizeY) return false;
-    const ground = world.getBlock(x, y - 1, z);
-    if (ground !== BLOCK.GRASS && ground !== BLOCK.DIRT) return false;
+    if (!canGrowTree(world, x, y - 1, z, top)) return false;
     if (this.occupied(x, y, z, top)) return false;
-    for (let by = y; by <= top + 2; by++) {
-      const id = world.getBlock(x, by, z);
-      if (id !== BLOCK.AIR && id !== BLOCK.SAPLING && id !== BLOCK.LEAVES) return false;
-    }
     return true;
   }
 

@@ -19,6 +19,7 @@ const CHEST_SIZE = 27;
 export const CONTAINERS = ['furnace', 'chest', 'anvil'];
 import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
+import { ITEM } from '/shared/itemIds.js';
 import { recipesAt, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
 import { canHaveMods, modLines, stackName } from '/shared/modifiers.js';
 import { renderStack } from './itemIcon.js';
@@ -32,6 +33,7 @@ export class InventoryScreen {
     this.cursorEl = document.getElementById('inv-cursor');
     this.recipeList = document.getElementById('inv-recipes');
     this.open = false;
+    this.creative = false;
     this.mode = 'inventory';
     // Block position of the workbench or furnace in use, or null.
     this.at = null;
@@ -138,13 +140,21 @@ export class InventoryScreen {
     document.getElementById('inv-furnace').hidden = mode !== 'furnace';
     document.getElementById('inv-chest-panel').hidden = mode !== 'chest';
     document.getElementById('inv-anvil').hidden = mode !== 'anvil';
-    document.getElementById('inv-crafting-title').textContent = mode === 'workbench' ? 'Workbench' : 'Crafting';
+    document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : mode === 'workbench' ? 'Workbench' : 'Crafting';
     // Empty until the server's first CONTAINER message arrives.
     if (mode === 'furnace') this.setContainer({ kind: 'furnace', slots: [null, null, null], burn: 0, progress: 0 });
     if (mode === 'chest') this.setContainer({ kind: 'chest', slots: new Array(CHEST_SIZE).fill(null) });
     if (mode === 'anvil') this.setContainer({ kind: 'anvil', slots: [null] });
     if (!container && !this.preview) this.createPreview(color);
     this.update(this.inventory);
+  }
+
+  setCreative(enabled) {
+    this.creative = !!enabled;
+    if (this.open) {
+      document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : this.mode === 'workbench' ? 'Workbench' : 'Crafting';
+      this.update(this.inventory);
+    }
   }
 
   // view: the server's CONTAINER message ({ kind, slots, ... }).
@@ -200,10 +210,12 @@ export class InventoryScreen {
 
     // Only what you can make right now here; rebuilt on every inventory change.
     const station = this.mode === 'workbench' ? 'workbench' : null;
-    this.recipeList.replaceChildren(...recipesAt(station).filter((r) => canAfford(r, inventory.slots)).map((recipe) => {
+    this.recipeList.replaceChildren(...recipesAt(station, this.creative)
+      .filter((r) => this.creative || canAfford(r, inventory.slots)).map((recipe) => {
       const li = document.createElement('li');
       const button = document.createElement('button');
       button.type = 'button';
+      button.disabled = !canAfford(recipe, inventory.slots);
       const out = document.createElement('div');
       out.className = 'slot';
       renderStack(out, { item: recipe.output, count: recipe.count });
@@ -241,7 +253,8 @@ export class InventoryScreen {
     }
     model.rotation.y += dt * PREVIEW_TURN_SPEED;
     animatePlayer(model, { dt, speed: 0, pitch: 0, held,
-      armor: this.inventory.armor?.item ?? null, accessory: this.inventory.accessory?.item ?? null });
+      armor: this.inventory.armor?.item ?? null, accessory: this.inventory.accessory?.item ?? null,
+      orbActive: this.creative && this.inventory.accessory?.item === ITEM.FLIGHT_ORB });
     renderer.render(scene, camera);
   }
 }

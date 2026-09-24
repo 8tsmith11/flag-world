@@ -58,6 +58,7 @@ export const BLOCK = {
   ANVIL: 53,
   // The darkened ground inside a dragon roost's nest.
   SCORCHED_EARTH: 57,
+  QUARRY_STONE: 58,
 };
 
 export function isWater(id) {
@@ -163,9 +164,10 @@ function define(id, name, props) {
 }
 
 define(BLOCK.AIR, 'air', { solid: false, transparent: true, color: 0x000000, breakable: false, hardness: 0 });
-define(BLOCK.GRASS, 'grass', { color: 0x5da83a, breakTime: 0.6 });
+define(BLOCK.GRASS, 'grass', { color: 0x5da83a, breakTime: 0.6, drops: BLOCK.DIRT });
 define(BLOCK.DIRT, 'dirt', { color: 0x8a5a36, breakTime: 0.5 });
 define(BLOCK.STONE, 'stone', { color: 0x8a8a8a, hardness: 2, breakTime: 1.5 });
+define(BLOCK.QUARRY_STONE, 'quarry stone', { color: 0x343b42, hardness: 8, breakTime: 4 });
 define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: 4, breakTime: 1.5 });
 define(BLOCK.MOSSY_STONE_BRICKS, 'mossy stone bricks', { color: 0x778a70, hardness: 4, breakTime: 1.5 });
 define(BLOCK.CRACKED_STONE_BRICKS, 'cracked stone bricks', { color: 0x858480, hardness: 4, breakTime: 1.5 });
@@ -230,6 +232,13 @@ define(BLOCK.ROPE, 'rope', {
 
 export function getBlockDef(id) {
   return defs[id] ?? defs[BLOCK.AIR];
+}
+
+// Canonical block items for creative crafting. Encoded facing/flow variants
+// use their ordinary item (door, ladder, bucket, etc.) instead.
+export function creativeBlockIds() {
+  return Object.values(BLOCK).filter((id) => id !== BLOCK.AIR && id !== BLOCK.LADDER
+    && id !== BLOCK.DOOR && !isFlowingWater(id));
 }
 
 export function isSolid(id) {

@@ -24,7 +24,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 const game = new Game();
 
-wss.on('connection', (socket) => game.connect(socket));
+wss.on('connection', (socket, request) => game.connect(socket, request.socket.remoteAddress));
 
 function lanAddresses() {
   return Object.values(os.networkInterfaces())

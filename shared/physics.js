@@ -10,9 +10,11 @@ import {
   CROUCH_SPEED_SCALE, CROUCH_HEIGHT, CROUCH_EYE_DROP, CROUCH_MAX_DROP, BOW_DRAW_SPEED_SCALE, EAT_SPEED_SCALE,
   GLIDE_SPEED, GLIDE_FALL_SPEED, SPRINT_SPEED_SCALE, WATER_CURRENT_SPEED,
   GRAPPLE_RANGE, GRAPPLE_SPEED, GRAPPLE_COOLDOWN,
+  FLIGHT_SPEED,
 } from './config.js';
 import { BLOCK, isSolid, isClimbable, isLadder, isWater, waterLevel } from './blocks.js';
 import { accessoryDef } from './accessories.js';
+import { ITEM } from './itemIds.js';
 import { FROST } from './tools.js';
 import { lookDirection, raycastBlock } from './raycast.js';
 
@@ -41,7 +43,7 @@ const GRAPPLE_COOLDOWN_TICKS = Math.round(GRAPPLE_COOLDOWN / TICK_DT);
 export function createPlayerState(x, y, z) {
   return {
     x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0,
-    onGround: false, carrying: false, crouching: false, gliding: false,
+    onGround: false, carrying: false, crouching: false, gliding: false, flying: false, creative: false,
     accessory: null, springCharge: 0, springBouncing: false,
     slowTicks: 0, grapple: null, hookCooldown: 0, moveScale: 1,
   };
@@ -189,10 +191,31 @@ export function stepPlayer(state, input, world) {
   else if (state.crouching && !collidesAt(world, PLAYER_BOX, state.x, state.y, state.z)) state.crouching = false;
   const box = playerBoxOf(state);
 
+  if (input.flyToggle && state.creative && state.accessory === ITEM.FLIGHT_ORB) state.flying = !state.flying;
+  if (!state.creative || state.accessory !== ITEM.FLIGHT_ORB) state.flying = false;
+
   // Grappling hook (input.hook is only kept by the server with one in hand).
   // A pull replaces all other movement until it ends.
   if (state.hookCooldown > 0) state.hookCooldown--;
   if (state.slowTicks > 0) state.slowTicks--;
+  if (state.flying) {
+    state.grapple = null;
+    state.gliding = false;
+    state.springCharge = 0;
+    state.springBouncing = false;
+    let fwd = Math.max(-1, Math.min(1, input.forward));
+    let strafe = Math.max(-1, Math.min(1, input.strafe));
+    const length = Math.hypot(fwd, strafe);
+    if (length > 1) { fwd /= length; strafe /= length; }
+    const sin = Math.sin(state.yaw), cos = Math.cos(state.yaw);
+    state.vx = (-sin * fwd + cos * strafe) * FLIGHT_SPEED + state.kx;
+    state.vz = (-cos * fwd - sin * strafe) * FLIGHT_SPEED + state.kz;
+    state.vy = (Number(!!input.jump) - Number(!!input.crouch)) * FLIGHT_SPEED;
+    moveBody(state, world, box);
+    state.kx *= KNOCKBACK_AIR_DECAY;
+    state.kz *= KNOCKBACK_AIR_DECAY;
+    return;
+  }
   if (input.hook) fireGrapple(state, world);
   if (state.grapple && state.carrying) state.grapple = null;
   if (state.grapple) {

@@ -23,12 +23,14 @@ export const VIEW_DISTANCE_MAX = 320;
 // Simulation runs at a fixed rate. Every client input represents exactly one tick.
 export const TICK_RATE = 20;
 export const TICK_DT = 1 / TICK_RATE;
+export const QUARRY_REGROW_TIME = 5;
 
 // Player physics (blocks, seconds).
 export const PLAYER_WIDTH = 0.6;
 export const PLAYER_HEIGHT = 1.8;
 export const PLAYER_EYE_HEIGHT = 1.62;
 export const WALK_SPEED = 4.3;
+export const FLIGHT_SPEED = WALK_SPEED * 2;
 export const SPRINT_SPEED_SCALE = 1.5;
 export const JUMP_VELOCITY = 8.4;
 export const GRAVITY = 28;
@@ -217,9 +219,9 @@ export const EEL_REACH = 1.2;
 // EEL_LOSE_RANGE or once they're back on their feet.
 export const EEL_AGGRO_RANGE = 15;
 export const EEL_LOSE_RANGE = 30;
-// Its patrol zone: from this far under the island's underside down to this far
-// above the void kill height, within its island's radius.
-export const EEL_ZONE = { belowUnderside: 4, depth: 22, aboveVoid: 6 };
+// Patrol altitude range, measured below the island surface; eels circle near
+// the underside and reach a little past the rim.
+export const EEL_ZONE = { belowSurface: 8, depth: 42, aboveVoid: 6 };
 
 // Day/night: one full cycle in seconds (half day, half night). Time of day is
 // a fraction of the cycle: 0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight.

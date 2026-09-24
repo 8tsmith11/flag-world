@@ -6,6 +6,7 @@ import { World } from './world.js';
 import { CHUNK_SIZE, KEEP_HEIGHT } from './config.js';
 import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores, surfaceStats, growTree } from './structures.js';
 import { generateStructures } from './worldStructures.js';
+import { placeQuarries } from './quarryPlacement.js';
 
 const EDGE_SHELL = 3;
 const KEEP_CLEARANCE = KEEP_REACH + 6;
@@ -67,8 +68,11 @@ function planIslands(seed, teamCount, config) {
     for (let i = 0; i < counts[category]; i++) {
       let placed = false;
       for (let attempt = 0; attempt < config.placementAttempts; attempt++) {
-        const radius = config.tinyRadius[0]
-          + Math.floor(rand() * (config.tinyRadius[1] - config.tinyRadius[0] + 1));
+        // Four out of five keep the old size range; the rest can be a little broader.
+        const larger = rand() < 0.2;
+        const minRadius = larger ? config.tinyRadius[1] + 1 : config.tinyRadius[0];
+        const maxRadius = config.tinyRadius[larger ? 2 : 1];
+        const radius = minRadius + Math.floor(rand() * (maxRadius - minRadius + 1));
         const angle = rand() * Math.PI * 2;
         let x, z, surfaceY, stackedOn = null, stackAbove = null, stackOffset = 0;
         if (category === 0) {
@@ -462,5 +466,6 @@ export function generateIslandWorld(seed, teamCount, config) {
       { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop });
   }
   generateStructures(world, terrains, config, seed);
+  placeQuarries(world, terrains, seed, config.quarry);
   return world;
 }

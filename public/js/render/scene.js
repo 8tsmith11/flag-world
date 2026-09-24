@@ -45,9 +45,3 @@ export function setViewDistance(scene, camera, distance, scale = 1) {
   camera.far = distance + 64;
   camera.updateProjectionMatrix();
 }
-
-// The debug overview sees the whole world; fog would hide it.
-export function setFogEnabled(scene, enabled, distance) {
-  scene.fog.near = enabled ? distance * FOG_START : 1e6;
-  scene.fog.far = enabled ? distance : 1e6 + 1;
-}

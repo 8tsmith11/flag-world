@@ -3,7 +3,7 @@
 // runs fixed-rate input ticks and a per-frame render loop.
 
 import {
-  DEBUG, TICK_DT, TICK_RATE, PLAYER_EYE_HEIGHT, REACH_DISTANCE, RESPAWN_DELAY,
+  TICK_DT, TICK_RATE, PLAYER_EYE_HEIGHT, REACH_DISTANCE, RESPAWN_DELAY,
   BOW_COOLDOWN, DAY_LENGTH,
   VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX,
 } from '/shared/config.js';
@@ -25,16 +25,16 @@ import { LobbyScreen, MatchScreen, loadName } from './lobby.js';
 import { HealthBar, EventFeed, ProgressBar, Toast, Label, DayIndicator } from './hud.js';
 import { FreeCamera } from './spectator.js';
 import { InventoryScreen, CONTAINERS } from './inventoryScreen.js';
-import { createScene, setViewDistance, setFogEnabled } from './render/scene.js';
+import { createScene, setViewDistance } from './render/scene.js';
 import { Clouds } from './render/clouds.js';
 import { Sky } from './render/sky.js';
-import { Overview } from './render/overview.js';
 import { ChunkRenderer } from './render/chunkRenderer.js';
 import { EntityRenderer } from './render/entityRenderer.js';
 import { BlockHighlight } from './render/blockHighlight.js';
 import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
+import { QuarryEffects } from './render/quarryEffects.js';
 import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
 import { Sounds } from './sounds.js';
@@ -99,6 +99,50 @@ const conn = new Connection(`ws://${location.host}`);
 const lobby = new LobbyScreen(conn);
 const matchScreen = new MatchScreen(conn);
 const inventoryScreen = new InventoryScreen(conn);
+const creativeLabel = document.getElementById('creative-label');
+function setCreative(enabled) {
+  creativeLabel.hidden = !enabled;
+  inventoryScreen.setCreative(enabled);
+  if (player) {
+    player.state.creative = enabled;
+    if (!enabled) player.state.flying = false;
+  }
+}
+creativeLabel.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (!input.locked) conn.send({ type: C2S.CREATIVE_TOGGLE });
+});
+
+// No visible hint: double-click either title, then the four screen corners.
+let titleClickAt = -Infinity;
+let secretStep = -1;
+let secretDeadline = 0;
+for (const title of document.querySelectorAll('.secret-title')) {
+  title.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const now = performance.now();
+    if (now - titleClickAt <= 400) {
+      secretStep = 0;
+      secretDeadline = now + 3000;
+      titleClickAt = -Infinity;
+    } else titleClickAt = now;
+  });
+}
+document.addEventListener('click', (event) => {
+  if (secretStep < 0 || event.target.closest('.secret-title')) return;
+  if (event.target.closest('#creative-label')) { secretStep = -1; return; }
+  event.preventDefault();
+  event.stopPropagation();
+  const quadrant = Number(event.clientX >= innerWidth / 2) + 2 * Number(event.clientY >= innerHeight / 2);
+  if (performance.now() > secretDeadline || quadrant !== [0, 1, 3, 2][secretStep]) {
+    secretStep = -1;
+    return;
+  }
+  if (++secretStep === 4) {
+    secretStep = -1;
+    conn.send({ type: C2S.CREATIVE_TOGGLE });
+  }
+}, true);
 // First-person arm, created on WELCOME in the player's color.
 let viewModel = null;
 
@@ -106,8 +150,7 @@ let world = null;
 let chunks = null;
 let clouds = null;
 let furnaceEffects = null;
-// Debug top-down view of the whole world, or null when off.
-let overview = null;
+let quarryEffects = null;
 let player = null;
 let seed = 0;
 let connected = true;
@@ -182,15 +225,7 @@ input.onLockChange = (locked) => {
 // but browsers don't let Esc recapture the mouse, so it waits for a click.
 input.onKey = (code) => {
   if (code === 'KeyE' && mode === MODE.PLAY) openInventory('inventory', null);
-  if (code === 'KeyM' && DEBUG && world) toggleOverview();
 };
-
-function toggleOverview() {
-  overview = overview ? null : new Overview(world);
-  chunks.setViewDistance(overview ? Infinity : viewDistance, !!overview);
-  setFogEnabled(scene, !overview, viewDistance);
-  if (clouds) clouds.visible = !overview;
-}
 
 // View distance slider on the click-to-play overlay.
 const viewDistanceInput = document.getElementById('view-distance');
@@ -208,7 +243,7 @@ viewDistanceInput.addEventListener('input', () => {
     // Not remembered; still applies now.
   }
   setViewDistance(scene, camera, viewDistance, sky.fogScale);
-  if (chunks && !overview) chunks.setViewDistance(viewDistance);
+  if (chunks) chunks.setViewDistance(viewDistance);
 });
 // Using the settings shouldn't count as a click to play.
 document.getElementById('settings').addEventListener('click', (e) => e.stopPropagation());
@@ -390,10 +425,15 @@ function startGame(msg) {
   chunks = new ChunkRenderer(scene, world, viewDistance);
   clouds = new Clouds(scene, world);
   furnaceEffects = new FurnaceEffects(scene, world);
+  quarryEffects = new QuarryEffects(scene, world);
+  for (const { x, y, z, id } of msg.blocks) {
+    if (id === BLOCK.QUARRY_STONE) quarryEffects.changed(x, y, z, id);
+  }
   for (const { x, y, z } of msg.litFurnaces ?? []) furnaceEffects.setLit(x, y, z, true);
   for (const portal of msg.portals ?? []) portals.add(portal);
   self = msg.players.find((p) => p.id === msg.id);
   player = new LocalPlayer(msg.id, msg.color, self, world);
+  setCreative(!!msg.creative);
   for (const p of msg.players) {
     names.set(p.id, p.name);
     playerTeams.set(p.id, p.team);
@@ -463,6 +503,7 @@ conn.on(S2C.ENTITY_DESPAWN, (msg) => entities.remove(msg.id));
 conn.on(S2C.PORTAL_SPAWN, (msg) => portals.add(msg.portal));
 conn.on(S2C.PORTAL_DESPAWN, (msg) => portals.remove(msg.id));
 conn.on(S2C.EMBER_BURST, (msg) => portals.burst(msg.x, msg.y, msg.z));
+conn.on(S2C.CREATIVE, (msg) => setCreative(msg.enabled));
 conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor,
   armor: msg.armor, accessory: msg.accessory }));
 conn.on(S2C.SWING, (msg) => entities.swing(msg.id));
@@ -476,6 +517,7 @@ conn.on(S2C.CONTAINER_CLOSE, () => {
   if (inventoryScreen.open && CONTAINERS.includes(inventoryScreen.mode)) closeInventory(false);
 });
 conn.on(S2C.FURNACE_LIT, (msg) => furnaceEffects?.setLit(msg.x, msg.y, msg.z, msg.lit));
+conn.on(S2C.QUARRY_PUFF, (msg) => quarryEffects?.puff(msg.x, msg.y, msg.z));
 
 conn.on(S2C.BLOCK_CHANGE, (msg) => {
   if (!world) return;
@@ -486,6 +528,9 @@ conn.on(S2C.BLOCK_CHANGE, (msg) => {
     furnaceEffects?.setLit(msg.x, msg.y, msg.z, false);
   }
   world.setBlock(msg.x, msg.y, msg.z, msg.id);
+  if (oldId === BLOCK.QUARRY_STONE || msg.id === BLOCK.QUARRY_STONE) {
+    quarryEffects?.changed(msg.x, msg.y, msg.z, msg.id);
+  }
 });
 
 conn.on(S2C.STATE, (msg) => {
@@ -626,6 +671,9 @@ function frame(now) {
     if (controls.glide) controls.place = false;
     controls.rift = heldItem() === ITEM.RIFT_STONE && controls.place;
     if (controls.rift) { controls.place = false; viewModel.push(); }
+    controls.spawnEgg = getItemDef(heldItem()).mobType && controls.place && target
+      ? { x: target.x, y: target.y, z: target.z } : null;
+    if (controls.spawnEgg) { controls.place = false; viewModel.push(); }
     if (controls.draw) {
       if (localTick >= drawReadyAt) drawTicks++;
     } else {
@@ -699,37 +747,32 @@ function frame(now) {
     camera.updateProjectionMatrix();
   }
 
-  if (overview) chunks.update(world.sizeX / 2, world.sizeZ / 2);
-  else chunks.update(camera.position.x, camera.position.z);
+  chunks.update(camera.position.x, camera.position.z);
   clouds?.update(dt);
   // Day and night, from the match clock.
   if (dayClock) {
     const ticks = dayClock.tick - dayClock.baseTick + Math.min(1, (now - dayClock.at) / 1000 * TICK_RATE);
     const time = (dayClock.baseTime + ticks / (DAY_LENGTH * TICK_RATE)) % 1;
     sky.update(time, camera);
-    if (!overview) setViewDistance(scene, camera, viewDistance, sky.fogScale);
+    setViewDistance(scene, camera, viewDistance, sky.fogScale);
     clouds?.setTint(sky.tint);
     dayIndicator.set(time);
   }
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
+  quarryEffects?.update(dt, camera.position, chunks.viewDistance);
   portals.update(dt, camera);
   entities.update(dt);
   sounds.update(dt, camera.position, player.state, world, entities,
     input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'));
   flags.update(dt, player.id, pos);
   // The hook's rope runs from about the right hand to where it caught.
-  const grapple = playing && !overview ? player.state.grapple : null;
+  const grapple = playing ? player.state.grapple : null;
   grappleLine.update(grapple && { x: camera.position.x + Math.cos(input.yaw) * 0.3,
     y: camera.position.y - 0.4, z: camera.position.z - Math.sin(input.yaw) * 0.3 }, grapple);
   // Frost from an Ice Sword hit rims the screen while it slows you.
   document.body.classList.toggle('frosted', playing && player.state.slowTicks > 0);
-  if (overview) {
-    overview.fit(camera.aspect);
-    renderer.render(scene, overview.camera);
-  } else {
-    renderer.render(scene, camera);
-  }
-  if (playing && !inventoryScreen.open && !overview) {
+  renderer.render(scene, camera);
+  if (playing && !inventoryScreen.open) {
     const s = player.state;
     viewModel.update(dt, {
       look: { yaw: input.yaw, pitch: input.pitch },

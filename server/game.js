@@ -22,6 +22,7 @@ import {
 } from '../shared/blocks.js';
 import { getItemDef, ITEM } from '../shared/items.js';
 import { accessoryDef } from '../shared/accessories.js';
+import { eggForItem } from '../shared/mobEggs.js';
 import { RIFT_STONE } from '../shared/accessories.js';
 import { getRecipe, ANVIL_REROLL_COST } from '../shared/recipes.js';
 import { canHaveMods } from '../shared/modifiers.js';
@@ -29,10 +30,10 @@ import { FROST } from '../shared/tools.js';
 import { Chest, createContainer } from './containers.js';
 import { clickSlot } from './inventory.js';
 import { Arrow } from './arrow.js';
-import { Cow, Herd } from './cow.js';
-import { Dragon } from './dragon.js';
-import { Crawler } from './crawler.js';
-import { VoidEel } from './eel.js';
+import { Cow, Herd, COW_BOX } from './cow.js';
+import { Dragon, DRAGON_BOX } from './dragon.js';
+import { Crawler, CRAWLER_BOX } from './crawler.js';
+import { VoidEel, EEL_BOX } from './eel.js';
 import { canStand } from './pathfind.js';
 import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../shared/worldgen.js';
 import { keepAt, flagHome, mulberry32, KEEP_REACH } from '../shared/structures.js';
@@ -50,6 +51,7 @@ import { ItemEntity } from './item.js';
 import { WaterSimulation } from './water.js';
 import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
+import { QuarryRegrowth } from './quarry.js';
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -107,6 +109,10 @@ function sendTo(socket, msg) {
   if (socket?.readyState === 1) socket.send(JSON.stringify(msg));
 }
 
+function isLocalAddress(address) {
+  return address === '::1' || /^127\./.test(address ?? '') || /^::ffff:127\./.test(address ?? '');
+}
+
 export class Game {
   constructor() {
     this.phase = PHASE.LOBBY;
@@ -127,6 +133,7 @@ export class Game {
     this.water = null;
     this.leafDecay = null;
     this.saplings = null;
+    this.quarry = null;
     // Flags by owner id, and the last player standing once the match is decided.
     this.flags = new Map();
     this.winnerId = null;
@@ -152,8 +159,9 @@ export class Game {
 
   // A socket stays anonymous until its HELLO; after that it is exactly one of
   // a lobby member, a spectator or a match player.
-  connect(socket) {
-    const session = { socket, greeted: false, member: null, player: null, spectating: false };
+  connect(socket, remoteAddress) {
+    const session = { socket, greeted: false, member: null, player: null, spectating: false,
+      localHost: isLocalAddress(remoteAddress), creative: false };
     socket.on('message', (data) => this.handleMessage(session, data));
     socket.on('close', () => this.disconnect(session));
     return session;
@@ -224,6 +232,9 @@ export class Game {
       case C2S.ANVIL_REROLL:
         if (session.player) this.anvilReroll(session.player, msg);
         break;
+      case C2S.CREATIVE_TOGGLE:
+        this.toggleCreative(session);
+        break;
     }
   }
 
@@ -233,6 +244,18 @@ export class Game {
     const name = cleanName(msg.name);
     if (this.phase === PHASE.LOBBY) this.joinLobby(session, name);
     else if (!this.reclaim(session, name)) this.spectate(session);
+  }
+
+  toggleCreative(session) {
+    if (!session.localHost || (!session.member && !session.player)) return;
+    session.creative = !session.creative;
+    if (session.player) {
+      const player = session.player;
+      player.creative = session.creative;
+      player.state.creative = player.creative;
+      if (!player.creative) player.state.flying = false;
+    }
+    sendTo(session.socket, { type: S2C.CREATIVE, enabled: session.creative });
   }
 
   // ---- Lobby ----
@@ -304,9 +327,10 @@ export class Game {
     this.teamCount = occupiedTeams.length;
     const started = performance.now();
     this.world = generateWorld(this.seed, occupiedTeams.length, this.worldSize);
+    this.quarry = new QuarryRegrowth(this);
     this.water = new WaterSimulation(this.world);
     this.leafDecay = new LeafDecay(this.world, (x, y, z) => {
-      if (Math.random() < 0.08) this.dropAt(ITEM.TREE_SEED, x, y, z);
+      if (Math.random() < 0.04) this.dropAt(ITEM.TREE_SEED, x, y, z);
     });
     this.saplings = new SaplingGrowth(this.world, (x, y, z, top) =>
       [...this.players.values()].some((p) => !p.dead && p.state.x + playerBoxOf(p.state).halfW > x
@@ -321,6 +345,7 @@ export class Game {
       if (oldId === BLOCK.WOOD && id !== BLOCK.WOOD) this.leafDecay.enqueueAroundLog(x, y, z);
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
       if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
+      if (id === BLOCK.QUARRY_STONE || oldId === BLOCK.QUARRY_STONE) this.quarry.changed(x, y, z, id);
     };
     for (const [key, table] of this.world.lootChests) {
       this.world.tileEntities.set(key, new Chest(table));
@@ -330,6 +355,8 @@ export class Game {
     [...this.members.values()].forEach((m) => {
       const keep = this.world.keeps[occupiedTeams.indexOf(m.team)];
       const player = new Player(m.id, m.session.socket, m.name, m.color, this.keepSpawn(keep), m.team);
+      player.creative = m.session.creative && m.session.localHost;
+      player.state.creative = player.creative;
       player.keep = keep;
       if (!teamFlags.has(m.team)) {
         const flag = new Flag(player.id, player.color, flagHome(keep), m.team);
@@ -372,6 +399,10 @@ export class Game {
     session.spectating = false;
     session.player = player;
     player.attach(session.socket);
+    player.creative = session.localHost && player.creative;
+    player.state.creative = player.creative;
+    if (!player.creative) player.state.flying = false;
+    session.creative = player.creative;
     console.log(`${player.name} reconnected`);
     this.sendWelcome(player);
     this.broadcastMatchInfo();
@@ -408,6 +439,7 @@ export class Game {
       worldSize: this.worldSize,
       tick: this.tick,
       dayTime: this.dayTime(),
+      creative: player.creative,
       blocks: [...this.blockChanges.values()],
       litFurnaces: [...this.world.tileEntities].filter(([, c]) => c.kind === 'furnace' && c.burn > 0)
         .map(([key]) => {
@@ -440,6 +472,7 @@ export class Game {
       slot: Number.isInteger(msg.slot) && msg.slot >= 0 && msg.slot < HOTBAR_SIZE ? msg.slot : 0,
       breaking: parseBlockPos(this.world, msg.breaking),
       place: parsePlace(this.world, msg.place),
+      spawnEgg: parseBlockPos(this.world, msg.spawnEgg),
       use: parseBlockPos(this.world, msg.use),
       drop: !!msg.drop,
       attack: !!msg.attack,
@@ -450,6 +483,7 @@ export class Game {
       rift: !!msg.rift,
       fire: !!msg.fire,
       hook: !!msg.hook,
+      flyToggle: !!msg.flyToggle,
     });
   }
 
@@ -670,6 +704,49 @@ export class Game {
     this.swing(player);
   }
 
+  stepSpawnEgg(player, pos, slot) {
+    const egg = eggForItem(player.inventory.get(slot)?.item);
+    if (!egg || !pos || !this.inReach(player, pos) || !isSolid(this.world.getBlock(pos.x, pos.y, pos.z))) return;
+    const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
+    const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX };
+    const box = boxes[egg.type];
+    if (!box || !playerFitsAt(this.world, { x, y, z, box }, y)) return;
+    const island = this.world.islands?.length ? this.world.islands.reduce((best, candidate) =>
+      Math.hypot(x - candidate.x, z - candidate.z) < Math.hypot(x - best.x, z - best.z) ? candidate : best)
+      : { x, z, radius: 16, surfaceY: y, kind: 'team' };
+    let mob;
+    switch (egg.type) {
+      case 'cow': {
+        mob = new Cow(this.nextId++, new Herd(this.nextId++), x, y, z);
+        this.cows.set(mob.id, mob);
+        break;
+      }
+      case 'dragon':
+        mob = new Dragon(this.nextId++, x, y, z, { x, z, radius: island.radius },
+          DRAGON_LEASH[island.kind] ?? DRAGON_LEASH.roost);
+        this.dragons.set(mob.id, mob);
+        break;
+      case 'crawler':
+        mob = new Crawler(this.nextId++, x, y, z);
+        this.mobs.set(mob.id, mob);
+        break;
+      case 'voidEel': {
+        const top = island.surfaceY - EEL_ZONE.belowSurface;
+        const bottom = Math.min(top - 4, Math.max(this.world.voidY + EEL_ZONE.aboveVoid, top - EEL_ZONE.depth));
+        mob = new VoidEel(this.nextId++, { x: island.x, z: island.z,
+          radius: island.radius * 1.15, islandRadius: island.radius, surfaceY: island.surfaceY, top, bottom });
+        Object.assign(mob.state, { x, y, z });
+        this.mobs.set(mob.id, mob);
+        break;
+      }
+      default: return;
+    }
+    player.inventory.takeOne(slot);
+    player.inventoryDirty = true;
+    this.broadcast({ type: S2C.ENTITY_SPAWN, entity: mob.describe() });
+    this.swing(player);
+  }
+
   // Air or water (placing into water replaces it), and outside every keep's no-build zone.
   buildable(x, y, z) {
     const id = this.world.getBlock(x, y, z);
@@ -816,6 +893,7 @@ export class Game {
   craft(player, msg) {
     const recipe = getRecipe(msg.recipe);
     if (player.dead || !recipe) return;
+    if (recipe.creative && !player.creative) return;
     if (recipe.station === 'workbench') {
       const at = parseBlockPos(this.world, msg.at);
       if (!at || this.world.getBlock(at.x, at.y, at.z) !== BLOCK.WORKBENCH || !this.inReach(player, at)) return;
@@ -879,7 +957,8 @@ export class Game {
         this.removeItem(entity);
         continue;
       }
-      if (s.x !== x || s.y !== y || s.z !== z) moved.push(entity);
+      if (s.x !== x || s.y !== y || s.z !== z || entity.forceSnapshot) moved.push(entity);
+      entity.forceSnapshot = false;
 
       if (entity.pickupTicks > 0) {
         entity.pickupTicks--;
@@ -1184,20 +1263,17 @@ export class Game {
 
   // The size's eel count, homed in turn under the central island, then each
   // team island, and around again (so the first is always under the center).
-  // Each patrols from just under its island's underside down toward the void.
+  // They circle close to the underside, including the outer rim.
   spawnEels() {
     const count = WORLD_SIZES[this.worldSize].eels;
     const homes = [this.world.islands.find((island) => island.kind === 'center'),
       ...this.world.islands.filter((island) => island.kind === 'team')];
     for (let i = 0; i < count; i++) {
       const island = homes[i % homes.length];
-      const top = island.bottomY - EEL_ZONE.belowUnderside;
+      const top = island.surfaceY - EEL_ZONE.belowSurface;
       const bottom = Math.min(top - 4, Math.max(this.world.voidY + EEL_ZONE.aboveVoid, top - EEL_ZONE.depth));
-      const eel = new VoidEel(this.nextId++, { x: island.x, z: island.z, radius: island.radius * 0.8, top, bottom });
-      // Spread eels that share an island around it.
-      const angle = i * 2.4;
-      eel.state.x += Math.cos(angle) * island.radius * 0.4;
-      eel.state.z += Math.sin(angle) * island.radius * 0.4;
+      const eel = new VoidEel(this.nextId++, { x: island.x, z: island.z,
+        radius: island.radius * 1.15, islandRadius: island.radius, surfaceY: island.surfaceY, top, bottom });
       this.mobs.set(eel.id, eel);
     }
   }
@@ -1363,7 +1439,7 @@ export class Game {
   // tick's move, so a fall counts from the ledge, not a tick below it.
   trackFall(player, prevY) {
     const s = player.state;
-    if (s.accessory === ITEM.SPRING_BOOTS) { player.fallTop = null; return; }
+    if (s.accessory === ITEM.SPRING_BOOTS || s.flying) { player.fallTop = null; return; }
     let crossedWater = false;
     if (s.y < prevY) {
       const halfW = playerBoxOf(s).halfW;
@@ -1407,13 +1483,13 @@ export class Game {
     if (player.carrying) this.dropFlag(player);
     player.eliminated = player.flag.state === FLAG_STATE.CAPTURED;
     const s = player.state;
-    if (cause !== DEATH_CAUSE.VOID) {
+    if (!player.creative && cause !== DEATH_CAUSE.VOID) {
       const r = () => (Math.random() - 0.5) * 4;
       for (const stack of player.inventory.takeAll()) {
         this.spawnItem(stack.item, stack.count, s.x, s.y + 0.5, s.z, r(), ITEM_POP_SPEED, r(), ITEM_PICKUP_DELAY, stack.mods);
       }
     }
-    player.inventory.takeAll();
+    if (!player.creative) player.inventory.takeAll();
     player.inventoryDirty = true;
     console.log(killer ? `${killer.name} killed ${player.name} (${cause})` : `${player.name} died (${cause})`);
     this.broadcast({
@@ -1446,6 +1522,7 @@ export class Game {
     const spawn = this.keepSpawn(player.keep);
     player.state = createPlayerState(spawn.x, spawn.y, spawn.z);
     Object.assign(player.state, { yaw, pitch });
+    player.state.creative = player.creative;
     player.hp = player.maxHp();
     player.dead = false;
     player.lastAttacker = null;
@@ -1626,6 +1703,7 @@ export class Game {
           player.state.springBouncing = false;
         }
         player.state.moveScale = player.moveScale();
+        player.state.creative = player.creative;
         // Drawing or loading (and its slowdown) only counts with a bow or
         // crossbow in hand, firing with a crossbow, and hooking with a
         // grappling hook (the physics also refuses it while carrying a flag
@@ -1645,6 +1723,7 @@ export class Game {
         this.stepBreaking(player, input.breaking);
         if (input.use) this.stepUse(player, input.use);
         else if (input.place) this.stepPlace(player, input.place, input.slot);
+        if (input.spawnEgg) this.stepSpawnEgg(player, input.spawnEgg, input.slot);
         if (input.rift) this.stepRift(player);
         if (input.drop) this.stepDrop(player, input.slot);
         this.stepBow(player, input.draw);
@@ -1657,6 +1736,7 @@ export class Game {
 
     this.leafDecay.tick();
     this.saplings.tick(this.tick);
+    this.quarry.tick(this.tick);
 
     this.updateFlags();
     this.updatePortals();

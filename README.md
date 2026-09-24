@@ -160,9 +160,8 @@ The click-to-play screen has a view distance slider (64–320 blocks, default
 
 ## Debug overlay
 
-Set `DEBUG` in `shared/config.js` to `true` to show FPS and player coordinates,
-and to let M toggle a top-down view of the whole world. Refresh the page after
-changing it.
+Set `DEBUG` in `shared/config.js` to `true` to show FPS and player coordinates.
+Refresh the page after changing it.
 
 ## More
 

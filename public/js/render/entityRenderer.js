@@ -123,6 +123,7 @@ export class EntityRenderer {
       time: performance.now(), x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
       crouching: !!snap.crouching, draw: snap.draw ?? 0, armor: snap.armor ?? null,
       accessory: snap.accessory ?? null,
+      orbActive: !!snap.orbActive,
       slowed: snap.slowTicks > 0, grapple: snap.grapple ?? null,
       gliding: !!snap.gliding, breathing: !!snap.breathing, walking: !!snap.walking, climbing: !!snap.climbing,
       onGround: !!snap.onGround,
@@ -215,7 +216,8 @@ export class EntityRenderer {
       if (object.userData.player) {
         animatePlayer(object, {
           dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, armor: b.armor,
-          accessory: b.accessory, crouching: b.crouching, draw: b.draw, gliding: b.gliding, slowed: b.slowed,
+          accessory: b.accessory, crouching: b.crouching, draw: b.draw, gliding: b.gliding,
+          slowed: b.slowed, orbActive: b.orbActive,
         });
         const grapple = object.visible ? b.grapple : null;
         if (grapple && !entity.grappleLine) entity.grappleLine = new GrappleLine(this.scene);

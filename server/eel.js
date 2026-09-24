@@ -36,7 +36,7 @@ function exposed(player, world) {
 }
 
 export class VoidEel {
-  // zone: { x, z, radius, top, bottom }, the space it patrols.
+  // zone: { x, z, radius, islandRadius, surfaceY, top, bottom }.
   constructor(id, zone) {
     this.id = id;
     this.type = ENTITY_TYPE.VOID_EEL;
@@ -52,6 +52,10 @@ export class VoidEel {
     this.target = null;
     this.nextAttackTick = 0;
     this.phase = Math.random() * Math.PI * 2;
+    const start = this.patrolGoal(0);
+    this.state.x = start.x;
+    this.state.y = start.y;
+    this.state.z = start.z;
   }
 
   center() {
@@ -80,16 +84,34 @@ export class VoidEel {
     return best?.player ?? null;
   }
 
-  // A slow circuit around the middle of the zone, bobbing up and down.
+  // Orbit near the underside, drifting between the inner slope and just
+  // outside the island edge. The underside rises toward the rim.
   patrolGoal(tick) {
     const zone = this.zone;
-    const angle = tick * 0.004 + this.phase;
-    const radius = zone.radius * (0.35 + 0.2 * Math.sin(tick * 0.002 + this.phase));
+    // Keep the goal slower than the eel even on a large island, so it can
+    // follow the rim instead of cutting tight circles around the center.
+    const angle = tick * (EEL_SPEED * TICK_DT * 0.7 / (zone.radius * 0.75)) + this.phase;
+    const radius = zone.radius * (0.8 + 0.15 * Math.sin(tick * 0.0008 + this.phase));
+    const fromCenter = Math.min(1, radius / zone.islandRadius);
+    const underside = zone.surfaceY - (12 + zone.islandRadius * 0.28 * (1 - fromCenter) ** 1.4);
+    const y = underside - 9 + 3 * Math.sin(tick * 0.006 + this.phase);
     return {
       x: zone.x + Math.cos(angle) * radius,
-      y: (zone.top + zone.bottom) / 2 + (zone.top - zone.bottom) * 0.35 * Math.sin(tick * 0.006 + this.phase),
+      y: Math.max(zone.bottom + 2, Math.min(zone.top - 2, y)),
       z: zone.z + Math.sin(angle) * radius,
     };
+  }
+
+  homeGoal() {
+    const s = this.state, zone = this.zone;
+    const dx = s.x - zone.x, dz = s.z - zone.z;
+    const distance = Math.hypot(dx, dz);
+    if (s.y > zone.top && distance < zone.islandRadius * 1.08) {
+      const angle = distance > 0.01 ? Math.atan2(dz, dx) : this.phase;
+      return { x: zone.x + Math.cos(angle) * zone.islandRadius * 1.12,
+        y: s.y, z: zone.z + Math.sin(angle) * zone.islandRadius * 1.12 };
+    }
+    return this.patrolGoal(0);
   }
 
   // One tick. Returns the player bitten this tick, or null.
@@ -99,13 +121,14 @@ export class VoidEel {
     const home = !this.target && !this.inZone(s.x, s.y, s.z);
     const goal = this.target
       ? { x: this.target.state.x, y: this.target.state.y + playerBoxOf(this.target.state).height / 2, z: this.target.state.z }
-      : home ? { x: this.zone.x, y: (this.zone.top + this.zone.bottom) / 2, z: this.zone.z } : this.patrolGoal(tick);
+      : home ? this.homeGoal() : this.patrolGoal(tick);
     const c = this.center();
     const dx = goal.x - c.x, dy = goal.y - c.y, dz = goal.z - c.z;
     const horizontal = Math.hypot(dx, dz);
     if (horizontal > 0.2) s.yaw = turnToward(s.yaw, Math.atan2(-dx, -dz), TURN_PER_TICK);
     s.pitch = turnToward(s.pitch, Math.max(-0.9, Math.min(0.9, Math.atan2(dy, Math.max(0.5, horizontal)))), TURN_PER_TICK);
-    const speed = (this.target || home ? EEL_CHASE_SPEED : EEL_SPEED) * TICK_DT;
+    const travel = (this.target || home ? EEL_CHASE_SPEED : EEL_SPEED) * TICK_DT;
+    const speed = this.target || home ? travel : Math.min(travel, Math.hypot(dx, dy, dz));
     const step = {
       x: -Math.sin(s.yaw) * Math.cos(s.pitch) * speed,
       y: Math.sin(s.pitch) * speed,

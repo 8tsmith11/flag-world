@@ -274,6 +274,20 @@ body.spectating #daytime {
   display: none;
 }
 
+#creative-label {
+  position: fixed;
+  z-index: 30;
+  top: 12px;
+  left: 12px;
+  padding: 5px 9px;
+  color: #dceaff;
+  background: rgba(20, 34, 58, 0.86);
+  border: 1px solid #7aa9ee;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#creative-label[hidden] { display: none; }
+
 #grab {
   position: fixed;
   left: 50%;
@@ -578,21 +592,103 @@ body.dead canvas {
 .item-tooltip {
   position: fixed;
   z-index: 10000;
-  padding: 5px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  border-radius: 3px;
+  padding: 8px 10px;
+  max-width: min(320px, calc(100vw - 20px));
+  border: 1px solid rgba(194, 206, 232, 0.55);
+  border-radius: 5px;
   background: rgba(12, 16, 26, 0.95);
   color: #fff;
   font: 13px/1.35 ui-monospace, monospace;
-  /* Modded items list their modifiers on lines under the name. */
-  white-space: pre;
+  white-space: normal;
   pointer-events: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
-.item-tooltip::first-line {
+.item-tooltip-name {
   color: #ffe38a;
+  font-weight: bold;
+  text-transform: capitalize;
 }
+.item-tooltip-stats, .item-tooltip-effect, .item-tooltip-modifier {
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  margin-top: 6px;
+  padding-top: 5px;
+}
+.item-tooltip-stats { color: #e8edf7; white-space: pre; }
+.item-tooltip-effect { color: #a9d8ef; }
+.item-tooltip-modifier { color: #bce9a4; }
+.item-tooltip-effect > div + div, .item-tooltip-modifier > div + div { margin-top: 3px; }
 
 .item-tooltip[hidden] { display: none; }
+
+.icon.accessory, .icon.rift {
+  position: relative;
+  width: calc(var(--slot, 44px) * 0.5);
+  height: calc(var(--slot, 44px) * 0.5);
+}
+.icon.accessory > div { position: absolute; }
+.icon.accessory[data-kind="wind"], .icon.accessory[data-kind="spring"] {
+  width: calc(var(--slot, 44px) * 0.68);
+  height: calc(var(--slot, 44px) * 0.58);
+}
+.icon.accessory[data-kind="wind"]::before, .icon.accessory[data-kind="wind"]::after,
+.icon.accessory[data-kind="spring"]::before, .icon.accessory[data-kind="spring"]::after {
+  content: '';
+  position: absolute;
+  top: 8%;
+  width: 38%;
+  height: 78%;
+  background: var(--item-color);
+  border-bottom: 4px solid #52616b;
+  border-radius: 3px 3px 1px 1px;
+}
+.icon.accessory[data-kind="wind"]::before, .icon.accessory[data-kind="spring"]::before { left: 5%; }
+.icon.accessory[data-kind="wind"]::after, .icon.accessory[data-kind="spring"]::after { right: 5%; }
+.icon.accessory[data-kind="wind"] .accent,
+.icon.accessory[data-kind="spring"] .accent {
+  left: 12%; top: 27%; width: 76%; height: 18%;
+  background: linear-gradient(90deg, #6393a4 0 40%, transparent 40% 60%, #6393a4 60%);
+  z-index: 1;
+}
+.icon.accessory[data-kind="spring"] .accent {
+  background: linear-gradient(90deg, #b99b5c 0 40%, transparent 40% 60%, #b99b5c 60%);
+}
+.icon.accessory[data-kind="heart"], .icon.accessory[data-kind="mending"],
+.icon.accessory[data-kind="ember"] {
+  transform: rotate(45deg);
+  border: 2px solid #c4a470;
+  border-radius: 3px;
+}
+.icon.accessory[data-kind="heart"] .gem, .icon.accessory[data-kind="mending"] .gem,
+.icon.accessory[data-kind="ember"] .gem {
+  inset: 22%;
+  background: var(--item-color);
+  box-shadow: 0 0 5px var(--item-color);
+}
+.icon.rift {
+  transform: rotate(45deg);
+  border: 3px solid #55406c;
+  border-radius: 4px;
+  background: radial-gradient(circle, #f1d1ff 0 18%, var(--item-color) 25% 65%, #68459c 80%);
+  box-shadow: 0 0 7px #aa6aff;
+}
+.icon.accessory[data-kind="orb"] {
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #f4faff, var(--item-color) 52%, #3d5d9c);
+  box-shadow: 0 0 7px var(--item-color);
+}
+.icon.egg {
+  width: calc(var(--slot, 44px) * 0.46);
+  height: calc(var(--slot, 44px) * 0.58);
+  border-radius: 48% 48% 45% 45% / 58% 58% 38% 38%;
+  background: radial-gradient(circle at 32% 35%, var(--spots-color) 0 11%, transparent 12%),
+    radial-gradient(circle at 75% 65%, var(--spots-color) 0 13%, transparent 14%),
+    radial-gradient(circle at 63% 16%, var(--spots-color) 0 7%, transparent 8%), var(--item-color);
+  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.18);
+}
+.icon.block.quarry {
+  background: repeating-linear-gradient(135deg, transparent 0 7px, #62abb2 8px 9px, transparent 10px 13px), #343b42 !important;
+  box-shadow: inset 0 0 0 3px #222a30, 0 0 4px #5799a1;
+}
 
 .icon.bucket {
   width: calc(var(--slot, 44px) * 0.48);
@@ -797,6 +893,10 @@ body.dead canvas {
 
 #inv-recipes button:hover {
   background: rgba(255, 255, 255, 0.18);
+}
+#inv-recipes button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 #inv-recipes .slot {

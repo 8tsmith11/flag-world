@@ -46,6 +46,7 @@ export class Player {
     this.grab = null;
     this.eliminated = false;
     this.inventory = new Inventory();
+    this.creative = false;
     // Bow: ticks the draw has been held, and the game tick it can next shoot.
     this.drawTicks = 0;
     this.nextShotTick = 0;
@@ -152,6 +153,8 @@ export class Player {
       onGround: s.onGround,
       crouching: s.crouching,
       gliding: s.gliding,
+      flying: s.flying,
+      orbActive: this.creative && s.accessory === ITEM.FLIGHT_ORB,
       hp: this.hp,
       maxHp: this.maxHp(),
       dead: this.dead,

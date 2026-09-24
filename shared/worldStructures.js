@@ -30,7 +30,7 @@ function overlaps(world, placed, box) {
 function record(world, placed, kind, island, box) {
   placed.push(box);
   world.structures.push({ kind, islandKind: island.kind, teamIndex: island.teamIndex ?? null,
-    x: Math.floor((box.x0 + box.x1) / 2), y: box.y0, z: Math.floor((box.z0 + box.z1) / 2) });
+    x: Math.floor((box.x0 + box.x1) / 2), y: box.y0, z: Math.floor((box.z0 + box.z1) / 2), box: { ...box } });
 }
 
 function surfaceSite(world, terrain, placed, random, halfX, halfZ, height, maxVariance = 4) {
@@ -171,24 +171,6 @@ function caveFloor(world, terrain, random, requireRoom = false) {
   return null;
 }
 
-function dungeonEntrance(world, terrain, x, y, z, half) {
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    for (let distance = half + 1; distance <= half + 20; distance++) {
-      const xx = x + dx * distance, zz = z + dz * distance;
-      if (terrain.getTop(xx, zz) < y + 2 || terrain.getBottom(xx, zz) > y - 4) break;
-      for (const offset of [0, -1, 1, -2, 2, -3, 3]) {
-        const targetY = y + offset;
-        if (world.getBlock(xx, targetY, zz) === BLOCK.AIR
-          && world.getBlock(xx, targetY + 1, zz) === BLOCK.AIR
-          && isSolid(world.getBlock(xx, targetY - 1, zz))) {
-          return { dx, dz, distance, targetY };
-        }
-      }
-    }
-  }
-  return null;
-}
-
 function dungeonBox(terrain, x, y, z, half) {
   const box = { x0: x - half, x1: x + half, z0: z - half, z1: z + half,
     y0: y - 1, y1: y + 4 };
@@ -198,21 +180,16 @@ function dungeonBox(terrain, x, y, z, half) {
   return box;
 }
 
-function buildDungeon(world, terrain, site, random, table) {
-  const { x, y, z, box, entrance } = site;
+function buildDungeon(world, site, random, table) {
+  const { x, y, z, box } = site;
   for (let zz = box.z0; zz <= box.z1; zz++) for (let xx = box.x0; xx <= box.x1; xx++) {
     for (let yy = y - 1; yy <= y + 4; yy++) {
       const edge = xx === box.x0 || xx === box.x1 || zz === box.z0 || zz === box.z1;
       const floorOrRoof = yy === y - 1 || yy === y + 4;
       world.setBlock(xx, yy, zz, edge || floorOrRoof
-        ? weathered(random, BLOCK.STONE_BRICKS, floorOrRoof || yy === y)
+        ? weathered(random, BLOCK.STONE_BRICKS, true)
         : BLOCK.AIR);
     }
-  }
-  for (let distance = 0; distance <= entrance.distance; distance++) {
-    const xx = x + entrance.dx * distance, zz = z + entrance.dz * distance;
-    const floor = Math.round(y + (entrance.targetY - y) * distance / entrance.distance);
-    for (let yy = floor; yy <= floor + 2; yy++) world.setBlock(xx, yy, zz, BLOCK.AIR);
   }
   placeChest(world, x - 2, y, z - 2, table, 2);
   if (random() < 0.45) placeChest(world, x + 2, y, z + 2, table, 0);
@@ -349,28 +326,8 @@ export function generateStructures(world, terrains, config, seed) {
         const half = randInt(random, 4, 5);
         const box = dungeonBox(terrain, cell.x, cell.y, cell.z, half);
         if (!box || overlaps(world, placed, box)) continue;
-        const entrance = dungeonEntrance(world, terrain, cell.x, cell.y, cell.z, half);
-        if (!entrance) continue;
-        site = { ...cell, box, entrance };
+        site = { ...cell, box };
         break;
-      }
-      for (let attempt = 0; !site && attempt < 120; attempt++) {
-        const cave = caveFloor(world, terrain, random);
-        if (!cave) break;
-        const [dx, dz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][randInt(random, 0, 3)];
-        const distance = randInt(random, 11, 17);
-        const x = cave.x - dx * distance, z = cave.z - dz * distance;
-        const half = randInt(random, 4, 5);
-        const box = dungeonBox(terrain, x, cave.y, z, half);
-        if (!box || overlaps(world, placed, box)) continue;
-        let corridorClear = true;
-        for (let step = half + 1; step <= distance; step++) {
-          const xx = x + dx * step, zz = z + dz * step;
-          if (overlaps(world, placed, { x0: xx, x1: xx, z0: zz, z1: zz,
-            y0: cave.y, y1: cave.y + 2 })) { corridorClear = false; break; }
-        }
-        if (!corridorClear) continue;
-        site = { x, y: cave.y, z, box, entrance: { dx, dz, distance, targetY: cave.y } };
       }
       for (let attempt = 0; !site && attempt < 300; attempt++) {
         const angle = random() * Math.PI * 2;
@@ -383,24 +340,10 @@ export function generateStructures(world, terrains, config, seed) {
         const half = 4;
         const box = dungeonBox(terrain, x, y, z, half);
         if (!box || overlaps(world, placed, box)) continue;
-        const dx = Math.abs(x - terrain.x) > Math.abs(z - terrain.z)
-          ? Math.sign(x - terrain.x) : 0;
-        const dz = dx === 0 ? Math.sign(z - terrain.z) || 1 : 0;
-        let exitDistance = 0;
-        for (let step = half + 1; step < terrain.radius + 20; step++) {
-          const xx = x + dx * step, zz = z + dz * step;
-          if (overlaps(world, placed, { x0: xx, x1: xx, z0: zz, z1: zz,
-            y0: y, y1: y + 2 })) break;
-          if (terrain.getTop(xx, zz) === -32768 || terrain.getBottom(xx, zz) > y) {
-            exitDistance = step;
-            break;
-          }
-        }
-        if (!exitDistance) continue;
-        site = { x, y, z, box, entrance: { dx, dz, distance: exitDistance, targetY: y } };
+        site = { x, y, z, box };
       }
       if (!site) continue;
-      buildDungeon(world, terrain, site, random, central ? 'dungeonCentral' : 'dungeon');
+      buildDungeon(world, site, random, central ? 'dungeonCentral' : 'dungeon');
       record(world, placed, 'dungeon', island, site.box);
       const cells = [];
       for (let zz = site.box.z0 + 1; zz < site.box.z1; zz++) {

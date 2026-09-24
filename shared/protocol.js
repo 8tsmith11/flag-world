@@ -14,6 +14,7 @@ export const C2S = {
   CRAFT: 'craft',
   OPEN_CONTAINER: 'openContainer',
   ANVIL_REROLL: 'anvilReroll',
+  CREATIVE_TOGGLE: 'creativeToggle',
 };
 
 // Server -> client
@@ -38,6 +39,8 @@ export const S2C = {
   PORTAL_SPAWN: 'portalSpawn',
   PORTAL_DESPAWN: 'portalDespawn',
   EMBER_BURST: 'emberBurst',
+  QUARRY_PUFF: 'quarryPuff',
+  CREATIVE: 'creative',
 };
 
 // Where a flag is, in FlagState.

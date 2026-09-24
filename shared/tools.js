@@ -23,7 +23,7 @@ export const FROST = { slow: 0.4, seconds: 2 };
 export const HAMMERS = {
   [ITEM.WOOD_HAMMER]: { strength: 2, speed: 1 },
   [ITEM.STONE_HAMMER]: { strength: 3, speed: 1.5 },
-  [ITEM.IRON_HAMMER]: { strength: 4, speed: 2 },
+  [ITEM.IRON_HAMMER]: { strength: 8, speed: 2 },
 };
 
 // damage, cooldown (seconds); optional knockback (multiplier on the punch's),

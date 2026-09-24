@@ -20,6 +20,7 @@ import { MAX_STACK } from './config.js';
 import { BLOCK, getBlockDef, ladderBlock, doorBlock } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { ACCESSORIES, RIFT_STONE } from './accessories.js';
+import { MOB_EGGS } from './mobEggs.js';
 
 export { ITEM };
 
@@ -66,7 +67,12 @@ defineItem(ITEM.TREE_SEED, 'tree seeds', { places: 'sapling', shape: 'seed', col
 defineItem(ITEM.LADDER, 'ladder', { places: 'ladder', color: getBlockDef(ladderBlock(0)).color });
 defineItem(ITEM.DOOR, 'door', { places: 'door', color: getBlockDef(doorBlock(0, false, false)).color });
 for (const [id, accessory] of Object.entries(ACCESSORIES)) {
-  defineItem(Number(id), accessory.name, { maxStack: 1, shape: 'accessory', color: accessory.color, accessory: true, modCategory: 'accessory' });
+  defineItem(Number(id), accessory.name, { maxStack: 1, shape: 'accessory', color: accessory.color,
+    accessory: true, modCategory: id === String(ITEM.FLIGHT_ORB) ? null : 'accessory' });
+}
+for (const egg of MOB_EGGS) {
+  defineItem(egg.item, `${egg.name.toLowerCase()} spawn egg`,
+    { maxStack: 16, shape: 'egg', color: egg.color, spots: egg.spots, mobType: egg.type });
 }
 // Loot-only weapons and tools. What the weapons do in hand is in tools.js.
 defineItem(ITEM.WIND_AXE, 'wind axe', { maxStack: 1, tool: 'windAxe', color: 0xbfe9ef, modCategory: 'melee' });
