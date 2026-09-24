@@ -34,6 +34,12 @@ export class InventoryScreen {
     // Block position of the workbench or furnace in use, or null.
     this.at = null;
     this.inventory = { slots: new Array(INVENTORY_SIZE).fill(null), cursor: null };
+    this.armorEl = document.getElementById('inv-armor');
+    this.armorEl.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 && e.button !== 2) return;
+      e.preventDefault();
+      this.conn.send({ type: C2S.INVENTORY_CLICK, armor: true, slot: 0, button: e.button === 2 ? 'right' : 'left', shift: e.shiftKey });
+    });
 
     // Slot elements by inventory index: hotbar row is 0-8, main grid 9-35.
     this.slotEls = [];
@@ -109,6 +115,7 @@ export class InventoryScreen {
     this.at = at;
     const container = CONTAINERS.includes(mode);
     document.getElementById('inv-preview').hidden = container;
+    document.getElementById('inv-armor-panel').hidden = container;
     document.querySelector('.inv-crafting').hidden = container;
     document.getElementById('inv-furnace').hidden = mode !== 'furnace';
     document.getElementById('inv-chest-panel').hidden = mode !== 'chest';
@@ -144,6 +151,7 @@ export class InventoryScreen {
     this.inventory = inventory;
     this.slotEls.forEach((el, i) => renderStack(el, inventory.slots[i]));
     renderStack(this.cursorEl, inventory.cursor);
+    renderStack(this.armorEl, inventory.armor);
 
     // Only what you can make right now here; rebuilt on every inventory change.
     const station = this.mode === 'workbench' ? 'workbench' : null;
@@ -187,7 +195,7 @@ export class InventoryScreen {
       camera.updateProjectionMatrix();
     }
     model.rotation.y += dt * PREVIEW_TURN_SPEED;
-    animatePlayer(model, { dt, speed: 0, pitch: 0, held });
+    animatePlayer(model, { dt, speed: 0, pitch: 0, held, armor: this.inventory.armor?.item ?? null });
     renderer.render(scene, camera);
   }
 }

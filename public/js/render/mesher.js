@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CHUNK_SIZE } from '/shared/config.js';
-import { BLOCK, getBlockDef, ladderFacing, doorState, blockBase } from '/shared/blocks.js';
+import { BLOCK, getBlockDef, ladderFacing, doorState, blockBase, isWater, waterLevel } from '/shared/blocks.js';
 
 // Corner offsets are wound counter-clockwise when viewed from outside.
 // Triangles per face: (0,1,2) and (2,1,3). `shade` fakes directional variation.
@@ -47,7 +47,7 @@ function jitter(x, y, z) {
 }
 
 function createBuffers() {
-  return { positions: [], normals: [], colors: [], indices: [] };
+  return { positions: [], normals: [], colors: [], uvs: [], indices: [] };
 }
 
 function pushFace(buf, face, x, y, z, color, light) {
@@ -56,8 +56,43 @@ function pushFace(buf, face, x, y, z, color, light) {
     buf.positions.push(x + cx, y + cy, z + cz);
     buf.normals.push(face.dir[0], face.dir[1], face.dir[2]);
     buf.colors.push(color.r * light, color.g * light, color.b * light);
+    buf.uvs.push(face.dir[0] ? cz : cx, face.dir[1] ? cz : cy);
   }
   buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+}
+
+function pushWaterFace(buf, face, x, y, z, color, light, heights) {
+  const base = buf.positions.length / 3;
+  for (const [cx, cy, cz] of face.corners) {
+    buf.positions.push(x + cx, y + (cy ? heights[cx + 2 * cz] : 0), z + cz);
+    buf.normals.push(...face.dir);
+    buf.colors.push(color.r * light, color.g * light, color.b * light);
+  }
+  buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+}
+
+function waterHeight(world, x, y, z) {
+  const id = world.getBlock(x, y, z);
+  if (!isWater(id)) return 0;
+  // A falling column fills its entire block, so its sides join into a sheet.
+  if (isWater(world.getBlock(x, y + 1, z))) return 1;
+  return id === BLOCK.WATER ? 1 : 0.13 + waterLevel(id) * 0.87 / 7;
+}
+
+// The four cells touching a corner share one height. Their top surfaces join
+// as slopes instead of ending in a stair-step at each flowing-water level.
+function waterCornerHeight(world, x, y, z, cx, cz) {
+  let total = 0, count = 0;
+  for (const dx of [cx - 1, cx]) for (const dz of [cz - 1, cz]) {
+    const bx = x + dx, bz = z + dz;
+    const id = world.getBlock(bx, y, bz);
+    const h = waterHeight(world, bx, y, bz);
+    if (h === 1) return 1;
+    // Air pulls the last flowing block down to a thin edge. Solid shore
+    // blocks do not lower water along the bank.
+    if (h > 0 || id === BLOCK.AIR) { total += h; count++; }
+  }
+  return count ? total / count : 0;
 }
 
 // A box from (x0, y0, z0) to (x1, y1, z1) in block-local units, all six faces.
@@ -148,7 +183,13 @@ const CHEST = [
   { box: [0.44, 0.44, 0.03, 0.56, 0.66, 0.07], color: 0xd4af37 },
 ];
 
-const SHAPES = { workbench: WORKBENCH, furnace: FURNACE, chest: CHEST };
+const SAPLING = [
+  { box: [0.46, 0, 0.46, 0.54, 0.4, 0.54], color: 0x71512c },
+  { box: [0.22, 0.24, 0.43, 0.78, 0.48, 0.57], color: 0x55a94c },
+  { box: [0.43, 0.3, 0.22, 0.57, 0.54, 0.78], color: 0x3c8d3b },
+];
+
+const SHAPES = { workbench: WORKBENCH, furnace: FURNACE, chest: CHEST, sapling: SAPLING };
 
 // [{ box, color }] for a shaped block, turned to its facing.
 function shapeBoxes(id, def) {
@@ -168,6 +209,9 @@ function toGeometry(buf) {
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(buf.normals, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(buf.colors, 3));
   geo.setIndex(buf.indices);
+  if (buf.uvs.length === buf.positions.length / 3 * 2) {
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uvs, 2));
+  }
   geo.computeBoundingSphere();
   return geo;
 }
@@ -177,6 +221,7 @@ function toGeometry(buf) {
 export function meshChunk(world, chunk) {
   const opaque = createBuffers();
   const transparent = createBuffers();
+  const ore = createBuffers();
   const ox = chunk.cx * CHUNK_SIZE, oy = chunk.cy * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
 
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
@@ -195,7 +240,23 @@ export function meshChunk(world, chunk) {
           }
           continue;
         }
-        const buf = def.transparent ? transparent : opaque;
+        const buf = id === BLOCK.IRON_ORE ? ore : def.transparent ? transparent : opaque;
+
+        if (isWater(id)) {
+          const visibleFaces = FACES.filter((face) => {
+            const n = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
+            return !isWater(n) && getBlockDef(n).transparent;
+          });
+          if (visibleFaces.length === 0) continue;
+          const heights = [
+            waterCornerHeight(world, x, y, z, 0, 0),
+            waterCornerHeight(world, x, y, z, 1, 0),
+            waterCornerHeight(world, x, y, z, 0, 1),
+            waterCornerHeight(world, x, y, z, 1, 1),
+          ];
+          for (const face of visibleFaces) pushWaterFace(buf, face, x, y, z, color, face.shade * j, heights);
+          continue;
+        }
 
         for (const face of FACES) {
           const n = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
@@ -206,5 +267,5 @@ export function meshChunk(world, chunk) {
     }
   }
 
-  return { opaque: toGeometry(opaque), transparent: toGeometry(transparent) };
+  return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), ore: toGeometry(ore) };
 }

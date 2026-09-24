@@ -7,9 +7,10 @@ import {
   TERMINAL_VELOCITY, SWIM_GRAVITY_SCALE, SWIM_UP_SPEED, SWIM_SPEED_SCALE, SWIM_EXIT_VELOCITY,
   ITEM_SIZE, ITEM_AIR_DRAG, ITEM_GROUND_FRICTION, KNOCKBACK_SPEED, KNOCKBACK_AIR_DECAY,
   KNOCKBACK_GROUND_DECAY, CARRY_SPEED_SCALE, CLIMB_SPEED, PLAYER_EYE_HEIGHT,
-  CROUCH_SPEED_SCALE, CROUCH_HEIGHT, CROUCH_EYE_DROP, CROUCH_MAX_DROP, BOW_DRAW_SPEED_SCALE,
+  CROUCH_SPEED_SCALE, CROUCH_HEIGHT, CROUCH_EYE_DROP, CROUCH_MAX_DROP, BOW_DRAW_SPEED_SCALE, EAT_SPEED_SCALE,
+  GLIDE_SPEED, GLIDE_FALL_SPEED, SPRINT_SPEED_SCALE, WATER_CURRENT_SPEED,
 } from './config.js';
-import { BLOCK, isSolid, isLadder } from './blocks.js';
+import { BLOCK, isSolid, isLadder, isWater, waterLevel } from './blocks.js';
 
 // Collision boxes: half width on X/Z and height above the feet position.
 export const PLAYER_BOX = { halfW: PLAYER_WIDTH / 2, height: PLAYER_HEIGHT };
@@ -29,7 +30,7 @@ const MAX_STEP = 0.4;
 // clears once there's room to stand.
 export function createPlayerState(x, y, z) {
   return {
-    x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0, onGround: false, carrying: false, crouching: false,
+    x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0, onGround: false, carrying: false, crouching: false, gliding: false,
   };
 }
 
@@ -51,7 +52,7 @@ export function eyeHeight(state) {
 
 // An empty input, for ticks where nothing is pressed.
 export function createInput(seq = 0) {
-  return { seq, forward: 0, strafe: 0, jump: false, yaw: 0, pitch: 0 };
+  return { seq, forward: 0, strafe: 0, sprint: false, jump: false, yaw: 0, pitch: 0 };
 }
 
 function collides(world, minX, minY, minZ, maxX, maxY, maxZ) {
@@ -106,7 +107,34 @@ function moveAxis(state, world, box, axis, delta) {
 }
 
 export function isInWater(state, world) {
-  return world.getBlock(Math.floor(state.x), Math.floor(state.y + 0.4), Math.floor(state.z)) === BLOCK.WATER;
+  const { halfW } = playerBoxOf(state);
+  for (let z = Math.floor(state.z - halfW); z <= Math.floor(state.z + halfW - EPS); z++) {
+    for (let x = Math.floor(state.x - halfW); x <= Math.floor(state.x + halfW - EPS); x++) {
+      for (let y = Math.floor(state.y); y <= Math.floor(state.y + 0.4); y++) {
+        if (isWater(world.getBlock(x, y, z))) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Current follows decreasing water levels and open drops. Sampling only the
+// few cells around the feet keeps this deterministic and cheap on both peers.
+export function waterCurrent(state, world) {
+  const x = Math.floor(state.x), y = Math.floor(state.y + 0.2), z = Math.floor(state.z);
+  const level = waterLevel(world.getBlock(x, y, z));
+  if (!level) return { x: 0, y: 0, z: 0 };
+  let vx = 0, vz = 0;
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const neighbor = world.getBlock(x + dx, y, z + dz);
+    if (isSolid(neighbor)) continue;
+    const difference = level - waterLevel(neighbor);
+    if (difference > 0) { vx += dx * difference; vz += dz * difference; }
+  }
+  const length = Math.hypot(vx, vz);
+  const falling = !isSolid(world.getBlock(x, y - 1, z))
+    && (isWater(world.getBlock(x, y - 1, z)) || world.getBlock(x, y - 1, z) === BLOCK.AIR);
+  return { x: length ? vx / length : 0, y: falling ? -1 : 0, z: length ? vz / length : 0 };
 }
 
 // Whether the player's body overlaps a ladder block.
@@ -126,7 +154,7 @@ export function isOnLadder(state, world) {
 }
 
 function feetInWater(state, world) {
-  return world.getBlock(Math.floor(state.x), Math.floor(state.y), Math.floor(state.z)) === BLOCK.WATER;
+  return isWater(world.getBlock(Math.floor(state.x), Math.floor(state.y), Math.floor(state.z)));
 }
 
 // Advances `state` in place by one fixed tick using `input`.
@@ -140,7 +168,9 @@ export function stepPlayer(state, input, world) {
   const box = playerBoxOf(state);
 
   const inWater = isInWater(state, world);
+  const current = inWater ? waterCurrent(state, world) : null;
   const onLadder = isOnLadder(state, world);
+  state.gliding = !!input.glide && !state.onGround && !inWater && !onLadder;
 
   // Horizontal movement is direct (no acceleration) for responsive controls.
   let fwd = Math.max(-1, Math.min(1, input.forward));
@@ -150,16 +180,26 @@ export function stepPlayer(state, input, world) {
   let strafe = Math.max(-1, Math.min(1, input.strafe));
   const len = Math.hypot(fwd, strafe);
   if (len > 1) { fwd /= len; strafe /= len; }
-  const speed = WALK_SPEED * (inWater ? SWIM_SPEED_SCALE : 1) * (state.carrying ? CARRY_SPEED_SCALE : 1)
+  const sprinting = !!input.sprint && fwd > 0 && !inWater && !onLadder && !state.crouching && !input.draw && !input.eat;
+  const speed = WALK_SPEED * (sprinting ? SPRINT_SPEED_SCALE : 1) * (inWater ? SWIM_SPEED_SCALE : 1) * (state.carrying ? CARRY_SPEED_SCALE : 1)
     * (state.crouching ? CROUCH_SPEED_SCALE : 1)
     // Drawing a bow (input.draw is only sent, and only kept by the server, while holding one).
-    * (input.draw ? BOW_DRAW_SPEED_SCALE : 1);
+    * (input.draw ? BOW_DRAW_SPEED_SCALE : 1)
+    * (input.eat ? EAT_SPEED_SCALE : 1);
   const sin = Math.sin(state.yaw), cos = Math.cos(state.yaw);
   // Yaw 0 looks down -Z (Three.js camera convention).
   // Knockback takes control away: none right after a hit, back to full as it fades.
   const control = 1 - Math.min(1, Math.hypot(state.kx, state.kz) / KNOCKBACK_SPEED);
   state.vx = (-sin * fwd + cos * strafe) * speed * control + state.kx;
   state.vz = (-cos * fwd - sin * strafe) * speed * control + state.kz;
+  if (current) {
+    state.vx += current.x * WATER_CURRENT_SPEED;
+    state.vz += current.z * WATER_CURRENT_SPEED;
+  }
+  if (state.gliding) {
+    state.vx = -sin * GLIDE_SPEED * Math.max(0.3, Math.cos(state.pitch)) + state.kx;
+    state.vz = -cos * GLIDE_SPEED * Math.max(0.3, Math.cos(state.pitch)) + state.kz;
+  }
 
   if (onLadder) {
     // No gravity on a ladder: climb, or hold still.
@@ -167,7 +207,11 @@ export function stepPlayer(state, input, world) {
   } else if (inWater) {
     state.vy -= GRAVITY * SWIM_GRAVITY_SCALE * TICK_DT;
     state.vy *= 0.8;
-    if (input.jump) state.vy = SWIM_UP_SPEED;
+    state.vy += current.y * 1.2 * TICK_DT;
+    if (input.jump) {
+      const midWater = isWater(world.getBlock(Math.floor(state.x), Math.floor(state.y + 0.4), Math.floor(state.z)));
+      state.vy = midWater ? SWIM_UP_SPEED : SWIM_EXIT_VELOCITY;
+    }
   } else {
     if (input.jump && state.onGround) state.vy = JUMP_VELOCITY;
     // Head above water but feet still in it: at the surface, so bounce out.
@@ -175,6 +219,7 @@ export function stepPlayer(state, input, world) {
     state.vy -= GRAVITY * TICK_DT;
   }
   state.vy = Math.max(-TERMINAL_VELOCITY, state.vy);
+  if (state.gliding) state.vy = Math.max(-GLIDE_FALL_SPEED, state.vy);
 
   // Edge protection: crouching on the ground (not jumping), don't walk off
   // anything that would drop you more than CROUCH_MAX_DROP. Mobs set
@@ -243,10 +288,17 @@ export function stepItem(state, world) {
     state.y = Math.floor(state.y) + 1;
     state.vy = 0;
   }
-  state.vy = Math.max(-TERMINAL_VELOCITY, state.vy - GRAVITY * TICK_DT);
-  const drag = state.onGround ? ITEM_GROUND_FRICTION : ITEM_AIR_DRAG;
-  state.vx *= drag;
-  state.vz *= drag;
+  const current = waterCurrent(state, world);
+  if (isInWater(state, world)) {
+    state.vy = Math.max(-2, Math.min(1, state.vy * 0.82 + (0.6 + current.y * 1.2) * TICK_DT));
+    state.vx = state.vx * 0.84 + current.x * WATER_CURRENT_SPEED * 0.16;
+    state.vz = state.vz * 0.84 + current.z * WATER_CURRENT_SPEED * 0.16;
+  } else {
+    state.vy = Math.max(-TERMINAL_VELOCITY, state.vy - GRAVITY * TICK_DT);
+    const drag = state.onGround ? ITEM_GROUND_FRICTION : ITEM_AIR_DRAG;
+    state.vx *= drag;
+    state.vz *= drag;
+  }
   if (Math.abs(state.vx) < ITEM_REST_SPEED) state.vx = 0;
   if (Math.abs(state.vz) < ITEM_REST_SPEED) state.vz = 0;
   moveBody(state, world, ITEM_BOX);

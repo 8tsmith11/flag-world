@@ -7,10 +7,10 @@ import {
   BOW_FULL_DRAW, BOW_MIN_DRAW, BOW_COOLDOWN,
   VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX,
 } from '/shared/config.js';
-import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT } from '/shared/protocol.js';
+import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT, TEAMS } from '/shared/protocol.js';
 import { generateWorld } from '/shared/worldgen.js';
 import {
-  BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isDoor, isFurnace, isChest,
+  BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, isFurnace, isChest, isFlowingWater,
 } from '/shared/blocks.js';
 import { breakingStats } from '/shared/tools.js';
 import { getItemDef, ITEM } from '/shared/items.js';
@@ -33,6 +33,8 @@ import { EntityRenderer } from './render/entityRenderer.js';
 import { BlockHighlight } from './render/blockHighlight.js';
 import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
+import { FurnaceEffects } from './render/furnaceEffects.js';
+import { Sounds } from './sounds.js';
 
 // Cap on ticks simulated in one frame so a long stall doesn't burst-send inputs.
 const MAX_TICKS_PER_FRAME = 5;
@@ -76,6 +78,8 @@ const grabBar = new ProgressBar(document.getElementById('grab'));
 const toast = new Toast(document.getElementById('toast'));
 const carryLabel = new Label(document.getElementById('carry'));
 const entities = new EntityRenderer(scene);
+const sounds = new Sounds();
+document.addEventListener('pointerdown', () => sounds.unlock());
 const flags = new FlagRenderer(scene, entities);
 const highlight = new BlockHighlight(scene);
 const freeCamera = new FreeCamera();
@@ -89,6 +93,7 @@ let viewModel = null;
 let world = null;
 let chunks = null;
 let clouds = null;
+let furnaceEffects = null;
 // Debug top-down view of the whole world, or null when off.
 let overview = null;
 let player = null;
@@ -107,6 +112,8 @@ let targetPlayer = null;
 let breaking = null;
 // Player id -> name, for the kill feed.
 const names = new Map();
+const playerTeams = new Map();
+const flagTeams = new Map();
 let shakeUntil = 0;
 // Bow draw, mirrored from the server's rules for the arm, string and zoom:
 // ticks drawn, and the local tick count before which a new draw doesn't build.
@@ -312,12 +319,12 @@ function startSpectating() {
   showScreen(input.locked ? null : 'overlay');
 }
 
-function endMatch(winnerId) {
+function endMatch(winnerId, winnerTeam, members = []) {
   closeInventory(false);
   mode = MODE.ENDED;
   document.body.classList.remove('dead');
-  document.getElementById('end-title').textContent = winnerId === player.id ? 'You win!' : `${nameOf(winnerId)} wins!`;
-  document.getElementById('end-sub').textContent = 'Last player standing.';
+  document.getElementById('end-title').textContent = `${TEAMS[winnerTeam]?.name ?? 'Team'} wins!`;
+  document.getElementById('end-sub').textContent = members.join(', ');
   document.exitPointerLock();
   showScreen('end');
 }
@@ -335,6 +342,7 @@ conn.on(S2C.MATCH_IN_PROGRESS, (msg) => {
 });
 
 conn.on(S2C.ERROR, (msg) => {
+  status.textContent = msg.message;
   lobby.showError(msg.message);
   matchScreen.showError(msg.message);
 });
@@ -353,20 +361,25 @@ conn.on(S2C.WELCOME, (msg) => {
 
 function startGame(msg) {
   seed = msg.seed;
-  world = generateWorld(msg.seed, msg.playerCount, msg.worldSize);
+  world = generateWorld(msg.seed, msg.teamCount, msg.worldSize);
   for (const b of msg.blocks) world.setBlock(b.x, b.y, b.z, b.id);
   chunks = new ChunkRenderer(scene, world, viewDistance);
-  // The Test world is a low slab; clouds are for the island worlds.
-  if (msg.worldSize !== 'test') clouds = new Clouds(scene, world);
+  clouds = new Clouds(scene, world);
+  furnaceEffects = new FurnaceEffects(scene, world);
+  for (const { x, y, z } of msg.litFurnaces ?? []) furnaceEffects.setLit(x, y, z, true);
   self = msg.players.find((p) => p.id === msg.id);
   player = new LocalPlayer(msg.id, msg.color, self, world);
   for (const p of msg.players) {
     names.set(p.id, p.name);
+    playerTeams.set(p.id, p.team);
     if (p.id !== msg.id) entities.add(p.id, p);
   }
-  for (const f of msg.flags) flags.add(f);
+  for (const f of msg.flags) { flags.add(f); flagTeams.set(f.id, f.team); }
   health.set(self.hp);
-  for (const e of msg.entities) entities.add(e.id, e);
+  for (const e of msg.entities) {
+    if (e.name) names.set(e.id, e.name);
+    entities.add(e.id, e);
+  }
   setInventory(msg.inventory);
   viewModel = new ViewModel(player.color);
   status.textContent = 'Click to play';
@@ -374,7 +387,7 @@ function startGame(msg) {
   showScreen('overlay');
   if (self.eliminated) startSpectating();
   else if (self.dead) enterDeath(null, false);
-  if (msg.winnerId !== null) endMatch(msg.winnerId);
+  if (msg.winnerId !== null) endMatch(msg.winnerId, msg.winnerTeam, msg.winnerMembers);
   requestAnimationFrame(frame);
 }
 
@@ -388,14 +401,16 @@ conn.on(S2C.DAMAGE, (msg) => {
 });
 
 conn.on(S2C.DEATH, (msg) => {
-  if (msg.eliminated) feed.add(`☠ ${deathText(msg)} — ELIMINATED`, 'elim');
-  else feed.add(deathText(msg));
+  const colors = [msg.id, msg.killerId].filter((id) => id !== null).map((id) =>
+    ({ name: nameOf(id), color: TEAMS[playerTeams.get(id)]?.color ?? 0xffffff }));
+  if (msg.eliminated) feed.add(`☠ ${deathText(msg)} — ELIMINATED`, 'elim', colors);
+  else feed.add(deathText(msg), '', colors);
   if (msg.id === player?.id && mode !== MODE.ENDED) enterDeath(msg, msg.eliminated);
 });
 
 // Grab, drop and return are silent in the feed; the owner gets a private notice.
 conn.on(S2C.FLAG_EVENT, (msg) => {
-  const mine = msg.flag === player?.id;
+  const mine = flagTeams.get(msg.flag) === self?.team;
   switch (msg.kind) {
     case FLAG_EVENT.TAKEN:
       if (mine) toast.show('Your flag has been taken!');
@@ -405,17 +420,22 @@ conn.on(S2C.FLAG_EVENT, (msg) => {
       if (mine) toast.show('Your flag has returned.');
       break;
     case FLAG_EVENT.CAPTURED:
-      feed.add(`${nameOf(msg.by)} captured ${nameOf(msg.flag)}'s flag`);
+      feed.add(`${nameOf(msg.by)} captured ${TEAMS[flagTeams.get(msg.flag)]?.name}'s flag`, '',
+        [{ name: nameOf(msg.by), color: TEAMS[playerTeams.get(msg.by)]?.color ?? 0xffffff },
+          { name: TEAMS[flagTeams.get(msg.flag)]?.name, color: TEAMS[flagTeams.get(msg.flag)]?.color ?? 0xffffff }]);
       if (mine) toast.show('Your flag has been captured. You are flagless.');
       break;
   }
 });
 
-conn.on(S2C.MATCH_END, (msg) => endMatch(msg.winnerId));
+conn.on(S2C.MATCH_END, (msg) => endMatch(msg.winnerId, msg.winnerTeam, msg.members));
 
-conn.on(S2C.ENTITY_SPAWN, (msg) => entities.add(msg.entity.id, msg.entity));
+conn.on(S2C.ENTITY_SPAWN, (msg) => {
+  if (msg.entity.name) names.set(msg.entity.id, msg.entity.name);
+  entities.add(msg.entity.id, msg.entity);
+});
 conn.on(S2C.ENTITY_DESPAWN, (msg) => entities.remove(msg.id));
-conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor }));
+conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor, armor: msg.armor }));
 conn.on(S2C.SWING, (msg) => entities.swing(msg.id));
 conn.on(S2C.CONTAINER, (msg) => {
   const at = inventoryScreen.at;
@@ -426,9 +446,17 @@ conn.on(S2C.CONTAINER, (msg) => {
 conn.on(S2C.CONTAINER_CLOSE, () => {
   if (inventoryScreen.open && CONTAINERS.includes(inventoryScreen.mode)) closeInventory(false);
 });
+conn.on(S2C.FURNACE_LIT, (msg) => furnaceEffects?.setLit(msg.x, msg.y, msg.z, msg.lit));
 
 conn.on(S2C.BLOCK_CHANGE, (msg) => {
-  if (world) world.setBlock(msg.x, msg.y, msg.z, msg.id);
+  if (!world) return;
+  const oldId = world.getBlock(msg.x, msg.y, msg.z);
+  if (oldId !== BLOCK.AIR && msg.id === BLOCK.AIR) sounds.blockBreak(oldId,
+    { x: msg.x + 0.5, y: msg.y + 0.5, z: msg.z + 0.5 }, camera.position);
+  if (isFurnace(oldId) && !isFurnace(msg.id)) {
+    furnaceEffects?.setLit(msg.x, msg.y, msg.z, false);
+  }
+  world.setBlock(msg.x, msg.y, msg.z, msg.id);
 });
 
 conn.on(S2C.STATE, (msg) => {
@@ -467,6 +495,8 @@ function breakTarget() {
   const { x, y, z } = target;
   if (sameBlock(breaking, target)) breaking.ticks = Math.min(breaking.ticks + 1, breakTicks(target.id, tool.speed));
   else breaking = { x, y, z, ticks: 1 };
+  if (breaking.ticks % 5 === 1) sounds.blockHit(target.id,
+    { x: x + 0.5, y: y + 0.5, z: z + 0.5 }, camera.position);
   return { x, y, z };
 }
 
@@ -474,6 +504,7 @@ function breakTarget() {
 // that face's normal (ladders need to know which side they hang on).
 function placeTarget() {
   if (!target || (target.nx === 0 && target.ny === 0 && target.nz === 0)) return null;
+  if (isFlowingWater(target.id)) return { x: target.x, y: target.y, z: target.z, nx: target.nx, ny: target.ny, nz: target.nz };
   const { nx, ny, nz } = target;
   return { x: target.x + nx, y: target.y + ny, z: target.z + nz, nx, ny, nz };
 }
@@ -497,7 +528,7 @@ function updateFlagHud() {
     carryLabel.set('');
     return;
   }
-  carryLabel.set(`Carrying ${nameOf(self.carrying)}'s flag — bring it to your pedestal`);
+  carryLabel.set(`Carrying ${TEAMS[flagTeams.get(self.carrying)]?.name}'s flag — bring it to your pedestal`);
 }
 
 function frame(now) {
@@ -517,6 +548,10 @@ function frame(now) {
     // Holding a bow, right click (held) draws it instead of placing or using.
     const bow = heldItem() === ITEM.BOW;
     controls.draw = bow && input.secondaryDown;
+    controls.eat = !!getItemDef(heldItem()).food && input.secondaryDown;
+    if (controls.eat) controls.place = false;
+    controls.glide = heldItem() === ITEM.GLIDER && input.secondaryDown;
+    if (controls.glide) controls.place = false;
     if (controls.draw) {
       if (localTick >= drawReadyAt) drawTicks++;
     } else {
@@ -536,13 +571,13 @@ function frame(now) {
       controls.place = false;
     }
     // Right click on a door opens or closes it instead of placing.
-    const useDoor = controls.place && target && isDoor(target.id);
-    controls.use = useDoor ? { x: target.x, y: target.y, z: target.z } : null;
-    controls.place = controls.place && !useDoor && !bow ? placeTarget() : null;
+    const useTarget = controls.place && target && (isDoor(target.id) || (target.id === BLOCK.WATER && heldItem() === ITEM.EMPTY_BUCKET));
+    controls.use = useTarget ? { x: target.x, y: target.y, z: target.z } : null;
+    controls.place = controls.place && !useTarget && !bow ? placeTarget() : null;
     if (bow) controls.use = null;
     const held = heldItem();
     const placing = controls.place && held !== null && (getItemDef(held).block !== null || getItemDef(held).places);
-    if (useDoor || placing) viewModel.push();
+    if (useTarget || placing) viewModel.push();
     conn.send({ type: C2S.INPUT, ...player.tick(controls) });
   }
 
@@ -560,10 +595,13 @@ function frame(now) {
 
   const dir = lookDirection(input.yaw, input.pitch);
   const block = playing ? raycastBlock(world, camera.position, dir, REACH_DISTANCE, isTargetable) : null;
-  const hit = playing ? raycastPlayers(camera.position, dir, block ? block.t : REACH_DISTANCE,
+  const combatBlock = playing ? raycastBlock(world, camera.position, dir, REACH_DISTANCE, (id) => isTargetable(id) && !isWater(id)) : null;
+  const hit = playing ? raycastPlayers(camera.position, dir, combatBlock ? combatBlock.t : REACH_DISTANCE,
     entities.attackTargets(), (p) => playerBoxOf(p.state)) : null;
   targetPlayer = hit ? hit.player.id : null;
-  target = hit ? null : block;
+  // Only buckets target water. Other actions reach the block behind it.
+  const bucket = heldItem() === ITEM.EMPTY_BUCKET || heldItem() === ITEM.WATER_BUCKET;
+  target = hit ? null : bucket ? block : combatBlock;
   // Looking away (or the block breaking) resets progress, as on the server.
   if (!sameBlock(breaking, target)) breaking = null;
   highlight.update(target, breaking ? breaking.ticks / breakTicks(target.id, heldTool().speed) : 0);
@@ -590,7 +628,10 @@ function frame(now) {
   if (overview) chunks.update(world.sizeX / 2, world.sizeZ / 2);
   else chunks.update(camera.position.x, camera.position.z);
   clouds?.update(dt);
+  furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
   entities.update(dt);
+  sounds.update(dt, camera.position, player.state, world, entities,
+    input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'));
   flags.update(dt, player.id, pos);
   if (overview) {
     overview.fit(camera.aspect);
@@ -606,6 +647,7 @@ function frame(now) {
       mining: breaking !== null,
       held: heldItem(),
       draw: Math.min(1, drawTicks / BOW_FULL_TICKS),
+      gliding: s.gliding,
     });
     viewModel.render(renderer);
   }

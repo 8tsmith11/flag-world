@@ -27,20 +27,17 @@ host's firewall.
 
 ## Lobby
 
-Everyone lands in a lobby first: pick a name and color, then click Ready. The
+Everyone lands in a lobby first: pick a name and team, then click Ready. The
 first player to connect is the host. When everyone is ready, the host can
 enter a seed (blank = random; any text works), pick a world size, and click
 Start.
 
 World sizes:
 
-- **Test**: a low, rolling world for quick testing (160 blocks across for one
-  player, 32 more per extra player), with caves like the islands'.
-- **Tiny / Small / Medium / Large**: floating islands, 392 / 648 / 790 / 952
-  blocks across (Tiny has a thinner ring, just one row of islands). There's a big center island (bigger, and further from the ring, in
-  larger worlds), a ring of large islands where every player gets their keep
-  on their own island, and small islands scattered further out. Some islands are joined by winding land bridges or lines of
-  stepping stones; most aren't. Fall off and you're gone.
+- **Small / Medium / Large**: a central floating island, one higher island
+  for each occupied team, and scattered tiny islands. Teams share a keep and
+  flag on their own island. Caves descend from surface and cliff entrances;
+  ponds and trees dot the larger islands. Fall into the void and you're gone.
 
 A match lasts until the server is restarted. If you disconnect, reopen the page
 in the same browser to rejoin as the same player, with your position and
@@ -53,12 +50,13 @@ where they can take over any disconnected player.
 |----------------|--------|
 | Click          | Capture mouse and start playing |
 | W A S D        | Move |
+| Ctrl + W / double-tap W | Run while moving forward |
 | Space          | Jump (swim up in water; jump out at the surface) |
 | Shift          | Crouch: slower, lower, fits through 1.5-block gaps, and won't walk off edges higher than 1 block |
 | Mouse          | Look |
 | Left click     | Punch the player under the crosshair |
 | Hold left click | Break the block under the crosshair |
-| Right click    | Place the selected block |
+| Right click    | Place the selected block; hold with food to eat or a glider to glide |
 | 1–9 / scroll   | Select hotbar slot |
 | Q              | Drop one of the selected item |
 | E              | Inventory and crafting (E again closes it; Esc closes it too, then click to resume) |
@@ -67,8 +65,9 @@ where they can take over any disconnected player.
 
 ## Trees, crafting and tools
 
-Trees grow on the hills. Break wood by hand (leaves drop nothing), then press
-E to open your inventory. The crafting list on the right only shows what you
+Trees grow on the hills. Break wood by hand; unsupported leaves decay and may
+drop tree seeds. Plant seeds on grass or dirt to grow a tree after about 15 seconds.
+Press E to open your inventory. The crafting list on the right shows what you
 can make right now:
 
 - 1 wood → 4 planks

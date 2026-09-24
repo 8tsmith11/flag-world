@@ -4,7 +4,7 @@
 // Chunks are sparse: a chunk only exists once a non-air block is set in it, so
 // a big world that is mostly sky costs memory only where there is land.
 
-import { CHUNK_SIZE, WORLD_SIZE_Y } from './config.js';
+import { CHUNK_SIZE, WORLD_SIZE_Y, VOID_Y } from './config.js';
 import { BLOCK } from './blocks.js';
 
 const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -40,16 +40,16 @@ export class Chunk {
 }
 
 export class World {
-  // Sizes in blocks. closedBottom: solid stone below y = 0 under the world
-  // (the Test world); otherwise everything below is open void.
-  constructor(seed, sizeX, sizeZ, { sizeY = WORLD_SIZE_Y, closedBottom = false } = {}) {
+  // Sizes in blocks. The world is open void below its floating island.
+  constructor(seed, sizeX, sizeZ, { sizeY = WORLD_SIZE_Y, minY = VOID_Y } = {}) {
     this.seed = seed;
     this.sizeX = sizeX;
     this.sizeY = sizeY;
+    this.minY = minY;
+    this.voidY = minY;
     this.sizeZ = sizeZ;
-    this.closedBottom = closedBottom;
     this.chunksX = Math.ceil(sizeX / CHUNK_SIZE);
-    this.chunksY = Math.ceil(sizeY / CHUNK_SIZE);
+    this.chunksY = Math.ceil((sizeY - minY) / CHUNK_SIZE);
     this.chunksZ = Math.ceil(sizeZ / CHUNK_SIZE);
     // Only chunks that have held a non-air block.
     this.chunks = new Map();
@@ -57,12 +57,13 @@ export class World {
     this.keeps = [];
     // Block-attached state (e.g. chest contents), keyed by "x,y,z".
     this.tileEntities = new Map();
-    // Called with (x, y, z, id) after setBlock; used to dirty neighbour meshes / broadcast.
+    // Called with (x, y, z, id, oldId) after setBlock; used to dirty
+    // neighbour meshes, broadcast, and update server simulations.
     this.onBlockChanged = null;
   }
 
   inBounds(x, y, z) {
-    return x >= 0 && y >= 0 && z >= 0 && x < this.sizeX && y < this.sizeY && z < this.sizeZ;
+    return x >= 0 && y >= this.minY && z >= 0 && x < this.sizeX && y < this.sizeY && z < this.sizeZ;
   }
 
   getChunk(cx, cy, cz) {
@@ -70,16 +71,13 @@ export class World {
   }
 
   // Integer block coordinates. Outside the world is air (so walking off an
-  // edge falls into the void), except stone below a closed bottom.
+  // edge falls into the void).
   getBlock(x, y, z) {
-    if (!this.inBounds(x, y, z)) {
-      const underWorld = this.closedBottom && y < 0 && x >= 0 && z >= 0 && x < this.sizeX && z < this.sizeZ;
-      return underWorld ? BLOCK.STONE : BLOCK.AIR;
-    }
+    if (!this.inBounds(x, y, z)) return BLOCK.AIR;
     const chunk = this.getChunk(
       Math.floor(x / CHUNK_SIZE), Math.floor(y / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE),
     );
-    return chunk ? chunk.get(x % CHUNK_SIZE, y % CHUNK_SIZE, z % CHUNK_SIZE) : BLOCK.AIR;
+    return chunk ? chunk.get(x % CHUNK_SIZE, ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE, z % CHUNK_SIZE) : BLOCK.AIR;
   }
 
   setBlock(x, y, z, id) {
@@ -92,14 +90,17 @@ export class World {
       chunk = new Chunk(cx, cy, cz);
       this.chunks.set(chunkKey(cx, cy, cz), chunk);
     }
-    chunk.set(x % CHUNK_SIZE, y % CHUNK_SIZE, z % CHUNK_SIZE, id);
-    this.onBlockChanged?.(x, y, z, id);
+    const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const oldId = chunk.get(x % CHUNK_SIZE, ly, z % CHUNK_SIZE);
+    if (oldId === id) return true;
+    chunk.set(x % CHUNK_SIZE, ly, z % CHUNK_SIZE, id);
+    this.onBlockChanged?.(x, y, z, id, oldId);
     return true;
   }
 
   // Highest solid block's y in a column, or -1 if none.
   getSurfaceY(x, z, isSolid) {
-    for (let y = this.sizeY - 1; y >= 0; y--) {
+    for (let y = this.sizeY - 1; y >= this.minY; y--) {
       if (isSolid(this.getBlock(x, y, z))) return y;
     }
     return -1;

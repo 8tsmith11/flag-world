@@ -9,10 +9,12 @@ import * as THREE from 'three';
 import { ITEM_SIZE, COW_WIDTH, COW_HEIGHT } from '/shared/config.js';
 import { ENTITY_TYPE } from '/shared/protocol.js';
 import {
-  createPlayerModel, createItemModel, createArrowModel, createCowModel, animatePlayer, animateCow, swingPlayer,
+  createPlayerModel, createItemModel, createArrowModel, createCowModel, createDragonModel,
+  animatePlayer, animateCow, animateDragon, swingPlayer,
 } from './models.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
+const DRAGON_BOX = { halfW: 1.1, height: 2.8 };
 
 const INTERP_DELAY_MS = 100;
 const MAX_SNAPSHOTS = 20;
@@ -47,6 +49,7 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.PLAYER]: createPlayerModel,
   [ENTITY_TYPE.ITEM]: createDroppedItemModel,
   [ENTITY_TYPE.COW]: createCowModel,
+  [ENTITY_TYPE.DRAGON]: createDragonModel,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
     const arrow = createArrowModel();
@@ -103,7 +106,11 @@ export class EntityRenderer {
     if (entity.snapshots.at(-1)?.dead !== dead) entity.snapshots.length = 0;
     entity.snapshots.push({
       time: performance.now(), x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
-      crouching: !!snap.crouching, draw: snap.draw ?? 0, vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
+      crouching: !!snap.crouching, draw: snap.draw ?? 0, armor: snap.armor ?? null,
+      gliding: !!snap.gliding, breathing: !!snap.breathing, walking: !!snap.walking,
+      onGround: !!snap.onGround,
+      aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
+      vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
     if (entity.snapshots.length > MAX_SNAPSHOTS) entity.snapshots.shift();
   }
@@ -124,14 +131,14 @@ export class EntityRenderer {
     return this.entities.get(id)?.object ?? null;
   }
 
-  // What a punch can hit, as drawn this frame: live players and cows, as
+  // What a punch can hit, as drawn this frame: live players, cows and dragons, as
   // { id, state: { x, y, z, crouching, box? } } for raycastPlayers.
   attackTargets() {
     const targets = this.playerTargets();
     for (const [id, { object, info }] of this.entities) {
-      if (info.type !== ENTITY_TYPE.COW) continue;
+      if (info.type !== ENTITY_TYPE.COW && info.type !== ENTITY_TYPE.DRAGON) continue;
       const { x, y, z } = object.position;
-      targets.push({ id, state: { x, y, z, box: COW_BOX } });
+      targets.push({ id, state: { x, y, z, box: info.type === ENTITY_TYPE.COW ? COW_BOX : DRAGON_BOX } });
     }
     return targets;
   }
@@ -176,13 +183,16 @@ export class EntityRenderer {
         spin.inner.position.y = ITEM_BOB_HEIGHT * (1 + Math.sin(now * ITEM_BOB_SPEED + spin.phase));
       } else {
         object.rotation.y = lerpAngle(a.yaw, b.yaw, t);
+        if (object.userData.dragon) object.rotation.x = a.pitch + (b.pitch - a.pitch) * t;
       }
       const span = (b.time - a.time) / 1000;
       const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
       if (object.userData.cow) animateCow(object, dt, speed);
+      if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
+        b.aimYaw, b.aimPitch);
       if (object.userData.player) {
         animatePlayer(object, {
-          dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, crouching: b.crouching, draw: b.draw,
+          dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, armor: b.armor, crouching: b.crouching, draw: b.draw, gliding: b.gliding,
         });
       }
     }

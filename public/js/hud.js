@@ -17,7 +17,7 @@ export class HealthBar {
     if (hp === this.hp) return;
     this.hp = hp;
     this.fill.style.width = `${(hp / MAX_HP) * 100}%`;
-    this.label.textContent = `${hp} / ${MAX_HP}`;
+    this.label.textContent = `${Math.round(hp * 10) / 10} / ${MAX_HP}`;
   }
 }
 
@@ -30,9 +30,23 @@ export class EventFeed {
   }
 
   // className styles special entries, e.g. 'elim' for eliminations.
-  add(text, className = '') {
+  add(text, className = '', coloredNames = []) {
     const item = document.createElement('li');
-    item.textContent = text;
+    if (!coloredNames.length) item.textContent = text;
+    else {
+      let rest = text;
+      while (rest) {
+        const match = coloredNames.map(({ name, color }) => ({ name, color, at: rest.indexOf(name) }))
+          .filter((entry) => entry.name && entry.at >= 0).sort((a, b) => a.at - b.at || b.name.length - a.name.length)[0];
+        if (!match) { item.append(document.createTextNode(rest)); break; }
+        item.append(document.createTextNode(rest.slice(0, match.at)));
+        const span = document.createElement('span');
+        span.style.color = `#${match.color.toString(16).padStart(6, '0')}`;
+        span.textContent = match.name;
+        item.append(span);
+        rest = rest.slice(match.at + match.name.length);
+      }
+    }
     if (className) item.className = className;
     this.element.append(item);
     while (this.element.children.length > FEED_MAX) this.element.firstChild.remove();

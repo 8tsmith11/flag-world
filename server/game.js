@@ -8,34 +8,40 @@ import {
   REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, TOWER_MIN_HEIGHT,
   BOW_FULL_DRAW, BOW_MIN_DRAW, BOW_COOLDOWN, ARROW_SPEED, ARROW_DAMAGE, ARROW_KNOCKBACK,
   COW_HERD_AREA, COW_HERD_SIZE, COW_PANIC_TIME, COW_DROPS, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
+  DRAGON_FIRE_DAMAGE, DRAGON_DROPS,
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
-  MAX_HP, REGEN_DELAY, REGEN_INTERVAL, HIT_TOLERANCE,
-  KNOCKBACK_SPEED, KNOCKBACK_UP, RESPAWN_DELAY, VOID_Y, KILL_CREDIT_TIME, FALL_SAFE_DISTANCE,
+  MAX_HP, REGEN_DELAY, REGEN_INTERVAL, EAT_TIME, FOOD_HEAL_TIME, HIT_TOLERANCE,
+  KNOCKBACK_SPEED, KNOCKBACK_UP, RESPAWN_DELAY, KILL_CREDIT_TIME, FALL_SAFE_DISTANCE,
   FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS,
 } from '../shared/config.js';
 import {
-  BLOCK, isSolid, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
+  BLOCK, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
   ladderBlock, isLadder, ladderFacing, doorBlock, isDoor, doorState,
 } from '../shared/blocks.js';
 import { getItemDef, ITEM } from '../shared/items.js';
 import { getRecipe } from '../shared/recipes.js';
 import { createContainer } from './containers.js';
+import { clickSlot } from './inventory.js';
 import { Arrow } from './arrow.js';
 import { Cow, Herd } from './cow.js';
+import { Dragon } from './dragon.js';
 import { canStand } from './pathfind.js';
 import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../shared/worldgen.js';
-import { keepAt, flagHome } from '../shared/structures.js';
+import { keepAt, flagHome, mulberry32 } from '../shared/structures.js';
 import {
   stepPlayer, stepItem, playerOverlapsBlock, createPlayerState, playerBoxOf, eyeHeight, isOnLadder, isInWater,
   playerFitsAt,
 } from '../shared/physics.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '../shared/raycast.js';
 import {
-  C2S, S2C, PHASE, MAX_NAME_LENGTH, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT,
+  C2S, S2C, PHASE, MAX_NAME_LENGTH, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT, TEAMS,
 } from '../shared/protocol.js';
 import { Player, GRAB_TICKS } from './player.js';
 import { Flag } from './flag.js';
 import { ItemEntity } from './item.js';
+import { WaterSimulation } from './water.js';
+import { LeafDecay } from './leafDecay.js';
+import { SaplingGrowth } from './saplings.js';
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -47,6 +53,7 @@ const MAX_SEED_LENGTH = 64;
 const ticks = (seconds) => Math.round(seconds * TICK_RATE);
 const REGEN_DELAY_TICKS = ticks(REGEN_DELAY);
 const REGEN_INTERVAL_TICKS = ticks(REGEN_INTERVAL);
+const EAT_TICKS = ticks(EAT_TIME);
 const RESPAWN_DELAY_TICKS = ticks(RESPAWN_DELAY);
 const KILL_CREDIT_TICKS = ticks(KILL_CREDIT_TIME);
 const BOW_FULL_TICKS = ticks(BOW_FULL_DRAW);
@@ -92,18 +99,6 @@ function sameName(a, b) {
   return a.toLowerCase() === b.toLowerCase();
 }
 
-function randomColor() {
-  // Random hue at fixed saturation/lightness so colors stay bright and distinct.
-  const h = Math.random();
-  const s = 0.75, l = 0.55;
-  const f = (n) => {
-    const k = (n + h * 12) % 12;
-    const a = s * Math.min(l, 1 - l);
-    return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
-  };
-  return (f(0) << 16) | (f(8) << 8) | f(4);
-}
-
 function sendTo(socket, msg) {
   if (socket?.readyState === 1) socket.send(JSON.stringify(msg));
 }
@@ -125,6 +120,9 @@ export class Game {
     this.seed = null;
     this.playerCount = 0;
     this.world = null;
+    this.water = null;
+    this.leafDecay = null;
+    this.saplings = null;
     // Flags by owner id, and the last player standing once the match is decided.
     this.flags = new Map();
     this.winnerId = null;
@@ -136,6 +134,7 @@ export class Game {
     this.items = new Map();
     this.arrows = new Map();
     this.cows = new Map();
+    this.dragons = new Map();
     // Sessions on the "match in progress" screen.
     this.spectators = new Set();
   }
@@ -236,13 +235,19 @@ export class Game {
   }
 
   joinLobby(session, name) {
+    if (this.members.size >= TEAMS.length * 4) {
+      sendTo(session.socket, { type: S2C.ERROR, message: 'The lobby is full.' });
+      return;
+    }
     const id = this.nextId++;
     if (!name || this.nameTaken(name)) {
       let n = id;
       while (this.nameTaken(`Player ${n}`)) n++;
       name = `Player ${n}`;
     }
-    const member = { id, session, name, color: randomColor(), ready: false };
+    const team = [...TEAMS.keys()].reduce((best, i) =>
+      [...this.members.values()].filter((m) => m.team === i).length < [...this.members.values()].filter((m) => m.team === best).length ? i : best, 0);
+    const member = { id, session, name, team, color: TEAMS[team].color, ready: false };
     this.members.set(id, member);
     session.member = member;
     if (this.hostId === null) this.hostId = id;
@@ -257,7 +262,13 @@ export class Game {
       else if (this.nameTaken(name, member)) sendTo(member.session.socket, { type: S2C.ERROR, message: `"${name}" is taken.` });
       else member.name = name;
     }
-    if (Number.isInteger(msg.color) && msg.color >= 0 && msg.color <= 0xffffff) member.color = msg.color;
+    if (Number.isInteger(msg.team) && msg.team >= 0 && msg.team < TEAMS.length && msg.team !== member.team) {
+      if ([...this.members.values()].filter((m) => m.team === msg.team).length < 4) {
+        member.team = msg.team;
+        member.color = TEAMS[msg.team].color;
+        for (const m of this.members.values()) m.ready = false;
+      } else sendTo(member.session.socket, { type: S2C.ERROR, message: 'That team is full.' });
+    }
     if (typeof msg.ready === 'boolean') member.ready = msg.ready;
     if (member.id === this.hostId && Object.hasOwn(WORLD_SIZES, msg.worldSize)) this.worldSize = msg.worldSize;
     // Always sent, so a rejected name snaps back on the client.
@@ -265,7 +276,7 @@ export class Game {
   }
 
   broadcastLobby() {
-    const players = [...this.members.values()].map(({ id, name, color, ready }) => ({ id, name, color, ready }));
+    const players = [...this.members.values()].map(({ id, name, color, team, ready }) => ({ id, name, color, team, ready }));
     for (const m of this.members.values()) {
       sendTo(m.session.socket, { type: S2C.LOBBY, you: m.id, hostId: this.hostId, worldSize: this.worldSize, players });
     }
@@ -279,20 +290,40 @@ export class Game {
     }
     this.seed = parseSeed(typeof msg.seed === 'string' ? msg.seed.slice(0, MAX_SEED_LENGTH) : '');
     this.playerCount = this.members.size;
+    const occupiedTeams = [...new Set([...this.members.values()].map((m) => m.team))].sort();
+    this.teamCount = occupiedTeams.length;
     const started = performance.now();
-    this.world = generateWorld(this.seed, this.playerCount, this.worldSize);
-    this.world.onBlockChanged = (x, y, z, id) => {
+    this.world = generateWorld(this.seed, occupiedTeams.length, this.worldSize);
+    this.water = new WaterSimulation(this.world);
+    this.leafDecay = new LeafDecay(this.world, (x, y, z) => {
+      if (Math.random() < 0.08) this.dropAt(ITEM.TREE_SEED, x, y, z);
+    });
+    this.saplings = new SaplingGrowth(this.world, (x, y, z, top) =>
+      [...this.players.values()].some((p) => !p.dead && p.state.x + playerBoxOf(p.state).halfW > x
+        && p.state.x - playerBoxOf(p.state).halfW < x + 1
+        && p.state.z + playerBoxOf(p.state).halfW > z
+        && p.state.z - playerBoxOf(p.state).halfW < z + 1
+        && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y));
+    this.world.onBlockChanged = (x, y, z, id, oldId) => {
       this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id });
       this.broadcast({ type: S2C.BLOCK_CHANGE, x, y, z, id });
+      this.water.enqueueAround(x, y, z);
+      if (oldId === BLOCK.WOOD && id !== BLOCK.WOOD) this.leafDecay.enqueueAroundLog(x, y, z);
+      if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
+      if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
     };
 
-    // The i-th member (in join order) gets the i-th keep, and spawns there.
-    [...this.members.values()].forEach((m, i) => {
-      const keep = this.world.keeps[i];
-      const player = new Player(m.id, m.session.socket, m.name, m.color, this.keepSpawn(keep));
+    const teamFlags = new Map();
+    [...this.members.values()].forEach((m) => {
+      const keep = this.world.keeps[occupiedTeams.indexOf(m.team)];
+      const player = new Player(m.id, m.session.socket, m.name, m.color, this.keepSpawn(keep), m.team);
       player.keep = keep;
-      player.flag = new Flag(player.id, player.color, flagHome(keep));
-      this.flags.set(player.id, player.flag);
+      if (!teamFlags.has(m.team)) {
+        const flag = new Flag(player.id, player.color, flagHome(keep), m.team);
+        teamFlags.set(m.team, flag);
+        this.flags.set(flag.id, flag);
+      }
+      player.flag = teamFlags.get(m.team);
       this.players.set(player.id, player);
       m.session.member = null;
       m.session.player = player;
@@ -304,6 +335,7 @@ export class Game {
       + `${WORLD_SIZES[this.worldSize].label} world ${this.world.sizeX}x${this.world.sizeZ}x${this.world.sizeY} `
       + `(generated in ${Math.round(performance.now() - started)} ms)`);
     this.spawnHerds();
+    this.spawnDragons();
     for (const player of this.players.values()) this.sendWelcome(player);
   }
 
@@ -357,14 +389,22 @@ export class Game {
       color: player.color,
       seed: this.seed,
       playerCount: this.playerCount,
+      teamCount: this.teamCount,
       worldSize: this.worldSize,
       tick: this.tick,
       blocks: [...this.blockChanges.values()],
+      litFurnaces: [...this.world.tileEntities].filter(([, c]) => c.kind === 'furnace' && c.burn > 0)
+        .map(([key]) => {
+          const [x, y, z] = key.split(',').map(Number);
+          return { x, y, z };
+        }),
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
-      entities: [...this.items.values(), ...this.arrows.values(), ...this.cows.values()].map((e) => e.describe()),
+      entities: [...this.items.values(), ...this.arrows.values(), ...this.cows.values(), ...this.dragons.values()].map((e) => e.describe()),
       inventory: player.inventory,
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
       winnerId: this.winnerId,
+      winnerTeam: this.winnerId === null ? null : this.flags.get(this.winnerId)?.team,
+      winnerMembers: this.winnerId === null ? [] : [...this.players.values()].filter((p) => p.team === this.flags.get(this.winnerId)?.team).map((p) => p.name),
     });
   }
 
@@ -374,6 +414,7 @@ export class Game {
     player.inputQueue.push({
       seq: msg.seq,
       forward: Number(msg.forward) || 0,
+      sprint: !!msg.sprint,
       strafe: Number(msg.strafe) || 0,
       jump: !!msg.jump,
       yaw: Number(msg.yaw) || 0,
@@ -386,6 +427,8 @@ export class Game {
       attack: !!msg.attack,
       crouch: !!msg.crouch,
       draw: !!msg.draw,
+      eat: !!msg.eat,
+      glide: !!msg.glide,
     });
   }
 
@@ -424,6 +467,9 @@ export class Game {
       const key = `${x},${y},${z}`;
       const container = this.world.tileEntities.get(key);
       if (container) {
+        if (container.kind === 'furnace' && container.burn > 0) {
+          this.broadcast({ type: S2C.FURNACE_LIT, x, y, z, lit: false });
+        }
         this.world.tileEntities.delete(key);
         for (const stack of container.takeAll()) this.dropAt(stack.item, x, y, z, stack.count);
       }
@@ -434,6 +480,7 @@ export class Game {
       if (isLadder(n) && ladderFacing(n) === facing) this.breakBlock(x - dx, y, z - dz);
     });
     const above = this.world.getBlock(x, y + 1, z);
+    if (above === BLOCK.SAPLING) this.breakBlock(x, y + 1, z);
     if (isDoor(above) && !doorState(above).upper) this.breakBlock(x, y + 1, z);
   }
 
@@ -453,6 +500,14 @@ export class Game {
   // Right click on a door: open or close both halves. A door can't close on a player.
   stepUse(player, pos) {
     const id = this.world.getBlock(pos.x, pos.y, pos.z);
+    if (id === BLOCK.WATER && player.held() === ITEM.EMPTY_BUCKET && this.inReach(player, pos)) {
+      this.world.setBlock(pos.x, pos.y, pos.z, BLOCK.AIR);
+      player.inventory.takeOne(player.selected);
+      player.inventory.add(ITEM.WATER_BUCKET, 1);
+      player.inventoryDirty = true;
+      this.swing(player);
+      return;
+    }
     if (!isDoor(id) || !this.inReach(player, pos)) return;
     const { facing, open, upper } = doorState(id);
     const lower = upper ? pos.y - 1 : pos.y;
@@ -474,7 +529,12 @@ export class Game {
     // What goes where: [x, y, z, block id] for each cell.
     let cells;
     let lift = false;
-    if (def.places === 'ladder') {
+    if (def.places === 'sapling') {
+      if (pos.ny !== 1 || this.world.getBlock(pos.x, pos.y, pos.z) !== BLOCK.AIR) return;
+      const soil = this.world.getBlock(pos.x, pos.y - 1, pos.z);
+      if (soil !== BLOCK.GRASS && soil !== BLOCK.DIRT) return;
+      cells = [[pos.x, pos.y, pos.z, BLOCK.SAPLING]];
+    } else if (def.places === 'ladder') {
       // Flat against the side of a full block: the targeted face must be a side.
       if (pos.ny !== 0 || (pos.nx === 0 && pos.nz === 0)) return;
       if (!isSupport(this.world.getBlock(pos.x - pos.nx, pos.y, pos.z - pos.nz))) return;
@@ -488,8 +548,10 @@ export class Game {
       const facing = Math.abs(look.x) > Math.abs(look.z) ? facingOf(Math.sign(look.x), 0) : facingOf(0, Math.sign(look.z));
       cells = [[pos.x, pos.y, pos.z, doorBlock(facing, false, false)], [pos.x, pos.y + 1, pos.z, doorBlock(facing, false, true)]];
     } else {
-      const attached = NEIGHBOURS.some(([dx, dy, dz]) =>
-        isTargetable(this.world.getBlock(pos.x + dx, pos.y + dy, pos.z + dz)));
+      const attached = NEIGHBOURS.some(([dx, dy, dz]) => {
+        const id = this.world.getBlock(pos.x + dx, pos.y + dy, pos.z + dz);
+        return isTargetable(id) && !isWater(id);
+      });
       if (!attached) return;
       // Nobody may be in the way, except that a player jumping up can place
       // the block under their own feet (towering) and is lifted on top of it.
@@ -504,6 +566,7 @@ export class Game {
       cells = [[pos.x, pos.y, pos.z, facedBlock(def.block, toward)]];
     }
     player.inventory.takeOne(slot);
+    if (stack.item === ITEM.WATER_BUCKET) player.inventory.add(ITEM.EMPTY_BUCKET, 1);
     if (lift) {
       player.state.y = pos.y + 1;
       player.state.vy = Math.max(player.state.vy, 0);
@@ -520,7 +583,7 @@ export class Game {
   // Air or water (placing into water replaces it), and outside every keep's no-build zone.
   buildable(x, y, z) {
     const id = this.world.getBlock(x, y, z);
-    return (id === BLOCK.AIR || id === BLOCK.WATER) && this.world.inBounds(x, y, z) && !keepAt(this.world, x, y, z);
+    return (id === BLOCK.AIR || isWater(id)) && this.world.inBounds(x, y, z) && !keepAt(this.world, x, y, z);
   }
 
   // In the air, feet at least TOWER_MIN_HEIGHT up the cell (and still in it),
@@ -547,6 +610,16 @@ export class Game {
     if ((button !== 'left' && button !== 'right') || !Number.isInteger(slot)) return;
     const container = this.viewedContainer(player);
     const inv = player.inventory;
+    if (msg.armor) {
+      const armorSlots = [inv.armor];
+      if (msg.shift) {
+        if (!inv.armor || inv.add(inv.armor.item, 1) !== 0) return;
+        inv.armor = null;
+      } else if (!clickSlot(armorSlots, 0, inv, button, { accepts: (item) => !!getItemDef(item).armorPoints })) return;
+      else inv.armor = armorSlots[0];
+      player.inventoryDirty = true;
+      return;
+    }
     if (msg.container) {
       if (!container || slot < 0 || slot >= container.slots.length) return;
       let moved;
@@ -576,6 +649,10 @@ export class Game {
         container.dirty = true;
         player.inventoryDirty = true;
       }
+    } else if (getItemDef(inv.slots[slot]?.item).armorPoints && !inv.armor) {
+      inv.armor = inv.slots[slot];
+      inv.slots[slot] = null;
+      player.inventoryDirty = true;
     } else if (inv.shiftMove(slot)) {
       player.inventoryDirty = true;
     }
@@ -604,8 +681,13 @@ export class Game {
   // open gets its new state when it changes (from ticking or anyone's click),
   // and is told to close if it's gone or out of reach.
   updateContainers() {
-    for (const container of this.world.tileEntities.values()) {
+    for (const [key, container] of this.world.tileEntities) {
+      const wasLit = container.kind === 'furnace' && container.burn > 0;
       if (container.tick()) container.dirty = true;
+      if (container.kind === 'furnace' && (container.burn > 0) !== wasLit) {
+        const [x, y, z] = key.split(',').map(Number);
+        this.broadcast({ type: S2C.FURNACE_LIT, x, y, z, lit: container.burn > 0 });
+      }
     }
     for (const player of this.players.values()) {
       if (!player.viewing) continue;
@@ -678,7 +760,7 @@ export class Game {
       const s = entity.state;
       const { x, y, z } = s;
       stepItem(s, this.world);
-      if (s.y < VOID_Y) {
+      if (s.y < this.world.voidY) {
         this.removeItem(entity);
         continue;
       }
@@ -750,8 +832,8 @@ export class Game {
     const moved = [];
     for (const arrow of this.arrows.values()) {
       const flying = !arrow.stuckIn;
-      const result = arrow.step(this.world, [...this.players.values(), ...this.cows.values()]);
-      if (result === 'gone' || arrow.y < VOID_Y) {
+      const result = arrow.step(this.world, [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team), ...this.cows.values(), ...this.dragons.values()]);
+      if (result === 'gone' || arrow.y < this.world.voidY) {
         this.removeArrow(arrow);
       } else if (result?.hit) {
         const target = result.hit, t = target.state;
@@ -761,6 +843,7 @@ export class Game {
         t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
         t.onGround = false;
         if (target instanceof Cow) this.hurtCow(target, arrow.damage, arrow.shooter);
+        else if (target instanceof Dragon) this.hurtDragon(target, arrow.damage, arrow.shooter);
         else this.damage(target, arrow.damage, arrow.shooter);
         this.removeArrow(arrow);
       } else if (flying) {
@@ -777,30 +860,44 @@ export class Game {
 
   // ---- Cows ----
 
-  // Herds on open grass away from the keeps, about one per COW_HERD_AREA
-  // square blocks of world; each cow near its herd's spot.
+  // Herds on each island's open grass, sized by actual land area rather than
+  // the mostly empty rectangular world bounds.
   spawnHerds() {
     const w = this.world;
-    const herds = Math.max(2, Math.round((w.sizeX * w.sizeZ) / COW_HERD_AREA));
-    const grassy = (x, z) => {
-      const y = w.getSurfaceY(x, z, isSolid);
-      return y >= 0 && w.getBlock(x, y, z) === BLOCK.GRASS && canStand(w, x, y + 1, z, 2) ? y + 1 : null;
+    const rand = mulberry32(this.seed ^ 0x46c6b987);
+    const grassy = (x, z, island) => {
+      for (let y = Math.min(w.sizeY - 1, island.topY); y >= island.bottomY; y--) {
+        const id = w.getBlock(x, y, z);
+        if (!isSolid(id)) continue;
+        return id === BLOCK.GRASS && canStand(w, x, y + 1, z, 2) ? y + 1 : null;
+      }
+      return null;
     };
-    for (let h = 0; h < herds; h++) {
-      for (let tries = 0; tries < 60; tries++) {
-        const cx = Math.floor(Math.random() * w.sizeX), cz = Math.floor(Math.random() * w.sizeZ);
-        if (grassy(cx, cz) === null || w.keeps.some((k) => Math.hypot(cx - k.cx, cz - k.cz) < 20)) continue;
-        const herd = new Herd(h);
-        const size = COW_HERD_SIZE[0] + Math.floor(Math.random() * (COW_HERD_SIZE[1] - COW_HERD_SIZE[0] + 1));
-        for (let c = 0, attempts = 0; c < size && attempts < 30; attempts++) {
-          const x = cx + Math.floor((Math.random() - 0.5) * 8), z = cz + Math.floor((Math.random() - 0.5) * 8);
-          const y = grassy(x, z);
-          if (y === null) continue;
-          const cow = new Cow(this.nextId++, herd, x + 0.5, y, z + 0.5);
-          this.cows.set(cow.id, cow);
-          c++;
+    let herdId = 0;
+    for (const island of w.islands) {
+      const herds = island.kind === 'tiny'
+        ? (island.radius >= 13 && rand() < 0.15 ? 1 : 0)
+        : Math.max(1, Math.round(Math.PI * island.radius ** 2 / COW_HERD_AREA));
+      for (let h = 0; h < herds; h++) {
+        for (let tries = 0; tries < 60; tries++) {
+          const angle = rand() * Math.PI * 2;
+          const distance = Math.sqrt(rand()) * island.radius * 0.7;
+          const cx = Math.floor(island.x + Math.cos(angle) * distance);
+          const cz = Math.floor(island.z + Math.sin(angle) * distance);
+          if (grassy(cx, cz, island) === null || w.keeps.some((k) => Math.hypot(cx - k.cx, cz - k.cz) < 20)) continue;
+          const herd = new Herd(herdId++);
+          const size = island.kind === 'tiny' ? 1
+            : COW_HERD_SIZE[0] + Math.floor(rand() * (COW_HERD_SIZE[1] - COW_HERD_SIZE[0] + 1));
+          for (let c = 0, attempts = 0; c < size && attempts < 30; attempts++) {
+            const x = cx + Math.floor((rand() - 0.5) * 8), z = cz + Math.floor((rand() - 0.5) * 8);
+            const y = grassy(x, z, island);
+            if (y === null) continue;
+            const cow = new Cow(this.nextId++, herd, x + 0.5, y, z + 0.5);
+            this.cows.set(cow.id, cow);
+            c++;
+          }
+          break;
         }
-        break;
       }
     }
   }
@@ -812,7 +909,7 @@ export class Game {
       const s = cow.state;
       const before = `${s.x},${s.y},${s.z},${s.yaw}`;
       cow.step(this.world, this.tick);
-      if (s.y < VOID_Y) this.removeCow(cow);
+      if (s.y < this.world.voidY) this.removeCow(cow);
       else if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(cow);
     }
     return moved;
@@ -842,6 +939,53 @@ export class Game {
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: cow.id });
   }
 
+  // Rare dragons enter the match above grassy ground, clear of team keeps.
+  spawnDragons() {
+    const count = this.worldSize === 'large' ? 2 : 1;
+    const radius = WORLD_SIZES[this.worldSize].centralRadius;
+    const rand = mulberry32(this.seed ^ 0x8a7f219d);
+    const rotation = rand() * Math.PI * 2;
+    for (let i = 0; i < count; i++) {
+      for (let tries = 0; tries < 60; tries++) {
+        const angle = rotation + i * Math.PI * 2 / count + (rand() - 0.5) * 0.45;
+        const distance = radius * (0.3 + rand() * 0.35);
+        const x = Math.floor(this.world.sizeX / 2 + Math.cos(angle) * distance);
+        const z = Math.floor(this.world.sizeZ / 2 + Math.sin(angle) * distance);
+        const ground = this.world.getSurfaceY(x, z, isSolid);
+        if (ground < 0 || this.world.getBlock(x, ground, z) !== BLOCK.GRASS
+          || this.world.keeps.some((keep) => Math.hypot(x - keep.cx, z - keep.cz) < 35)) continue;
+        const dragon = new Dragon(this.nextId++, x + 0.5, Math.min(this.world.sizeY - 6, ground + 10), z + 0.5);
+        this.dragons.set(dragon.id, dragon);
+        break;
+      }
+    }
+  }
+
+  updateDragons() {
+    const players = [...this.players.values()];
+    for (const dragon of this.dragons.values()) {
+      for (const target of dragon.step(this.world, players, this.tick)) {
+        this.damage(target, DRAGON_FIRE_DAMAGE, dragon);
+      }
+    }
+    // Flight and fire are sent every tick so the flame starts and stops promptly.
+    return [...this.dragons.values()];
+  }
+
+  hurtDragon(dragon, amount, attacker) {
+    dragon.hp = Math.max(0, dragon.hp - amount);
+    this.broadcast({ type: S2C.DAMAGE, id: dragon.id, attackerId: attacker?.id ?? null, hp: dragon.hp });
+    if (dragon.hp > 0) return;
+    dragon.dead = true;
+    this.dragons.delete(dragon.id);
+    this.broadcast({ type: S2C.ENTITY_DESPAWN, id: dragon.id });
+    const roll = ([lo, hi]) => lo + Math.floor(Math.random() * (hi - lo + 1));
+    for (const [item, count] of [[ITEM.IRON_INGOT, roll(DRAGON_DROPS.iron)], [ITEM.LEATHER, roll(DRAGON_DROPS.leather)]]) {
+      this.spawnItem(item, count, dragon.state.x, dragon.state.y, dragon.state.z,
+        (Math.random() - 0.5) * 2, ITEM_POP_SPEED, (Math.random() - 0.5) * 2, ITEM_PICKUP_DELAY);
+    }
+  }
+
   // ---- Combat ----
 
   // A punch: confirmed by casting from the attacker's eyes along this input's
@@ -855,8 +999,9 @@ export class Game {
     const s = player.state;
     const eye = { x: s.x, y: s.y + eyeHeight(s), z: s.z };
     const dir = lookDirection(s.yaw, s.pitch);
-    const block = raycastBlock(this.world, eye, dir, REACH_DISTANCE, isTargetable);
-    const targets = [...this.players.values(), ...this.cows.values()].filter((p) => p !== player && !p.dead && p.connected);
+    const block = raycastBlock(this.world, eye, dir, REACH_DISTANCE, (id) => isTargetable(id) && !isWater(id));
+    const targets = [...this.players.values(), ...this.cows.values(), ...this.dragons.values()]
+      .filter((p) => p !== player && (p instanceof Cow || p instanceof Dragon || p.team !== player.team) && !p.dead && p.connected);
     const hit = raycastPlayers(eye, dir, block ? block.t : REACH_DISTANCE, targets, (p) => playerBoxOf(p.state), HIT_TOLERANCE);
     if (!hit) return;
 
@@ -870,6 +1015,7 @@ export class Game {
     t.vy = Math.max(t.vy, KNOCKBACK_UP);
     t.onGround = false;
     if (target instanceof Cow) this.hurtCow(target, weapon.damage, player);
+    else if (target instanceof Dragon) this.hurtDragon(target, weapon.damage, player);
     else this.damage(target, weapon.damage, player);
   }
 
@@ -877,6 +1023,11 @@ export class Game {
   // attacker is credited to whoever hit them recently.
   damage(target, amount, attacker, cause = DEATH_CAUSE.PLAYER) {
     if (target.dead) return;
+    if (attacker && attacker.team === target.team) return;
+    if (cause !== DEATH_CAUSE.FALL && cause !== DEATH_CAUSE.VOID) {
+      const points = getItemDef(target.inventory.armor?.item).armorPoints || 0;
+      amount = amount * 10 / (10 + points);
+    }
     target.hp = Math.max(0, target.hp - amount);
     target.lastDamageTick = this.tick;
     if (attacker) target.lastAttacker = { id: attacker.id, tick: this.tick };
@@ -887,7 +1038,8 @@ export class Game {
   // The player who hit this one within KILL_CREDIT_TIME, or null.
   recentAttacker(player) {
     const a = player.lastAttacker;
-    return (a && this.tick - a.tick <= KILL_CREDIT_TICKS && this.players.get(a.id)) || null;
+    const attacker = a && (this.players.get(a.id) ?? this.dragons.get(a.id));
+    return (attacker && attacker.team !== player.team && this.tick - a.tick <= KILL_CREDIT_TICKS && attacker) || null;
   }
 
   // Fall damage: the highest point since last standing (or holding a ladder,
@@ -895,7 +1047,18 @@ export class Game {
   // tick's move, so a fall counts from the ledge, not a tick below it.
   trackFall(player, prevY) {
     const s = player.state;
-    if (isOnLadder(s, this.world) || isInWater(s, this.world)) {
+    let crossedWater = false;
+    if (s.y < prevY) {
+      const halfW = playerBoxOf(s).halfW;
+      for (let y = Math.floor(s.y); y <= Math.floor(prevY + 0.4) && !crossedWater; y++) {
+        for (let z = Math.floor(s.z - halfW); z <= Math.floor(s.z + halfW) && !crossedWater; z++) {
+          for (let x = Math.floor(s.x - halfW); x <= Math.floor(s.x + halfW); x++) {
+            if (isWater(this.world.getBlock(x, y, z))) { crossedWater = true; break; }
+          }
+        }
+      }
+    }
+    if (isOnLadder(s, this.world) || isInWater(s, this.world) || crossedWater || s.gliding) {
       player.fallTop = null;
     } else if (!s.onGround) {
       player.fallTop = Math.max(player.fallTop ?? prevY, prevY, s.y);
@@ -919,6 +1082,8 @@ export class Game {
     player.grab = null;
     player.viewing = null;
     player.drawTicks = 0;
+    player.eatTicks = 0;
+    player.foodHealing.length = 0;
     if (player.carrying) this.dropFlag(player);
     player.eliminated = player.flag.state === FLAG_STATE.CAPTURED;
     const s = player.state;
@@ -938,15 +1103,20 @@ export class Game {
   }
 
   checkWin() {
-    const remaining = [...this.players.values()].filter((p) => !p.eliminated);
-    if (remaining.length !== 1 || this.winnerId !== null) return;
-    this.winnerId = remaining[0].id;
-    console.log(`${remaining[0].name} wins`);
-    this.broadcast({ type: S2C.MATCH_END, winnerId: this.winnerId });
+    if (this.winnerId !== null) return;
+    // A captured flag removes respawns, but every member of that team gets
+    // to fight until their next death. Count teams with surviving members.
+    const activeTeams = new Set([...this.players.values()].filter((p) => !p.eliminated).map((p) => p.team));
+    if (activeTeams.size !== 1) return;
+    const winner = [...this.flags.values()].find((f) => f.team === [...activeTeams][0]);
+    if (!winner) return;
+    this.winnerId = winner.id;
+    this.broadcast({ type: S2C.MATCH_END, winnerId: winner.id, winnerTeam: winner.team,
+      members: [...this.players.values()].filter((p) => p.team === winner.team).map((p) => p.name) });
   }
 
   checkVoid(player) {
-    if (player.state.y >= VOID_Y) return;
+    if (player.state.y >= this.world.voidY) return;
     this.kill(player, this.recentAttacker(player), DEATH_CAUSE.VOID);
   }
 
@@ -965,9 +1135,38 @@ export class Game {
 
   // 1 HP every REGEN_INTERVAL (on the game clock) once REGEN_DELAY has passed since the last hit.
   regen(player) {
-    if (player.dead || player.hp >= MAX_HP) return;
-    if (this.tick - player.lastDamageTick < REGEN_DELAY_TICKS) return;
-    if (this.tick % REGEN_INTERVAL_TICKS === 0) player.hp++;
+    if (player.dead) return;
+    for (const dose of player.foodHealing) {
+      if (this.tick < dose.nextTick) continue;
+      if (player.hp < MAX_HP) player.hp = Math.min(MAX_HP, player.hp + 1);
+      dose.remaining--;
+      dose.nextTick += dose.interval;
+    }
+    player.foodHealing = player.foodHealing.filter((dose) => dose.remaining > 0 && player.hp < MAX_HP);
+    if (player.hp >= MAX_HP) return;
+    const sinceDamage = this.tick - player.lastDamageTick;
+    if (sinceDamage < REGEN_DELAY_TICKS) return;
+    if (Number.isFinite(sinceDamage)) {
+      if ((sinceDamage - REGEN_DELAY_TICKS) % REGEN_INTERVAL_TICKS === 0) player.hp++;
+    } else if (this.tick % REGEN_INTERVAL_TICKS === 0) player.hp++;
+  }
+
+  stepEating(player, eat) {
+    const held = player.held();
+    const food = getItemDef(held).food;
+    if (!eat || !food) {
+      player.eatTicks = 0;
+      player.eatingItem = null;
+      return;
+    }
+    if (player.eatingItem !== held) player.eatTicks = 0;
+    player.eatingItem = held;
+    if (++player.eatTicks < EAT_TICKS) return;
+    player.eatTicks = 0;
+    player.inventory.takeOne(player.selected);
+    player.inventoryDirty = true;
+    const interval = Math.max(1, FOOD_HEAL_TIME * TICK_RATE / food);
+    player.foodHealing.push({ remaining: food, nextTick: this.tick + interval, interval });
   }
 
   // ---- Flags ----
@@ -988,7 +1187,7 @@ export class Game {
     player.carrying = flag;
     player.state.carrying = true;
     player.grab = null;
-    console.log(`${player.name} took ${this.players.get(flag.id).name}'s flag`);
+    console.log(`${player.name} took team ${flag.team}'s flag`);
     this.flagEvent(flag, FLAG_EVENT.TAKEN, player);
   }
 
@@ -1012,12 +1211,11 @@ export class Game {
 
   capture(player) {
     const flag = player.carrying;
-    const loser = this.players.get(flag.id);
     player.carrying = null;
     player.state.carrying = false;
     flag.state = FLAG_STATE.CAPTURED;
     flag.carrier = null;
-    console.log(`${player.name} captured ${loser.name}'s flag`);
+    console.log(`${player.name} captured team ${flag.team}'s flag`);
     this.flagEvent(flag, FLAG_EVENT.CAPTURED, player);
   }
 
@@ -1027,7 +1225,7 @@ export class Game {
     for (const flag of this.flags.values()) {
       if (flag.state !== FLAG_STATE.DROPPED) continue;
       stepItem(flag.body, this.world);
-      if (flag.body.y < VOID_Y || this.tick - flag.droppedTick >= FLAG_RETURN_TICKS) this.returnFlag(flag);
+      if (flag.body.y < this.world.voidY || this.tick - flag.droppedTick >= FLAG_RETURN_TICKS) this.returnFlag(flag);
     }
 
     for (const player of this.players.values()) {
@@ -1045,7 +1243,7 @@ export class Game {
         continue;
       }
 
-      const target = [...this.flags.values()].find((f) => f !== own
+      const target = [...this.flags.values()].find((f) => f.team !== player.team
         && (f.state === FLAG_STATE.HOME || f.state === FLAG_STATE.DROPPED) && this.onFlag(player, f.position));
       if (!target) {
         player.grab = null;
@@ -1065,6 +1263,7 @@ export class Game {
   update() {
     if (this.phase !== PHASE.PLAYING) return;
     this.tick++;
+    this.water.tick(this.tick);
     for (const player of this.players.values()) {
       // Each input is one tick of movement. Run whatever arrived since the last
       // server tick so network jitter doesn't lose or duplicate inputs.
@@ -1074,6 +1273,8 @@ export class Game {
         player.selected = input.slot;
         // Drawing (and its slowdown) only counts with a bow in hand.
         if (input.draw && player.held() !== ITEM.BOW) input.draw = false;
+        if (input.eat && !getItemDef(player.held()).food) input.eat = false;
+        if (input.glide && player.held() !== ITEM.GLIDER) input.glide = false;
         const prevY = player.state.y;
         stepPlayer(player.state, input, this.world);
         this.checkVoid(player);
@@ -1085,15 +1286,19 @@ export class Game {
         else if (input.place) this.stepPlace(player, input.place, input.slot);
         if (input.drop) this.stepDrop(player, input.slot);
         this.stepBow(player, input.draw);
+        this.stepEating(player, input.eat);
       }
       player.inputQueue.length = 0;
       this.regen(player);
     }
 
+    this.leafDecay.tick();
+    this.saplings.tick(this.tick);
+
     this.updateFlags();
     this.updateContainers();
 
-    const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateCows()];
+    const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateCows(), ...this.updateDragons()];
 
     for (const player of this.players.values()) {
       if (!player.inventoryDirty) continue;

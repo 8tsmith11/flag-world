@@ -7,13 +7,8 @@ export const DEBUG = true;
 
 export const PORT = 3000;
 
-// World height in blocks. The X/Z size depends on the match's player count
-// (see worldSize in worldgen.js).
-export const WORLD_SIZE_Y = 32;
-// Test world X/Z size in chunks: a base plus two per player, capped.
-export const WORLD_BASE_CHUNKS = 8;
-export const WORLD_CHUNKS_PER_PLAYER = 2;
-export const WORLD_MAX_CHUNKS = 32;
+// World height in blocks. The X/Z size follows the selected island radius.
+export const WORLD_SIZE_Y = 128;
 
 // Chunks are cubes of CHUNK_SIZE blocks.
 export const CHUNK_SIZE = 16;
@@ -24,7 +19,6 @@ export const VIEW_DISTANCE = 160;
 export const VIEW_DISTANCE_MIN = 64;
 export const VIEW_DISTANCE_MAX = 320;
 
-export const WATER_LEVEL = 12;
 
 // Simulation runs at a fixed rate. Every client input represents exactly one tick.
 export const TICK_RATE = 20;
@@ -35,12 +29,16 @@ export const PLAYER_WIDTH = 0.6;
 export const PLAYER_HEIGHT = 1.8;
 export const PLAYER_EYE_HEIGHT = 1.62;
 export const WALK_SPEED = 4.3;
+export const SPRINT_SPEED_SCALE = 1.5;
 export const JUMP_VELOCITY = 8.4;
 export const GRAVITY = 28;
 export const TERMINAL_VELOCITY = 50;
 export const SWIM_GRAVITY_SCALE = 0.25;
-export const SWIM_UP_SPEED = 3;
-export const SWIM_SPEED_SCALE = 0.6;
+export const SWIM_UP_SPEED = 2.4;
+export const SWIM_SPEED_SCALE = 0.4;
+export const WATER_CURRENT_SPEED = 2.2;
+export const GLIDE_SPEED = 8;
+export const GLIDE_FALL_SPEED = 2;
 // Upward speed when jumping at the water surface: the smallest value (tuned at
 // 20 Hz) that reliably lifts the feet above the surface, so you can climb onto
 // shore blocks level with the water.
@@ -87,8 +85,8 @@ export const ITEM_GROUND_FRICTION = 0.6;
 
 // Combat. Times in seconds, speeds in blocks/s.
 export const MAX_HP = 20;
-export const REGEN_DELAY = 5;
-export const REGEN_INTERVAL = 1;
+export const REGEN_DELAY = 12;
+export const REGEN_INTERVAL = 3;
 export const ATTACK_DAMAGE = 2;
 export const ATTACK_COOLDOWN = 0.4;
 // The server grows hitboxes by this much when confirming a punch, since the
@@ -115,8 +113,6 @@ export const KEEP_SIZE = 7;
 export const KEEP_HEIGHT = 5;
 // Terrain around a keep is flattened this far out so it can be walked into from any side.
 export const KEEP_MARGIN = 2;
-// Keep centers sit on a circle around the world center, this fraction of the world size out.
-export const KEEP_RING = 0.32;
 export const FLAG_GRAB_TIME = 2;
 export const FLAG_RETURN_TIME = 120;
 // A player is on a flag when their feet are within this horizontal distance of its base.
@@ -130,6 +126,9 @@ export const BOW_FULL_DRAW = 1;
 export const BOW_MIN_DRAW = 0.2;
 export const BOW_COOLDOWN = 0.5;
 export const BOW_DRAW_SPEED_SCALE = 0.5;
+export const EAT_SPEED_SCALE = 0.45;
+export const EAT_TIME = 1.5;
+export const FOOD_HEAL_TIME = 3;
 export const ARROW_SPEED = [15, 50];
 export const ARROW_DAMAGE = [1, 5];
 // Arrows fall slower than players (GRAVITY) so they arc gently, and lose a
@@ -153,6 +152,17 @@ export const COW_HERD_AREA = 20000;
 export const COW_HERD_SIZE = [3, 6];
 export const COW_PANIC_TIME = 5;
 export const COW_DROPS = { leather: [0, 2], beef: [1, 3] };
+
+// Dragons patrol above the island and dive to breathe fire at nearby players.
+export const DRAGON_HP = 30;
+export const DRAGON_SPEED = 5.5;
+export const DRAGON_SIGHT = 45;
+export const DRAGON_FIRE_RANGE = 14;
+export const DRAGON_FIRE_DAMAGE = 2.5;
+export const DRAGON_FIRE_DURATION = 1.2;
+export const DRAGON_FIRE_COOLDOWN = 4;
+export const DRAGON_FIRE_INTERVAL = 0.3;
+export const DRAGON_DROPS = { iron: [2, 5], leather: [2, 4] };
 
 // Furnace: seconds to smelt one item.
 export const SMELT_TIME = 5;

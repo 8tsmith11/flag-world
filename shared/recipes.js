@@ -24,12 +24,17 @@ export const RECIPES = [
   { id: 'stone_sword', station: 'workbench', output: ITEM.STONE_SWORD, count: 1, inputs: needs([BLOCK.STONE, 2], [BLOCK.WOOD, 1]) },
   { id: 'bow', station: 'workbench', output: ITEM.BOW, count: 1, inputs: needs([BLOCK.PLANKS, 3], [BLOCK.WOOD, 2]) },
   { id: 'iron_sword', station: 'workbench', output: ITEM.IRON_SWORD, count: 1, inputs: needs([ITEM.IRON_INGOT, 2], [BLOCK.WOOD, 1]) },
+  { id: 'bucket', station: 'workbench', output: ITEM.EMPTY_BUCKET, count: 1, inputs: needs([ITEM.IRON_INGOT, 1]) },
+  { id: 'leather_armor', station: 'workbench', output: ITEM.LEATHER_ARMOR, count: 1, inputs: needs([ITEM.LEATHER, 3]) },
+  { id: 'iron_armor', station: 'workbench', output: ITEM.IRON_ARMOR, count: 1, inputs: needs([ITEM.IRON_INGOT, 10]) },
+  { id: 'glider', station: 'workbench', output: ITEM.GLIDER, count: 1, inputs: needs([ITEM.LEATHER, 3], [BLOCK.WOOD, 2]) },
 ];
 
 // Furnace: what each input smelts into, and how many items one fuel item
 // smelts. Smelting one item takes SMELT_TIME (shared/config.js).
 export const SMELTING = {
   [BLOCK.IRON_ORE]: ITEM.IRON_INGOT,
+  [ITEM.BEEF]: ITEM.COOKED_BEEF,
 };
 
 export const FUEL = {

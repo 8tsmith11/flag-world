@@ -6,6 +6,7 @@ const MOUSE_SENSITIVITY = 0.0025;
 const MAX_PITCH = Math.PI / 2 - 0.01;
 // Arrow-key look speed in radians/second, for touchpads that ignore input while typing.
 const KEY_TURN_SPEED = 2.5;
+const DOUBLE_TAP_MS = 300;
 
 export class Input {
   constructor(element) {
@@ -22,17 +23,28 @@ export class Input {
     this.placePressed = false;
     this.dropPressed = false;
     this.slot = 0;
+    this.lastForwardTap = -Infinity;
+    this.doubleTapSprint = false;
 
     window.addEventListener('keydown', (e) => {
       if (!this.locked) return;
+      if (e.code === 'KeyW' && !e.repeat && !this.keys.has('KeyW')) {
+        const now = performance.now();
+        this.doubleTapSprint = now - this.lastForwardTap <= DOUBLE_TAP_MS;
+        this.lastForwardTap = now;
+      }
       this.keys.add(e.code);
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+      if (e.code === 'KeyW' && e.ctrlKey) e.preventDefault();
       if (e.code === 'KeyQ' && !e.repeat) this.dropPressed = true;
       if (!e.repeat) this.onKey?.(e.code);
       const digit = /^Digit([1-9])$/.exec(e.code);
       if (digit && Number(digit[1]) <= HOTBAR_SIZE) this.slot = Number(digit[1]) - 1;
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      if (e.code === 'KeyW') this.doubleTapSprint = false;
+    });
     window.addEventListener('blur', () => this.release());
 
     document.addEventListener('pointerlockchange', () => {
@@ -68,11 +80,13 @@ export class Input {
 
   release() {
     this.keys.clear();
+    this.lastForwardTap = -Infinity;
     this.primaryDown = false;
     this.secondaryDown = false;
     this.attackPressed = false;
     this.placePressed = false;
     this.dropPressed = false;
+    this.doubleTapSprint = false;
   }
 
   clampPitch() {
@@ -105,6 +119,7 @@ export class Input {
       drop,
       slot: this.slot,
       forward: this.axis('KeyW', 'KeyS'),
+      sprint: this.keys.has('KeyW') && (this.doubleTapSprint || this.keys.has('ControlLeft') || this.keys.has('ControlRight')),
       strafe: this.axis('KeyD', 'KeyA'),
       jump: this.keys.has('Space'),
       crouch: this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'),

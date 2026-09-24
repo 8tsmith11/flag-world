@@ -15,6 +15,33 @@ const BUILDS_PER_FRAME_FAST = 24;
 // back and forth over the edge doesn't rebuild them.
 const UNLOAD_MARGIN = CHUNK_SIZE * 2;
 
+function ironTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#858787';
+  ctx.fillRect(0, 0, 32, 32);
+  let seed = 0x83f15;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  for (let i = 0; i < 260; i++) {
+    const g = Math.floor(105 + random() * 75);
+    ctx.fillStyle = `rgb(${g},${g},${g})`;
+    ctx.fillRect(Math.floor(random() * 32), Math.floor(random() * 32), 1 + Math.floor(random() * 3), 1 + Math.floor(random() * 3));
+  }
+  for (let i = 0; i < 14; i++) {
+    const x = Math.floor(random() * 30), y = Math.floor(random() * 30);
+    ctx.fillStyle = i % 3 === 0 ? '#d39b61' : '#9d603d';
+    ctx.fillRect(x, y, 3 + Math.floor(random() * 4), 2 + Math.floor(random() * 3));
+    ctx.fillStyle = '#e5b278';
+    ctx.fillRect(x + 1, y, 1 + Math.floor(random() * 2), 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  return texture;
+}
+
 export class ChunkRenderer {
   constructor(scene, world, viewDistance) {
     this.scene = scene;
@@ -29,6 +56,7 @@ export class ChunkRenderer {
     this.fast = false;
 
     this.opaqueMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.oreMaterial = new THREE.MeshLambertMaterial({ map: ironTexture() });
     this.transparentMaterial = new THREE.MeshLambertMaterial({
       vertexColors: true,
       transparent: true,
@@ -51,13 +79,15 @@ export class ChunkRenderer {
   markBlockDirty(x, y, z) {
     const cx = Math.floor(x / CHUNK_SIZE), cy = Math.floor(y / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
     const lx = x - cx * CHUNK_SIZE, ly = y - cy * CHUNK_SIZE, lz = z - cz * CHUNK_SIZE;
-    this.dirty.add(chunkKey(cx, cy, cz));
-    if (lx === 0) this.dirty.add(chunkKey(cx - 1, cy, cz));
-    if (lx === CHUNK_SIZE - 1) this.dirty.add(chunkKey(cx + 1, cy, cz));
-    if (ly === 0) this.dirty.add(chunkKey(cx, cy - 1, cz));
-    if (ly === CHUNK_SIZE - 1) this.dirty.add(chunkKey(cx, cy + 1, cz));
-    if (lz === 0) this.dirty.add(chunkKey(cx, cy, cz - 1));
-    if (lz === CHUNK_SIZE - 1) this.dirty.add(chunkKey(cx, cy, cz + 1));
+    // Water corner heights also depend on diagonally adjacent cells.
+    const xs = [cx], ys = [cy], zs = [cz];
+    if (lx === 0) xs.push(cx - 1);
+    if (lx === CHUNK_SIZE - 1) xs.push(cx + 1);
+    if (ly === 0) ys.push(cy - 1);
+    if (ly === CHUNK_SIZE - 1) ys.push(cy + 1);
+    if (lz === 0) zs.push(cz - 1);
+    if (lz === CHUNK_SIZE - 1) zs.push(cz + 1);
+    for (const ax of xs) for (const ay of ys) for (const az of zs) this.dirty.add(chunkKey(ax, ay, az));
     // A block placed in empty sky may have created a chunk the queue doesn't know.
     if (!this.meshes.has(chunkKey(cx, cy, cz))) this.queueFrom = null;
   }
@@ -110,9 +140,11 @@ export class ChunkRenderer {
     const entry = {
       chunk,
       opaque: geo.opaque && new THREE.Mesh(geo.opaque, this.opaqueMaterial),
+      ore: geo.ore && new THREE.Mesh(geo.ore, this.oreMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
     };
     if (entry.opaque) this.scene.add(entry.opaque);
+    if (entry.ore) this.scene.add(entry.ore);
     if (entry.transparent) {
       entry.transparent.renderOrder = 1;
       this.scene.add(entry.transparent);
@@ -123,7 +155,7 @@ export class ChunkRenderer {
   unload(key) {
     const entry = this.meshes.get(key);
     if (!entry) return;
-    for (const mesh of [entry.opaque, entry.transparent]) {
+    for (const mesh of [entry.opaque, entry.ore, entry.transparent]) {
       if (!mesh) continue;
       this.scene.remove(mesh);
       mesh.geometry.dispose();

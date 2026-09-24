@@ -35,6 +35,7 @@ export class LocalPlayer {
     s.carrying = snapshot.carrying !== null;
     s.crouching = snapshot.crouching;
     s.onGround = snapshot.onGround;
+    s.gliding = snapshot.gliding;
     for (const input of this.pending) stepPlayer(s, input, this.world);
   }
 

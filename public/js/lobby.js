@@ -1,7 +1,7 @@
 // Pregame screens: the lobby (name, color, ready, host start) and the
 // "match in progress" screen shown to players who connect after the start.
 
-import { C2S } from '/shared/protocol.js';
+import { C2S, TEAMS } from '/shared/protocol.js';
 import { WORLD_SIZES } from '/shared/worldgen.js';
 
 const NAME_KEY = 'flagWorld.name';
@@ -54,7 +54,8 @@ export class LobbyScreen {
     this.conn = conn;
     this.el = (id) => document.getElementById(id);
     this.nameInput = this.el('lobby-name');
-    this.colorInput = this.el('lobby-color');
+    this.teamSelect = this.el('lobby-team');
+    TEAMS.forEach((team, i) => this.teamSelect.add(new Option(team.name, String(i))));
     this.readyButton = this.el('lobby-ready');
     this.startButton = this.el('lobby-start');
     this.seedInput = this.el('lobby-seed');
@@ -71,8 +72,8 @@ export class LobbyScreen {
     this.nameInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.nameInput.blur();
     });
-    this.colorInput.addEventListener('input', () => {
-      this.conn.send({ type: C2S.LOBBY_UPDATE, color: parseInt(this.colorInput.value.slice(1), 16) });
+    this.teamSelect.addEventListener('change', () => {
+      this.conn.send({ type: C2S.LOBBY_UPDATE, team: Number(this.teamSelect.value) });
     });
     this.readyButton.addEventListener('click', () => {
       if (this.me) this.conn.send({ type: C2S.LOBBY_UPDATE, ready: !this.me.ready });
@@ -93,13 +94,13 @@ export class LobbyScreen {
 
     // Don't overwrite what the player is in the middle of typing or picking.
     if (document.activeElement !== this.nameInput) this.nameInput.value = this.me.name;
-    if (document.activeElement !== this.colorInput) this.colorInput.value = cssColor(this.me.color);
+    if (document.activeElement !== this.teamSelect) this.teamSelect.value = String(this.me.team);
     this.readyButton.textContent = this.me.ready ? 'Ready ✓' : 'Ready';
     this.readyButton.classList.toggle('on', this.me.ready);
 
     const list = this.el('lobby-players');
     list.replaceChildren(...msg.players.map((p) => {
-      const tags = [p.id === msg.hostId && 'host', p.id === msg.you && 'you'].filter(Boolean).join(', ');
+      const tags = [TEAMS[p.team]?.name, p.id === msg.hostId && 'host', p.id === msg.you && 'you'].filter(Boolean).join(', ');
       return playerRow(p.name, p.color, tags, p.ready ? 'Ready' : 'Not ready', p.ready ? 'ready' : 'waiting');
     }));
 

@@ -11,12 +11,13 @@ export const GRAB_TICKS = Math.round(FLAG_GRAB_TIME * TICK_RATE);
 const BOW_FULL_TICKS = Math.round(BOW_FULL_DRAW * TICK_RATE);
 
 export class Player {
-  constructor(id, socket, name, color, spawn) {
+  constructor(id, socket, name, color, spawn, team = 0) {
     this.id = id;
     this.type = ENTITY_TYPE.PLAYER;
     this.socket = socket;
     this.name = name;
     this.color = color;
+    this.team = team;
     this.state = createPlayerState(spawn.x, spawn.y, spawn.z);
     // Inputs received but not yet simulated, oldest first.
     this.inputQueue = [];
@@ -45,6 +46,9 @@ export class Player {
     // Bow: ticks the draw has been held, and the game tick it can next shoot.
     this.drawTicks = 0;
     this.nextShotTick = 0;
+    this.eatTicks = 0;
+    this.eatingItem = null;
+    this.foodHealing = [];
     // "x,y,z" of the furnace whose screen is open, or null.
     this.viewing = null;
     // Hotbar slot in hand, from the latest input.
@@ -82,7 +86,7 @@ export class Player {
 
   // Public info sent once when a player becomes known to a client.
   describe() {
-    return { id: this.id, name: this.name, color: this.color };
+    return { id: this.id, name: this.name, color: this.color, team: this.team };
   }
 
   // Per-tick snapshot for STATE messages.
@@ -90,6 +94,7 @@ export class Player {
     const s = this.state;
     return {
       id: this.id,
+      team: this.team,
       type: this.type,
       x: s.x, y: s.y, z: s.z,
       vx: s.vx, vy: s.vy, vz: s.vz,
@@ -97,11 +102,13 @@ export class Player {
       yaw: s.yaw, pitch: s.pitch,
       onGround: s.onGround,
       crouching: s.crouching,
+      gliding: s.gliding,
       hp: this.hp,
       dead: this.dead,
       eliminated: this.eliminated,
       carrying: this.carrying?.id ?? null,
       held: this.held(),
+      armor: this.inventory.armor?.item ?? null,
       grab: this.grab ? this.grab.ticks / GRAB_TICKS : 0,
       // How far a bow is drawn, 0..1.
       draw: Math.min(1, this.drawTicks / BOW_FULL_TICKS),

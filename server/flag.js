@@ -6,9 +6,10 @@ import { createItemState } from '../shared/physics.js';
 import { FLAG_STATE } from '../shared/protocol.js';
 
 export class Flag {
-  constructor(ownerId, color, home) {
+  constructor(ownerId, color, home, team = 0) {
     this.id = ownerId;
     this.color = color;
+    this.team = team;
     this.home = home;
     this.state = FLAG_STATE.HOME;
     this.carrier = null;
@@ -32,7 +33,7 @@ export class Flag {
 
   // Sent once in WELCOME.
   describe() {
-    return { id: this.id, color: this.color, home: this.home };
+    return { id: this.id, color: this.color, team: this.team, home: this.home };
   }
 
   // Per-tick FlagState for STATE messages.

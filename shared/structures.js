@@ -68,19 +68,21 @@ export function buildKeep(world, { cx, cz, floorY }, { fillDepth = Infinity, cle
 // Sand shores: grass and dirt at the surface within 1-3 blocks of water (the
 // width wanders with `noise`, a 2D noise function) turn to sand, a couple of
 // blocks deep. Works on the columns from (x0, z0) to (x1, z1).
-export function sandShores(world, noise, x0, z0, x1, z1) {
+export function sandShores(world, noise, x0, z0, x1, z1, surfaceAt = (x, z) => world.getSurfaceY(x, z, isSolid)) {
   const MAX_BORDER = 3;
   const soft = (id) => id === BLOCK.GRASS || id === BLOCK.DIRT;
   for (let z = z0; z <= z1; z++) {
     for (let x = x0; x <= x1; x++) {
-      const top = world.getSurfaceY(x, z, isSolid);
+      const top = surfaceAt(x, z);
       if (top < 0 || !soft(world.getBlock(x, top, z))) continue;
       const border = 1 + Math.floor((noise(x / 7 + 50, z / 7 + 50) * 0.5 + 0.5) * MAX_BORDER * 0.999);
       let shore = false;
       for (let dz = -border; dz <= border && !shore; dz++) {
         for (let dx = -border; dx <= border && !shore; dx++) {
           if (dx * dx + dz * dz > border * border) continue;
-          shore = world.getBlock(x + dx, top, z + dz) === BLOCK.WATER || world.getBlock(x + dx, top + 1, z + dz) === BLOCK.WATER;
+          for (let dy = -3; dy <= 1 && !shore; dy++) {
+            shore = world.getBlock(x + dx, top + dy, z + dz) === BLOCK.WATER;
+          }
         }
       }
       if (!shore) continue;
@@ -99,19 +101,22 @@ const TREE_MIN_TRUNK = 4;
 const TREE_MAX_TRUNK = 6;
 const LEAF_RADIUS = 2;
 
-export function plantTrees(world, seed, { requireFooting = false } = {}) {
+export function plantTrees(world, seed, { requireFooting = false,
+  bounds = { x0: 0, z0: 0, x1: world.sizeX - 1, z1: world.sizeZ - 1 },
+  surfaceAt = (x, z) => world.getSurfaceY(x, z, isSolid) } = {}) {
   // A separate stream from the terrain, so trees don't shift the terrain.
   const random = mulberry32(seed ^ 0x5bd1e995);
   const clearOfKeeps = KEEP_REACH + LEAF_RADIUS;
-  for (let cz = 0; cz < world.sizeZ; cz += TREE_CELL) {
-    for (let cx = 0; cx < world.sizeX; cx += TREE_CELL) {
+  for (let cz = Math.floor(bounds.z0 / TREE_CELL) * TREE_CELL; cz <= bounds.z1; cz += TREE_CELL) {
+    for (let cx = Math.floor(bounds.x0 / TREE_CELL) * TREE_CELL; cx <= bounds.x1; cx += TREE_CELL) {
       // Always draw every number so each cell uses the same amount of the stream.
       const roll = random(), ox = random(), oz = random(), trunkRoll = random();
       if (roll >= TREE_CHANCE) continue;
       const x = cx + Math.floor(ox * TREE_CELL), z = cz + Math.floor(oz * TREE_CELL);
+      if (x < bounds.x0 || x > bounds.x1 || z < bounds.z0 || z > bounds.z1) continue;
       if (x < LEAF_RADIUS || z < LEAF_RADIUS || x >= world.sizeX - LEAF_RADIUS || z >= world.sizeZ - LEAF_RADIUS) continue;
       if (world.keeps.some((k) => Math.abs(x - k.cx) <= clearOfKeeps && Math.abs(z - k.cz) <= clearOfKeeps)) continue;
-      const ground = world.getSurfaceY(x, z, isSolid);
+      const ground = surfaceAt(x, z);
       if (ground < 0 || world.getBlock(x, ground, z) !== BLOCK.GRASS) continue;
       if (requireFooting && [[2, 0], [-2, 0], [0, 2], [0, -2]].some(([dx, dz]) => !isSolid(world.getBlock(x + dx, ground, z + dz)))) continue;
       const trunk = TREE_MIN_TRUNK + Math.floor(trunkRoll * (TREE_MAX_TRUNK - TREE_MIN_TRUNK + 1));
@@ -124,7 +129,7 @@ export function plantTrees(world, seed, { requireFooting = false } = {}) {
 
 // Trunk from ground + 1 to top; leaves: two wide layers around the top of the
 // trunk, then a narrow cap. Leaves only fill air.
-function growTree(world, x, ground, z, top) {
+export function growTree(world, x, ground, z, top) {
   world.setBlock(x, ground, z, BLOCK.DIRT);
   for (let y = ground + 1; y <= top; y++) world.setBlock(x, y, z, BLOCK.WOOD);
   const layers = [[top - 1, LEAF_RADIUS], [top, LEAF_RADIUS], [top + 1, 1], [top + 2, 0]];

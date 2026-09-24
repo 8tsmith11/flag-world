@@ -33,6 +33,7 @@ export const S2C = {
   SWING: 'swing',
   CONTAINER: 'container',
   CONTAINER_CLOSE: 'containerClose',
+  FURNACE_LIT: 'furnaceLit',
 };
 
 // Where a flag is, in FlagState.
@@ -66,6 +67,12 @@ export const PHASE = {
 };
 
 export const MAX_NAME_LENGTH = 16;
+export const TEAMS = [
+  { name: 'Red', color: 0xd64a4a },
+  { name: 'Blue', color: 0x4a78dc },
+  { name: 'Green', color: 0x4bae67 },
+  { name: 'Yellow', color: 0xe6c44a },
+];
 
 // Entity type names, used by the client to pick a renderer.
 export const ENTITY_TYPE = {
@@ -73,4 +80,5 @@ export const ENTITY_TYPE = {
   ITEM: 'item',
   ARROW: 'arrow',
   COW: 'cow',
+  DRAGON: 'dragon',
 };

@@ -4,6 +4,11 @@ html, body {
   overflow: hidden;
   background: #000;
   font-family: system-ui, sans-serif;
+  user-select: none;
+}
+
+input, textarea {
+  user-select: text;
 }
 
 canvas {
@@ -65,7 +70,6 @@ canvas {
   background: rgba(0, 0, 0, 0.6);
   border-radius: 8px;
   cursor: default;
-  user-select: text;
 }
 
 .card .row {
@@ -217,6 +221,20 @@ canvas {
 #hotbar .slot.selected {
   border-color: #fff;
 }
+
+#hotbar .selected-item-name {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 4px 9px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font: 14px/1.2 ui-monospace, monospace;
+  white-space: nowrap;
+}
+#hotbar .selected-item-name[hidden] { display: none; }
 
 .slot .count {
   position: absolute;
@@ -492,6 +510,93 @@ body.dead canvas {
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2), inset 0 2px 0 rgba(255, 255, 255, 0.4);
 }
 
+.icon.seed {
+  width: calc(var(--slot, 44px) * 0.38);
+  height: calc(var(--slot, 44px) * 0.48);
+  border-radius: 45% 45% 50% 50%;
+  background: #896238;
+  transform: rotate(-25deg);
+}
+.icon.seed::after {
+  content: '';
+  position: absolute;
+  width: 70%;
+  height: 50%;
+  left: 48%;
+  top: -22%;
+  border-radius: 90% 0 90% 0;
+  background: #61ad4c;
+}
+
+.icon.armor {
+  clip-path: polygon(18% 0, 35% 0, 40% 13%, 60% 13%, 65% 0, 82% 0, 100% 35%, 82% 46%, 76% 100%, 24% 100%, 18% 46%, 0 35%);
+  box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.24);
+}
+
+.icon.glider {
+  width: calc(var(--slot, 44px) * 0.74);
+  height: calc(var(--slot, 44px) * 0.62);
+}
+
+.icon.glider > div { position: absolute; }
+.icon.glider .canopy {
+  top: 0;
+  width: 100%;
+  height: 62%;
+  background: linear-gradient(180deg, #d39b68, var(--hide-color) 72%, #704323);
+  clip-path: polygon(0 46%, 50% 0, 100% 46%, 94% 83%, 50% 43%, 6% 83%);
+}
+.icon.glider .left-rib, .icon.glider .right-rib {
+  top: 15%;
+  width: 48%;
+  height: 3px;
+  background: #533722;
+  transform-origin: right center;
+}
+.icon.glider .left-rib { left: 3%; transform: rotate(-24deg); }
+.icon.glider .right-rib { right: 3%; transform-origin: left center; transform: rotate(24deg); }
+.icon.glider .left-cord, .icon.glider .right-cord {
+  top: 42%;
+  width: 2px;
+  height: 53%;
+  background: #d6c5a2;
+  transform-origin: top center;
+}
+.icon.glider .left-cord { left: 12%; transform: rotate(-35deg); }
+.icon.glider .right-cord { right: 12%; transform: rotate(35deg); }
+.icon.glider .harness {
+  left: 38%;
+  bottom: 1%;
+  width: 24%;
+  height: 13%;
+  border-radius: 2px;
+  background: #533722;
+}
+
+.item-tooltip {
+  position: fixed;
+  z-index: 10000;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 3px;
+  background: rgba(12, 16, 26, 0.95);
+  color: #fff;
+  font: 13px/1.2 ui-monospace, monospace;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.item-tooltip[hidden] { display: none; }
+
+.icon.bucket {
+  width: calc(var(--slot, 44px) * 0.48);
+  height: calc(var(--slot, 44px) * 0.5);
+  border: 3px solid #777;
+  border-top: 5px solid #777;
+  border-radius: 3px 3px 7px 7px;
+  box-sizing: border-box;
+}
+
 .icon.ladder {
   /* Rails from the side borders, rungs from a repeating gradient; color is the item's. */
   box-sizing: border-box;
@@ -703,3 +808,7 @@ body.dead canvas {
 .recipe-text span {
   opacity: 0.7;
 }
+/* Equipment sits beside the rotating player preview. */
+.armor-slot { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #eee; }
+.armor-slot .slot { width: 44px; height: 44px; }
+.armor-slot[hidden] { display: none; }

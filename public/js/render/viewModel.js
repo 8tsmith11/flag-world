@@ -9,7 +9,7 @@
 // the bow upright, and pulls the string back.
 
 import * as THREE from 'three';
-import { createArm, setHandItem, setBowDraw, handItem } from './models.js';
+import { createArm, createGliderModel, setHandItem, setBowDraw, handItem } from './models.js';
 
 // Resting pose: shoulder below and right of the view, arm reaching forward and
 // a little up (pitch past 90° from hanging), so the fist sits in the lower right.
@@ -42,6 +42,11 @@ export class ViewModel {
     this.pivot = pivot;
     this.hand = hand;
     this.scene.add(pivot);
+    this.glider = createGliderModel();
+    this.glider.position.set(0, 0.55, -1.1);
+    this.glider.rotation.x = -0.3;
+    this.glider.visible = false;
+    this.scene.add(this.glider);
 
     this.swingStart = -Infinity;
     this.pushStart = -Infinity;
@@ -67,10 +72,11 @@ export class ViewModel {
   // look: { yaw, pitch }; speed: horizontal blocks/s on the ground (0 in the air);
   // mining: keep swinging.
   // draw: how far a bow is drawn (0..1), 0 when not drawing.
-  update(dt, { look, speed, mining, held, draw = 0 }) {
+  update(dt, { look, speed, mining, held, draw = 0, gliding = false }) {
     const now = performance.now();
     if (mining) this.swing();
     setHandItem(this.hand, held);
+    this.glider.visible = gliding;
     this.aim += ((draw > 0 ? 1 : 0) - this.aim) * Math.min(1, dt * AIM_EASE);
     setBowDraw(handItem(this.hand), draw);
 

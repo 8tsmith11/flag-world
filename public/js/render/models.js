@@ -33,6 +33,21 @@ function lambert(color) {
   return new THREE.MeshLambertMaterial({ color });
 }
 
+export function createGliderModel() {
+  const group = new THREE.Group();
+  const hide = lambert(0x9b633d), rib = lambert(0x654329);
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.06, 0.65), hide);
+    wing.position.set(side * 0.46, 0, 0);
+    wing.rotation.z = side * 0.16;
+    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.035, 0.05), rib);
+    spar.position.set(side * 0.46, -0.04, 0.23);
+    spar.rotation.z = side * 0.16;
+    group.add(wing, spar);
+  }
+  return group;
+}
+
 // A hammer standing on its handle: gray handle along +Y, head across the top
 // in the material's color. Origin at the bottom of the handle.
 function createHammer(color) {
@@ -175,6 +190,100 @@ export function animateCow(model, dt, speed) {
   cow.legs.forEach((leg, i) => { leg.rotation.x = (i === 0 || i === 3) ? swing : -swing; });
 }
 
+// A broad-winged dragon. Fire is a translucent cone from its mouth; the server
+// decides when it breathes and which players the cone hits.
+export function createDragonModel() {
+  const group = new THREE.Group();
+  const scales = lambert(0x923d35), dark = lambert(0x582d2a);
+  const belly = lambert(0xb88056), horn = lambert(0xe8d6ad);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), scales);
+  body.scale.set(0.75, 0.48, 1.28);
+  body.position.set(0, 1.45, 0.15);
+  const underbelly = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), belly);
+  underbelly.scale.set(0.6, 0.25, 1.1);
+  underbelly.position.set(0, 1.19, 0);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.42, 0.9, 8), scales);
+  neck.position.set(0, 1.62, -0.93);
+  neck.rotation.x = -0.55;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.5, 0.76), scales);
+  head.position.set(0, 1.82, -1.42);
+  const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.25, 0.48), belly);
+  muzzle.position.set(0, 1.66, -1.85);
+  group.add(body, underbelly, neck, head, muzzle);
+  const legs = [];
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.03), lambert(0xffd650));
+    eye.position.set(side * 0.18, 1.91, -1.82);
+    const hornMesh = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.42, 6), horn);
+    hornMesh.position.set(side * 0.23, 2.25, -1.27);
+    group.add(eye, hornMesh);
+    for (const front of [false, true]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(side * 0.52, 1.23, front ? -0.65 : 0.72);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.23, 0.65, 8), dark);
+      leg.position.y = -0.33;
+      pivot.add(leg);
+      group.add(pivot);
+      legs.push({ pivot, side, front });
+    }
+  }
+  for (let i = 0; i < 3; i++) {
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.32 - i * 0.08, 0.82, 8), scales);
+    tail.rotation.x = Math.PI / 2;
+    tail.position.set(0, 1.4 - i * 0.08, 1.38 + i * 0.62);
+    group.add(tail);
+  }
+  const wingGeometry = new THREE.BufferGeometry();
+  wingGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, -0.2, 2.15, 0.25, -0.35, 1.48, -0.15, 1.05, 0.25, -0.12, 0.8,
+  ], 3));
+  wingGeometry.setIndex([0, 1, 2, 0, 2, 3]);
+  wingGeometry.computeVertexNormals();
+  const membrane = new THREE.MeshLambertMaterial({ color: 0x8b473b, side: THREE.DoubleSide });
+  const wings = [];
+  for (const side of [-1, 1]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.5, 1.86, 0.05);
+    pivot.scale.x = side;
+    pivot.add(new THREE.Mesh(wingGeometry, membrane));
+    group.add(pivot);
+    wings.push({ pivot, side });
+  }
+  const flame = new THREE.Group();
+  flame.position.set(0, 1.7, -1.85);
+  const outer = new THREE.Mesh(new THREE.ConeGeometry(2.25, 12, 10, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xff6a19, transparent: true, opacity: 0.42,
+      depthWrite: false, side: THREE.DoubleSide }));
+  outer.rotation.x = Math.PI / 2;
+  outer.position.set(0, 0, -6);
+  const inner = new THREE.Mesh(new THREE.ConeGeometry(0.9, 8, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xffd348, transparent: true, opacity: 0.52,
+      depthWrite: false, side: THREE.DoubleSide }));
+  inner.rotation.x = Math.PI / 2;
+  inner.position.set(0, 0, -4);
+  flame.add(outer, inner);
+  flame.visible = false;
+  group.add(flame);
+  group.userData.dragon = { wings, legs, flame, phase: 0 };
+  return group;
+}
+
+export function animateDragon(model, dt, breathing, walking, aimYaw = 0, aimPitch = 0) {
+  const dragon = model.userData.dragon;
+  dragon.phase += dt * (walking ? 8 : 5);
+  for (const { pivot, side } of dragon.wings) {
+    pivot.scale.x = side * (walking ? 0.4 : 1);
+    pivot.rotation.z = side * (walking ? 0.1 : 0.1 + Math.sin(dragon.phase) * 0.28);
+  }
+  for (const { pivot, side, front } of dragon.legs) {
+    pivot.rotation.x = walking ? Math.sin(dragon.phase + (front === (side > 0) ? 0 : Math.PI)) * 0.35 : 0;
+  }
+  dragon.flame.visible = breathing;
+  dragon.flame.rotation.y = aimYaw;
+  dragon.flame.rotation.x = aimPitch - model.rotation.x;
+  if (breathing) dragon.flame.scale.setScalar(0.94 + Math.sin(dragon.phase * 3) * 0.06);
+}
+
 // A small flat ladder (two rails, three rungs) or door, standing on its base.
 function createFlatItem(kind, color, size) {
   const group = new THREE.Group();
@@ -201,6 +310,15 @@ export function createItemModel(item, blockSize = 0.25) {
   if (def.tool === 'hammer') return createHammer(def.color);
   if (def.tool === 'sword') return createSword(def.color);
   if (def.tool === 'bow') return createBow(def.color);
+  if (def.shape === 'seed') {
+    const group = new THREE.Group();
+    const seed = new THREE.Mesh(new THREE.SphereGeometry(blockSize * 0.38, 7, 5), lambert(0x8b6637));
+    seed.position.y = blockSize * 0.35;
+    const shoot = new THREE.Mesh(new THREE.ConeGeometry(blockSize * 0.23, blockSize * 0.5, 5), lambert(def.color));
+    shoot.position.y = blockSize * 0.65;
+    group.add(seed, shoot);
+    return group;
+  }
   if (def.places) return createFlatItem(def.places, def.color, blockSize);
   if (def.shape === 'ingot') {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(blockSize * 1.1, blockSize * 0.4, blockSize * 0.55), lambert(def.color));
@@ -289,7 +407,23 @@ export function createPlayerModel({ color }) {
   shoulder.position.set(BODY_RADIUS + ARM_RADIUS + 0.02, BODY_HEIGHT - 0.1, 0);
   torso.add(shoulder);
 
-  group.userData.player = { torso, head, shoulder, hand, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
+  const armorMaterial = lambert(0x87512f);
+  const chest = new THREE.Mesh(new THREE.CylinderGeometry(BODY_RADIUS + 0.045, BODY_RADIUS + 0.045, BODY_HEIGHT * 0.8, 16), armorMaterial);
+  chest.position.y = BODY_HEIGHT * 0.52;
+  torso.add(chest);
+  const helmet = new THREE.Mesh(new THREE.BoxGeometry(HEAD_SIZE + 0.09, HEAD_SIZE * 0.42, HEAD_SIZE + 0.09), armorMaterial);
+  helmet.position.y = skull.position.y + HEAD_SIZE * 0.31;
+  head.add(helmet);
+  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(ARM_RADIUS + 0.035, ARM_RADIUS + 0.035, ARM_LENGTH * 0.7, 10), armorMaterial);
+  sleeve.position.y = -ARM_LENGTH * 0.36;
+  shoulder.add(sleeve);
+  const glider = createGliderModel();
+  glider.position.y = PLAYER_HEIGHT + 0.24;
+  glider.visible = false;
+  torso.add(glider);
+  chest.visible = helmet.visible = sleeve.visible = false;
+
+  group.userData.player = { torso, head, shoulder, hand, armorParts: [chest, helmet, sleeve], armorMaterial, glider, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
   return group;
 }
 
@@ -304,8 +438,11 @@ export function handItem(hand) {
 
 // Per frame. speed: horizontal blocks/s; pitch: look pitch; crouching: squash
 // and lean; draw: how far a bow is drawn (0..1), which raises the arm forward.
-export function animatePlayer(model, { dt, speed, pitch, held, crouching = false, draw = 0 }) {
+export function animatePlayer(model, { dt, speed, pitch, held, armor = null, crouching = false, draw = 0, gliding = false }) {
   const p = model.userData.player;
+  p.glider.visible = gliding;
+  p.armorParts.forEach((part) => { part.visible = armor !== null; });
+  if (armor !== null) p.armorMaterial.color.setHex(getItemDef(armor).color);
   p.crouch += ((crouching ? 1 : 0) - p.crouch) * Math.min(1, dt * CROUCH_EASE);
   p.torso.scale.y = 1 - CROUCH_SQUASH * p.crouch;
   // Negative X rotation tips the top toward the front (-Z).

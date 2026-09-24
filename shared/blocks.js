@@ -45,7 +45,23 @@ export const BLOCK = {
   WORKBENCH: 32,
   FURNACE: 33,
   CHEST: 34,
+  // Flowing water: 1 is weakest, 7 is strongest. WATER is a source.
+  WATER_FLOW_1: 41,
+  WATER_FLOW_7: 47,
+  SAPLING: 48,
 };
+
+export function isWater(id) {
+  return id === BLOCK.WATER || (id >= BLOCK.WATER_FLOW_1 && id <= BLOCK.WATER_FLOW_7);
+}
+
+export function isFlowingWater(id) {
+  return id >= BLOCK.WATER_FLOW_1 && id <= BLOCK.WATER_FLOW_7;
+}
+
+export function waterLevel(id) {
+  return id === BLOCK.WATER ? 8 : isFlowingWater(id) ? id - BLOCK.WATER_FLOW_1 + 1 : 0;
+}
 
 // Blocks with a front: their id for each facing. Furnace was a single id
 // before it had a front, so its other facings come later in the id space.
@@ -132,11 +148,18 @@ define(BLOCK.GRASS, 'grass', { color: 0x5da83a, breakTime: 0.6 });
 define(BLOCK.DIRT, 'dirt', { color: 0x8a5a36, breakTime: 0.5 });
 define(BLOCK.STONE, 'stone', { color: 0x8a8a8a, hardness: 2, breakTime: 1.5 });
 define(BLOCK.WATER, 'water', { solid: false, transparent: true, color: 0x3a6fd8, breakable: false, hardness: 0 });
+for (let level = 1; level <= 7; level++) {
+  define(BLOCK.WATER_FLOW_1 + level - 1, 'flowing water', {
+    solid: false, transparent: true, color: 0x3a6fd8, breakable: false, hardness: 0, drops: null,
+  });
+}
 // Keeps are built by world gen around each flag. No tool is strong enough.
 define(BLOCK.KEEP, 'keep', { color: 0x4b5263, hardness: Infinity });
 define(BLOCK.PEDESTAL, 'pedestal', { color: 0xd4af37, hardness: Infinity });
 define(BLOCK.WOOD, 'wood', { color: 0x6b4a2b, breakTime: 1 });
 define(BLOCK.LEAVES, 'leaves', { color: 0x3f8f3a, breakTime: 0.2, drops: null });
+define(BLOCK.SAPLING, 'sapling', { color: 0x50a346, solid: false, transparent: true,
+  breakTime: 0.15, drops: ITEM.TREE_SEED, shape: 'sapling' });
 define(BLOCK.PLANKS, 'planks', { color: 0xb58a55, breakTime: 0.8 });
 define(BLOCK.IRON_ORE, 'iron ore', { color: 0xb88a6a, hardness: 3, breakTime: 2 });
 define(BLOCK.SAND, 'sand', { color: 0xdccf8e, breakTime: 0.5 });
@@ -184,7 +207,7 @@ export function isTransparent(id) {
 // Blocks the crosshair stops on: anything you can collide with or mine.
 export function isTargetable(id) {
   const def = getBlockDef(id);
-  return def.solid || def.breakable;
+  return def.solid || def.breakable || isWater(id);
 }
 
 // Ticks the break button must be held on a block before it breaks, with a

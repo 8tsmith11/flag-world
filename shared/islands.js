@@ -1,682 +1,309 @@
-// Floating-island world gen for the Small / Medium / Large world sizes.
-//
-// Three zones around the world center, sized by the WORLD_SIZES entry:
-//   1. A large center island, the thickest and tallest, with hills.
-//   2. The middle ring: medium islands placed with noise-varied density at
-//      staggered altitudes. Every keep gets its own ring island.
-//   3. The outer scatter: small islands with big gaps.
-// Each island has a noise-eroded outline, a hilly grass/dirt/stone top and a
-// jagged underside (one spike, a blunt bulb, or several spikes). It is built in
-// its own buffer and flood-filled to drop fragments under MIN_FRAGMENT blocks
-// before being written to the world. The center island and ring islands wider
-// than CAVE_MIN_WIDTH get noise caves carved first. Then come keeps, a few winding
-// land bridges, lines of stepping stones, floating rock crumbs, and trees.
-//
-// Everything is drawn from seeded PRNG streams and noise, so the server and
-// every client build the same world.
-
+// Seeded island planning and terrain. The complete island/keep layout is
+// chosen before any blocks are written, so spacing does not depend on order.
 import { createNoise2D, createNoise3D } from 'simplex-noise';
-import { KEEP_HEIGHT } from './config.js';
 import { BLOCK, isSolid } from './blocks.js';
 import { World } from './world.js';
+import { CHUNK_SIZE, KEEP_HEIGHT } from './config.js';
 import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores } from './structures.js';
 
-// Tuning shared by every island world size. Altitudes are the base height of
-// an island's top surface; hills rise above it.
-const CENTER_TOP = 88;
-// The center island is nudged up to this far off the world center.
-const CENTER_JITTER = 8;
-const RING_TOP = 66;
-const RING_TOP_SPREAD = 22;
-const OUTER_TOP = 64;
-const OUTER_TOP_SPREAD = 36;
-const RING_WIDTH = [45, 75];
-const OUTER_WIDTH = [5, 15];
-// Keep islands are ring islands wide enough to hold a keep off-center.
-const KEEP_ISLAND_WIDTH = [50, 70];
-// Islands per square block of zone area, and the minimum gap between islands.
-// (About 35% of the ring's area ends up island: big islands can't pack tighter at random.)
-const RING_DENSITY = 0.0003;
-const OUTER_DENSITY = 0.00008;
-const RING_GAP = 1;
-const OUTER_GAP = 24;
-// Undersides never reach below this, so the void (y < VOID_Y) is always far below.
-const MIN_BOTTOM = 4;
-// Connected pieces smaller than this are removed from each island.
-const MIN_FRAGMENT = 8;
-// Connections: chance per nearby ring pair, max gap they span, bridges to the center.
-const BRIDGE_CHANCE = 0.3;
-const STONES_CHANCE = 0.3;
-const MAX_CONNECT_GAP = 45;
-const CENTER_BRIDGES = 2;
-const STONE_SPACING = 3;
-const CRUMB_CHANCE = 0.35;
-// Caves (see carveCaves): worm tunnels. Radii and steps in blocks.
-const CAVE_MIN_WIDTH = 25;
-const CAVE_SHELL = 3;
-// No carving this close to a keep's flattened area.
-const CAVE_KEEP_CLEARANCE = 6;
-// Worms per square block of island (center island; ring islands get fewer).
-const WORM_DENSITY = 1 / 480;
-const WORM_RADIUS = [1.9, 2.8];
-const WORM_STEP = 0.8;
-// How fast a worm turns and how its width wanders, per step along it.
-const WORM_TURN = 0.2;
-const WORM_CLIMB = 0.1;
-const WORM_MAX_PITCH = 0.55;
-const ENTRANCE_CHANCE = 0.4;
-// Round rooms along some center island worms.
-const CHAMBER_CHANCE = 0.15;
-const CHAMBER_RADIUS = [4, 7];
-// Iron ore: blobby 3D noise veins through stone. Stone next to air (cave
-// walls, undersides, cliffs) needs less, and the center island less again.
-const ORE_SCALE = 1 / 5;
-const ORE_THRESHOLD = 0.87;
-const ORE_CENTER_BONUS = 0.04;
-const ORE_EXPOSED_BONUS = 0.1;
-// Ponds: on islands at least this wide, with sand shores. The center island
-// gets bigger lakes, about one per LAKE_AREA square blocks of it.
-const POND_MIN_WIDTH = 40;
-const POND_RADIUS = [2, 4];
-const LAKE_RADIUS = [3, 7];
-const LAKE_AREA = 3000;
+const EDGE_SHELL = 3;
+const KEEP_CLEARANCE = KEEP_REACH + 6;
+const HORIZONTAL = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-const lerp = ([a, b], t) => a + (b - a) * t;
+function islandBounds(kind, radius, surfaceY) {
+  if (kind === 'tiny') {
+    return { topY: Math.ceil(surfaceY + 3),
+      bottomY: Math.floor(surfaceY - 3 - (2 + radius * 0.45) * 1.1) };
+  }
+  return { topY: Math.ceil(surfaceY + 24),
+    bottomY: Math.floor(surfaceY - 24 - (12 + radius * 0.28) * 1.1) };
+}
 
-export function generateIslandWorld(seed, playerCount, layout) {
-  const world = new World(seed, layout.width, layout.width, { sizeY: layout.height });
-  const random = mulberry32(seed ^ 0x2c1b3c6d);
-  const noise = createNoise2D(mulberry32(seed ^ 0x68e31da4));
-  const noise3 = createNoise3D(mulberry32(seed ^ 0x1b873593));
-  const mid = layout.width / 2;
-
-  // 1. Center island, nudged off the exact center.
-  const centerWidth = lerp(layout.center, random());
-  const center = makeIsland(random, 'center',
-    mid + (random() * 2 - 1) * CENTER_JITTER, mid + (random() * 2 - 1) * CENTER_JITTER,
-    centerWidth, CENTER_TOP);
-  // The layout is for the widest center island; pull everything else in to
-  // match this one, so the gap to the ring is the same whatever its size, and
-  // back out by how far it was nudged, so the gap holds on its near side too.
-  const pull = (layout.center[1] - centerWidth) / 2 - Math.hypot(center.x - mid, center.z - mid);
-  const cfg = {
-    ...layout,
-    ring: layout.ring.map((r) => r - pull),
-    outer: layout.outer.map((r) => r - pull),
-    keepDistance: layout.keepDistance - pull,
-  };
+function planIslands(seed, teamCount, config) {
+  const rand = mulberry32(seed ^ 0x2c1b3c6d);
+  const island = (kind, x, z, radius, surfaceY, extra = {}) =>
+    ({ kind, x: Math.round(x), z: Math.round(z), radius, surfaceY,
+      ...islandBounds(kind, radius, surfaceY), ...extra });
+  const center = island('center', 0, 0, config.centralRadius, config.centralSurfaceY);
   const islands = [center];
-
-  // 2a. Keep islands, one per player, each holding its keep off-center.
-  const sites = placeKeepSites(random, playerCount, cfg, mid);
-  const keepIslands = sites.map((site) => {
-    const width = lerp(KEEP_ISLAND_WIDTH, random());
-    const r = width / 2;
-    // Keep the keep's whole footprint inside the island's least-eroded outline.
-    const maxOffset = Math.max(0, r * 0.72 - KEEP_REACH * 1.42);
-    const angle = random() * Math.PI * 2, offset = random() * maxOffset;
-    const top = RING_TOP + (random() - 0.5) * RING_TOP_SPREAD;
-    let ix = site.x - Math.cos(angle) * offset, iz = site.z - Math.sin(angle) * offset;
-    // Keep the whole island inside the ring (a thin ring gets it centered),
-    // moving the keep with it so it stays on the island.
-    const [r0, r1] = cfg.ring;
-    const d = Math.hypot(ix - mid, iz - mid) || 1;
-    const lo = r0 + r, hi = r1 - r;
-    const want = lo > hi ? (r0 + r1) / 2 : Math.max(lo, Math.min(hi, d));
-    const shiftX = ((ix - mid) / d) * (want - d), shiftZ = ((iz - mid) / d) * (want - d);
-    ix += shiftX;
-    iz += shiftZ;
-    const island = makeIsland(random, 'keep', ix, iz, width, top);
-    island.keepSite = { cx: Math.floor(site.x + shiftX), cz: Math.floor(site.z + shiftZ) };
-    return island;
-  });
-  islands.push(...keepIslands);
-
-  // 2b. The rest of the middle ring: uniform over the ring's area, thinned by
-  // low-frequency noise so it clusters in some places and is sparse in others.
-  // Whole islands stay inside the ring, so the gap to the center is exact.
-  const [r0, r1] = cfg.ring;
-  const ringTarget = Math.round(Math.PI * (r1 * r1 - r0 * r0) * RING_DENSITY);
-  const ring = [...keepIslands];
-  for (let tries = 0, placed = 0; placed < ringTarget && tries < ringTarget * 40; tries++) {
-    const angle = random() * Math.PI * 2;
-    const width = lerp(RING_WIDTH, random());
-    const [a0, a1] = [r0 + width / 2, r1 - width / 2];
-    const dist = Math.sqrt(a0 * a0 + random() * (a1 * a1 - a0 * a0));
-    const x = mid + Math.cos(angle) * dist, z = mid + Math.sin(angle) * dist;
-    const top = RING_TOP + (random() - 0.5) * RING_TOP_SPREAD;
-    // Clustered where this is high, sparse (but not empty) where it's low.
-    const density = noise(x / 140 + 300, z / 140 + 300) * 0.5 + 0.5;
-    if (random() > 0.45 + density * density * 1.2) continue;
-    if (overlaps(islands, x, z, width / 2, RING_GAP)) continue;
-    const island = makeIsland(random, 'ring', x, z, width, top);
-    islands.push(island);
-    ring.push(island);
-    placed++;
+  const keeps = [];
+  const teamDistance = config.centralRadius + config.gap + config.teamRadius;
+  const rotation = rand() * Math.PI * 2;
+  for (let i = 0; i < teamCount; i++) {
+    const angle = rotation + i * Math.PI * 2 / teamCount
+      + (rand() * 2 - 1) * config.teamAngleJitterDegrees * Math.PI / 180;
+    const team = island('team', Math.cos(angle) * teamDistance, Math.sin(angle) * teamDistance,
+      config.teamRadius, config.centralSurfaceY + config.teamHeightOffset, { teamIndex: i });
+    islands.push(team);
+    const keepAngle = rand() * Math.PI * 2;
+    const keepDistance = Math.sqrt(rand()) * team.radius * config.keepInnerRadius;
+    keeps.push({ cx: Math.round(team.x + Math.cos(keepAngle) * keepDistance),
+      cz: Math.round(team.z + Math.sin(keepAngle) * keepDistance), island: team });
   }
 
-  // 3. Outer scatter.
-  const [o0, o1] = cfg.outer;
-  const outerTarget = Math.round(Math.PI * (o1 * o1 - o0 * o0) * OUTER_DENSITY);
-  for (let tries = 0, placed = 0; placed < outerTarget && tries < outerTarget * 40; tries++) {
-    const angle = random() * Math.PI * 2;
-    const width = lerp(OUTER_WIDTH, random());
-    const [a0, a1] = [o0 + width / 2, o1 - width / 2];
-    const dist = Math.sqrt(a0 * a0 + random() * (a1 * a1 - a0 * a0));
-    const x = mid + Math.cos(angle) * dist, z = mid + Math.sin(angle) * dist;
-    const top = OUTER_TOP + (random() - 0.5) * OUTER_TOP_SPREAD;
-    if (overlaps(islands, x, z, width / 2, OUTER_GAP)) continue;
-    islands.push(makeIsland(random, 'outer', x, z, width, top));
-    placed++;
-  }
-
-  for (const island of islands) writeIsland(world, carveIsland(island, noise, noise3, random));
-
-  // Keeps, flattening the ground under them. Players are assigned in lobby order.
-  world.keeps = keepIslands.map((island) => {
-    const { cx, cz } = island.keepSite;
-    const floorY = Math.min(world.sizeY - KEEP_HEIGHT - 2, world.getSurfaceY(cx, cz, isSolid));
-    const keep = { cx, cz, floorY };
-    buildKeep(world, keep, { fillDepth: 12, clearTo: Math.min(world.sizeY, floorY + KEEP_HEIGHT + 16) });
-    return keep;
-  });
-
-  connectIslands(world, random, noise, ring, center);
-  for (const island of islands) {
-    if (island.kind !== 'outer' && island.r * 2 >= POND_MIN_WIDTH) addPonds(world, random, noise, island);
-  }
-  for (const island of islands) {
-    if (island.kind !== 'center' && random() < CRUMB_CHANCE) addCrumbs(world, random, island);
-  }
-  plantTrees(world, seed, { requireFooting: true });
-  world.islands = islands;
-  return world;
-}
-
-// Keep sites at random angles around the keep distance, at least keepSpacing
-// apart. If that's impossible (too many players), they're spread evenly.
-function placeKeepSites(random, playerCount, cfg, mid) {
-  const n = Math.max(1, playerCount);
-  const jitter = cfg.keepDistance * 0.06;
-  const at = (angle, dist) => ({ x: mid + Math.cos(angle) * dist, z: mid + Math.sin(angle) * dist });
-  for (let attempt = 0; attempt < 50; attempt++) {
-    const sites = [];
-    for (let i = 0; i < n; i++) {
-      for (let t = 0; t < 60; t++) {
-        const site = at(random() * Math.PI * 2, cfg.keepDistance + (random() * 2 - 1) * jitter);
-        if (sites.every((s) => Math.hypot(s.x - site.x, s.z - site.z) >= cfg.keepSpacing)) {
-          sites.push(site);
-          break;
-        }
-      }
-      if (sites.length !== i + 1) break;
-    }
-    if (sites.length === n) return sites;
-  }
-  const start = random() * Math.PI * 2;
-  return Array.from({ length: n }, (_, i) => at(start + (Math.PI * 2 * i) / n, cfg.keepDistance));
-}
-
-function overlaps(islands, x, z, r, gap) {
-  return islands.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + r + gap);
-}
-
-// Island parameters. Draws the same number of random values for every island.
-function makeIsland(random, kind, x, z, width, top) {
-  const r = width / 2;
-  const shapes = ['spike', 'bulb', 'spikes'];
-  const pick = random();
-  // The center island is always a big blunt mass or a cluster of spikes.
-  const underside = kind === 'center' ? (pick < 0.5 ? 'bulb' : 'spikes') : shapes[Math.floor(pick * 3)];
-  const baseDepth = r * { spike: 1.3, bulb: 0.8, spikes: 1.0 }[underside] * (kind === 'center' ? 1.15 : 1);
-  const island = {
-    kind, x, z, r, top: Math.round(top), underside,
-    ox: random() * 10000, oz: random() * 10000,
-    hillAmp: Math.max(1, r * (kind === 'center' ? 0.16 : 0.12)),
-    depth: Math.min(baseDepth, top - MIN_BOTTOM - 3),
-    // Keep islands erode less at the edge, so their keep sits on solid ground.
-    edgeNoise: kind === 'keep' ? 0.1 : 0.2,
-    spikes: [],
-  };
-  const count = 3 + Math.floor(random() * 3);
-  for (let i = 0; i < count; i++) {
-    const angle = random() * Math.PI * 2, dist = random() * r * 0.6;
-    const spike = {
-      dx: Math.cos(angle) * dist, dz: Math.sin(angle) * dist,
-      r: r * (0.25 + random() * 0.2), depth: island.depth * (0.6 + random() * 0.5),
-    };
-    if (underside === 'spikes') island.spikes.push(spike);
-  }
-  return island;
-}
-
-// How far below the top the island goes at a column: a thin rim everywhere,
-// plus the underside shape, roughened with noise. t: 0 at the center, 1 at the edge.
-function undersideDepth(island, t, dx, dz, jag) {
-  const rim = 2 + island.r * 0.08 * (1 - t);
-  let cone;
-  if (island.underside === 'spike') {
-    cone = island.depth * (1 - t) ** 1.8;
-  } else if (island.underside === 'bulb') {
-    cone = island.depth * Math.sqrt(Math.max(0, 1 - t * t));
-  } else {
-    cone = island.depth * 0.25 * (1 - t * t);
-    for (const s of island.spikes) {
-      const d = Math.hypot(dx - s.dx, dz - s.dz) / s.r;
-      if (d < 1) cone = Math.max(cone, s.depth * (1 - d) ** 1.5);
-    }
-  }
-  return rim + cone * jag;
-}
-
-// Builds one island into its own box of blocks, carves its caves, then removes
-// small fragments.
-function carveIsland(island, noise, noise3, random) {
-  const { r, ox, oz } = island;
-  const ext = Math.ceil(r * 1.2) + 1;
-  const x0 = Math.floor(island.x) - ext, z0 = Math.floor(island.z) - ext;
-  const sx = ext * 2 + 1, sz = sx;
-  const yTop = island.top + Math.ceil(island.hillAmp) + 1;
-  const y0 = MIN_BOTTOM;
-  const sy = yTop - y0 + 1;
-  const data = new Uint8Array(sx * sy * sz);
-  const index = (lx, ly, lz) => lx + sx * (lz + sz * ly);
-  // Per column: the top and bottom block y, or -1 for an empty column.
-  const colTop = new Int32Array(sx * sz).fill(-1);
-  const colBottom = new Int32Array(sx * sz).fill(-1);
-
-  for (let lz = 0; lz < sz; lz++) {
-    for (let lx = 0; lx < sx; lx++) {
-      const wx = x0 + lx, wz = z0 + lz;
-      const dx = wx + 0.5 - island.x, dz = wz + 0.5 - island.z;
-      const d = Math.hypot(dx, dz) / r;
-      if (d > 1.2) continue;
-      // Outline: broad lobes around the rim plus finer bites.
-      const a = Math.atan2(dz, dx);
-      const edge = 1 - island.edgeNoise
-        + island.edgeNoise * noise(Math.cos(a) * 1.2 + ox, Math.sin(a) * 1.2 + oz)
-        + 0.08 * noise(wx / 6 + ox, wz / 6 + oz);
-      if (d >= edge) continue;
-      const t = d / edge;
-
-      const hill = noise(wx / (r * 0.6 + 6) + ox, wz / (r * 0.6 + 6) + oz) * 0.5 + 0.5;
-      const top = island.top + Math.round(island.hillAmp * hill * (1 - t * t));
-      const dirt = 2 + Math.floor((noise(wx / 9 + oz, wz / 9 + ox) * 0.5 + 0.5) * 3.99);
-      const jag = 0.7 + 0.6 * (noise(wx / 3.5 + ox, wz / 3.5 + oz) * 0.5 + 0.5);
-      const bottom = Math.max(y0, top - dirt - Math.round(undersideDepth(island, t, dx, dz, jag)));
-      colTop[lx + lz * sx] = top;
-      colBottom[lx + lz * sx] = bottom;
-      for (let y = bottom; y <= top; y++) {
-        const id = y === top ? BLOCK.GRASS : y > top - dirt ? BLOCK.DIRT : BLOCK.STONE;
-        data[index(lx, y - y0, lz)] = id;
-      }
-    }
-  }
-  const box = { x0, y0, z0, sx, sy, sz, data, colTop, colBottom };
-  if (island.kind === 'center' || (island.kind !== 'outer' && island.r * 2 > CAVE_MIN_WIDTH)) carveCaves(island, box, noise3, random);
-  placeOre(island, box, noise3);
-  removeFragments(data, sx, sy, sz);
-  return box;
-}
-
-// Worm caves, like classic Minecraft: each worm starts inside the island and
-// crawls along a smooth, winding path (its turning and climbing come from
-// smooth noise, so it curves rather than jitters), carving a ball at every
-// step. The result is a round tube 4-6 blocks across whose width swells and
-// narrows a little. Worms keep a shell of CAVE_SHELL blocks of rock around
-// them, except the ones that end as entrances, which steer out through a
-// cliff, the underside or the top. Some center island worms open into a
-// round room.
-//
-// Also used for the Test world, which passes its whole terrain as one "island"
-// with its own avoid(wx, wz) (keeps and ponds) and a square `interior`.
-export function carveCaves(island, box, noise3, random) {
-  const { x0, y0, z0, sx, sy, sz, data, colTop, colBottom } = box;
-  const column = (lx, lz) => (lx >= 0 && lz >= 0 && lx < sx && lz < sz ? lx + lz * sx : -1);
-  const keep = island.keepSite;
-  const nearKeep = island.avoid ?? ((wx, wz) => keep
-    && Math.abs(wx - keep.cx) <= KEEP_REACH + CAVE_KEEP_CLEARANCE
-    && Math.abs(wz - keep.cz) <= KEEP_REACH + CAVE_KEEP_CLEARANCE);
-
-  // At least CAVE_SHELL blocks of island above, below and to every side.
-  const shellOffsets = [[0, 0], [CAVE_SHELL, 0], [-CAVE_SHELL, 0], [0, CAVE_SHELL], [0, -CAVE_SHELL],
-    [2, 2], [2, -2], [-2, 2], [-2, -2]];
-  const interior = (lx, y, lz) => shellOffsets.every(([dx, dz]) => {
-    const c = column(lx + dx, lz + dz);
-    return c >= 0 && colTop[c] >= 0 && y >= colBottom[c] + CAVE_SHELL && y <= colTop[c] - CAVE_SHELL;
-  });
-  const inside = (lx, y, lz) => {
-    const c = column(lx, lz);
-    return c >= 0 && colTop[c] >= 0 && y >= colBottom[c] && y <= colTop[c];
-  };
-
-  // Clears a ball (squash < 1 flattens it) around a point in box coordinates.
-  // open: allowed to break through the shell (entrances).
-  const carve = (px, py, pz, radius, squash, open) => {
-    const ry = radius * squash;
-    for (let lz = Math.floor(pz - radius); lz <= Math.floor(pz + radius); lz++) {
-      for (let lx = Math.floor(px - radius); lx <= Math.floor(px + radius); lx++) {
-        if (column(lx, lz) < 0 || nearKeep(x0 + lx, z0 + lz)) continue;
-        for (let y = Math.floor(py - ry); y <= Math.floor(py + ry); y++) {
-          const ly = y - y0;
-          if (ly < 0 || ly >= sy) continue;
-          const d = ((lx + 0.5 - px) / radius) ** 2 + ((y + 0.5 - py) / ry) ** 2 + ((lz + 0.5 - pz) / radius) ** 2;
-          if (d > 1 || (!open && !interior(lx, y, lz))) continue;
-          data[lx + sx * (lz + sz * ly)] = 0;
-        }
-      }
-    }
-  };
-
-  // A random point well inside the island, or null.
-  const cx = island.x - x0, cz = island.z - z0;
-  const pickInterior = () => {
-    for (let tries = 0; tries < 12; tries++) {
-      let lx, lz;
-      if (island.square) {
-        // Anywhere in the box (the Test world is square, not round).
-        lx = Math.floor(random() * sx);
-        lz = Math.floor(random() * sz);
-      } else {
-        const a = random() * Math.PI * 2, d = Math.sqrt(random()) * island.r * 0.75;
-        lx = Math.floor(cx + Math.cos(a) * d);
-        lz = Math.floor(cz + Math.sin(a) * d);
-      }
-      const c = column(lx, lz);
-      if (c < 0 || colTop[c] < 0) continue;
-      const low = colBottom[c] + CAVE_SHELL + 3, high = colTop[c] - CAVE_SHELL - 3;
-      const y = Math.floor(low + random() * (high - low + 1));
-      if (high >= low && interior(lx, y, lz) && !nearKeep(x0 + lx, z0 + lz)) return { x: lx + 0.5, y: y + 0.5, z: lz + 0.5 };
-    }
-    return null;
-  };
-
-  const worm = (start) => {
-    let { x, y, z } = start;
-    let yaw = random() * Math.PI * 2, pitch = (random() - 0.5) * 0.3;
-    const radius = WORM_RADIUS[0] + random() * (WORM_RADIUS[1] - WORM_RADIUS[0]);
-    const length = Math.floor(Math.min(200, island.r * (1.5 + random() * 1.5)) / WORM_STEP);
-    const exits = random() < ENTRANCE_CHANCE;
-    const exitMode = ['side', 'bottom', 'top'][Math.floor(random() * 3)];
-    const exitAt = Math.floor(length * 0.6);
-    // This worm's own track through the noise, so worms wind differently.
-    const track = random() * 1000;
-    let outside = 0;
-    for (let step = 0; step < length + 60; step++) {
-      const exiting = exits && step >= exitAt;
-      if (!exiting && step >= length) break;
-      const t = step * 0.05;
-      const r = radius * (0.85 + 0.3 * (noise3(t * 0.7, track, 100) * 0.5 + 0.5));
-      carve(x, y, z, r, 1, exiting);
-      yaw += noise3(t, track, 0) * WORM_TURN;
-      pitch = Math.max(-WORM_MAX_PITCH, Math.min(WORM_MAX_PITCH, pitch * 0.92 + noise3(t, track, 50) * WORM_CLIMB));
-      if (exiting) {
-        // Steer out: away from the island center, or down / up.
-        if (exitMode === 'side') {
-          const out = Math.atan2(z - cz, x - cx);
-          yaw += Math.atan2(Math.sin(out - yaw), Math.cos(out - yaw)) * 0.15;
-          pitch *= 0.7;
+  const totalTiny = config.tinyCount[0]
+    + Math.floor(rand() * (config.tinyCount[1] - config.tinyCount[0] + 1));
+  const counts = config.tinyDistribution.map((part) => Math.round(totalTiny * part));
+  counts[3] += totalTiny - counts.reduce((a, b) => a + b, 0);
+  for (let category = 0; category < counts.length; category++) {
+    for (let i = 0; i < counts[category]; i++) {
+      for (let attempt = 0; attempt < config.placementAttempts; attempt++) {
+        const radius = config.tinyRadius[0]
+          + Math.floor(rand() * (config.tinyRadius[1] - config.tinyRadius[0] + 1));
+        const angle = rand() * Math.PI * 2;
+        let x, z, surfaceY;
+        if (category === 0) {
+          const distance = config.centralRadius + radius + config.horizontalClearance
+            + rand() * config.centerRingWidth;
+          x = Math.cos(angle) * distance;
+          z = Math.sin(angle) * distance;
+        } else if (category === 1 && teamCount > 0) {
+          const team = islands[1 + Math.floor(rand() * teamCount)];
+          const distance = team.radius + radius + config.horizontalClearance
+            + rand() * config.teamRingWidth;
+          x = team.x + Math.cos(angle) * distance;
+          z = team.z + Math.sin(angle) * distance;
+        } else if (category === 3) {
+          const big = islands[Math.floor(rand() * (teamCount + 1))];
+          const distance = Math.sqrt(rand()) * big.radius * 0.75;
+          x = big.x + Math.cos(angle) * distance;
+          z = big.z + Math.sin(angle) * distance;
+          const depth = 3 + (2 + radius * 0.45) * 1.1;
+          surfaceY = rand() < 0.5
+            ? big.topY + config.aboveClearance + depth
+            : big.bottomY - config.belowClearance - 3;
         } else {
-          pitch += ((exitMode === 'bottom' ? -1 : 1) - pitch) * 0.15;
+          const distance = teamDistance + config.teamRadius + config.horizontalClearance
+            + rand() * config.outerReach;
+          x = Math.cos(angle) * distance;
+          z = Math.sin(angle) * distance;
+        }
+        if (surfaceY === undefined) {
+          surfaceY = config.centralSurfaceY + config.tinySurfaceOffset[0]
+            + rand() * (config.tinySurfaceOffset[1] - config.tinySurfaceOffset[0]);
+        }
+        const tiny = island('tiny', x, z, radius, Math.round(surfaceY), { tinyGroup: category });
+        if (keeps.some((keep) => Math.hypot(tiny.x - keep.cx, tiny.z - keep.cz)
+          < tiny.radius + KEEP_REACH + config.tinyKeepClearance)) continue;
+        if (islands.some((other) => {
+          const close = Math.hypot(tiny.x - other.x, tiny.z - other.z)
+            < tiny.radius + other.radius + config.horizontalClearance;
+          const separated = tiny.bottomY >= other.topY + config.verticalClearance
+            || other.bottomY >= tiny.topY + config.verticalClearance;
+          return close && !separated;
+        })) continue;
+        islands.push(tiny);
+        break;
+      }
+    }
+  }
+  return { islands, keeps, rand };
+}
+
+function terrainFor(world, island, noise, detail) {
+  const reach = Math.ceil(island.radius + 8);
+  const width = reach * 2 + 1;
+  const x0 = island.x - reach, z0 = island.z - reach;
+  const top = new Int16Array(width * width).fill(-32768);
+  const bottom = new Int16Array(width * width).fill(-32768);
+  const index = (x, z) => x - x0 + width * (z - z0);
+  const getTop = (x, z) => x < x0 || z < z0 || x >= x0 + width || z >= z0 + width
+    ? -32768 : top[index(x, z)];
+  const getBottom = (x, z) => x < x0 || z < z0 || x >= x0 + width || z >= z0 + width
+    ? -32768 : bottom[index(x, z)];
+  const phase = island.index * 37;
+  const outline = (angle) => island.radius * (0.90 + 0.095
+    * noise(Math.cos(angle) * 1.9 + 71 + phase, Math.sin(angle) * 1.9 + 71 + phase));
+  for (let z = z0; z < z0 + width; z++) for (let x = x0; x < x0 + width; x++) {
+    const dx = x + 0.5 - island.x, dz = z + 0.5 - island.z;
+    const edge = outline(Math.atan2(dz, dx))
+      + Math.min(5, island.radius * 0.08) * detail(x / 9, z / 9);
+    const distance = Math.hypot(dx, dz);
+    if (distance >= edge) continue;
+    const t = distance / edge;
+    const hill = island.kind === 'tiny'
+      ? 2 * noise(x / 9, z / 9) + detail(x / 5, z / 5)
+      : 10 * noise(x / 48, z / 48) + 5 * detail(x / 17, z / 17)
+        + 9 * noise(x / 105 + 200, z / 105 + 200);
+    const yTop = Math.round(island.surfaceY + hill * (1 - t * t));
+    const jag = 0.78 + 0.32 * detail(x / 7 + 100, z / 7 + 100);
+    const depth = island.kind === 'tiny'
+      ? Math.max(2, Math.round((2 + island.radius * 0.45 * (1 - t) ** 1.5) * jag))
+      : Math.round((12 + island.radius * 0.28 * (1 - t) ** 1.4) * jag);
+    const yBottom = yTop - depth;
+    const dirt = island.kind === 'tiny' ? 2
+      : 3 + Math.floor(2 * (detail(x / 11 + 40, z / 11) + 1));
+    top[index(x, z)] = yTop;
+    bottom[index(x, z)] = yBottom;
+    for (let y = yBottom; y <= yTop; y++) {
+      world.setBlock(x, y, z, y === yTop ? BLOCK.GRASS : y > yTop - dirt ? BLOCK.DIRT : BLOCK.STONE);
+    }
+  }
+  return { ...island, x0, z0, width, top, bottom, getTop, getBottom,
+    bounds: { x0, z0, x1: x0 + width - 1, z1: z0 + width - 1 } };
+}
+
+// Winding root tunnels with tapering branches and occasional round chambers.
+function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea) {
+  const { radius, x: cx, z: cz, getTop, getBottom, bounds } = terrain;
+  const inside = (x, y, z, shell = EDGE_SHELL) => {
+    if (x < bounds.x0 + shell || z < bounds.z0 + shell
+      || x > bounds.x1 - shell || z > bounds.z1 - shell) return false;
+    for (const [dx, dz] of [[0, 0], [shell, 0], [-shell, 0], [0, shell], [0, -shell]]) {
+      const surface = getTop(x + dx, z + dz), floor = getBottom(x + dx, z + dz);
+      if (surface === -32768 || y < floor + shell || y > surface - shell) return false;
+    }
+    return true;
+  };
+  const ball = (px, py, pz, r, entrance = false) => {
+    for (let z = Math.floor(pz - r); z <= Math.ceil(pz + r); z++)
+      for (let x = Math.floor(px - r); x <= Math.ceil(px + r); x++) {
+        if (x < bounds.x0 || z < bounds.z0 || x > bounds.x1 || z > bounds.z1 || nearKeep(x, z)) continue;
+        for (let y = Math.floor(py - r); y <= Math.ceil(py + r); y++) {
+          if ((x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2 > r * r) continue;
+          if (!entrance && !inside(x, y, z)) continue;
+          if (world.getBlock(x, y, z) !== BLOCK.AIR) world.setBlock(x, y, z, BLOCK.AIR);
         }
       }
-      x += Math.cos(yaw) * Math.cos(pitch) * WORM_STEP;
-      z += Math.sin(yaw) * Math.cos(pitch) * WORM_STEP;
-      y += Math.sin(pitch) * WORM_STEP;
-      if (!inside(Math.floor(x), Math.floor(y), Math.floor(z))) {
-        // An entrance carries on a couple of blocks into the open; anything else stops.
-        if (!exiting || ++outside > 3) break;
+  };
+  const branch = (start, yaw, pitch, length, r, generation) => {
+    let { x, y, z } = start;
+    const track = rand() * 1000;
+    let connected = generation > 0;
+    const splitSteps = generation === 0
+      ? [Math.floor(length * 0.31), Math.floor(length * 0.68)]
+      : generation === 1 ? [Math.floor(length * 0.53)] : [];
+    for (let step = 0; step < length; step++) {
+      const t = step / length;
+      const rr = Math.max(1.1, r * (1 - 0.58 * t)) * (0.9 + 0.12 * noise3(step * 0.08, track, 80));
+      const opening = generation === 0 && !connected && step < 48;
+      ball(x, y, z, rr, opening);
+      if (opening && step >= 8 && inside(Math.floor(x), Math.floor(y), Math.floor(z), Math.ceil(rr + EDGE_SHELL + 1))) connected = true;
+      if (splitSteps.includes(step)) {
+        ball(x, y, z, rr * (1.7 + rand() * 0.65));
+        branch({ x, y, z }, yaw + (rand() < 0.5 ? -1 : 1) * (0.65 + rand() * 0.75),
+          -0.2 - rand() * 0.15, Math.floor(length * (generation === 0 ? 0.66 : 0.6)), rr * 0.72, generation + 1);
       }
+      if (step === Math.floor(length * 0.83) && rand() < 0.3) ball(x, y, z, rr * 1.8);
+      yaw += noise3(step * 0.045, track, 0) * 0.13 + Math.sin(step * 0.075 + track) * 0.025;
+      pitch = clamp(pitch * 0.94 + noise3(step * 0.05, track, 30) * 0.03 - 0.01, -0.58, 0.17);
+      x += Math.cos(yaw) * 0.9;
+      z += Math.sin(yaw) * 0.9;
+      y += Math.sin(pitch) * 0.9;
+      if (!inside(Math.floor(x), Math.floor(y), Math.floor(z), 1) && step > (generation === 0 ? 15 : 3)) break;
     }
   };
-
-  const center = island.kind === 'center' || island.square;
-  const area = island.square ? sx * sz : Math.PI * island.r * island.r;
-  const worms = Math.max(1, Math.round(area * WORM_DENSITY * (center ? 1 : 0.5)));
-  for (let i = 0; i < worms; i++) {
-    const at = pickInterior();
-    if (!at) continue;
-    if (center && random() < CHAMBER_CHANCE) {
-      carve(at.x, at.y, at.z, CHAMBER_RADIUS[0] + random() * (CHAMBER_RADIUS[1] - CHAMBER_RADIUS[0]), 0.6, false);
-    }
-    worm(at);
-  }
-}
-
-// Iron ore veins (see ORE_*), after caves so cave walls count as exposed.
-function placeOre(island, box, noise3) {
-  const { x0, y0, z0, sx, sy, sz, data } = box;
-  const layer = sx * sz;
-  const base = ORE_THRESHOLD - (island.kind === 'center' ? ORE_CENTER_BONUS : 0);
-  const open = (i, ok) => !ok || data[i] === 0;
-  for (let i = 0; i < data.length; i++) {
-    if (data[i] !== BLOCK.STONE) continue;
-    const lx = i % sx, lz = Math.floor(i / sx) % sz, ly = Math.floor(i / layer);
-    const exposed = open(i - 1, lx > 0) || open(i + 1, lx < sx - 1)
-      || open(i - sx, lz > 0) || open(i + sx, lz < sz - 1)
-      || open(i - layer, ly > 0) || open(i + layer, ly < sy - 1);
-    const v = noise3((x0 + lx) * ORE_SCALE + 2000, (y0 + ly) * ORE_SCALE, (z0 + lz) * ORE_SCALE + 2000);
-    if (v > base - (exposed ? ORE_EXPOSED_BONUS : 0)) data[i] = BLOCK.IRON_ORE;
-  }
-}
-
-// Still ponds on a big island's top (lakes on the center island, maybe one
-// pond elsewhere): a noisy round basin of water, deeper in the middle, away
-// from the keep. The water level is the lowest ground in and around the basin,
-// so it never spills; the basin is dug down to it, and the ground around it
-// stands as banks. Spots that would cut deep into a hill, aren't grassy
-// ground, touch another pond, or have a cave close under them are skipped.
-// Sand goes around the water.
-const POND_MAX_DIG = 3;
-function addPonds(world, random, noise, island) {
-  const center = island.kind === 'center';
-  const count = center ? Math.round((Math.PI * island.r * island.r) / LAKE_AREA) : random() < 0.5 ? 1 : 0;
-  const soft = (id) => id === BLOCK.GRASS || id === BLOCK.DIRT || id === BLOCK.SAND;
-  for (let p = 0; p < count; p++) {
-    for (let tries = 0; tries < (center ? 16 : 8); tries++) {
-      const angle = random() * Math.PI * 2, dist = Math.sqrt(random()) * island.r * (center ? 0.75 : 0.5);
-      const radius = lerp(center ? LAKE_RADIUS : POND_RADIUS, random());
-      const cx = Math.floor(island.x + Math.cos(angle) * dist), cz = Math.floor(island.z + Math.sin(angle) * dist);
-      const keep = island.keepSite;
-      if (keep && Math.hypot(cx - keep.cx, cz - keep.cz) < KEEP_REACH * 1.5 + radius + 6) continue;
-      const reach = Math.ceil(radius * 1.25) + 2;
-      // The basin's cells (a noisy disc), and the ground heights around it.
-      const basin = [];
-      let level = Infinity, highest = -Infinity, ok = true;
-      for (let dz = -reach; dz <= reach && ok; dz++) {
-        for (let dx = -reach; dx <= reach && ok; dx++) {
-          const x = cx + dx, z = cz + dz;
-          const top = world.getSurfaceY(x, z, isSolid);
-          ok = top >= 0 && soft(world.getBlock(x, top, z)) && world.getBlock(x, top + 1, z) !== BLOCK.WATER;
-          level = Math.min(level, top);
-          const d = Math.hypot(dx, dz) / radius * (1 + 0.25 * noise(x + 0.5, z + 0.5));
-          if (d < 1) {
-            basin.push({ x, z, top, d });
-            highest = Math.max(highest, top);
-          }
+  const count = Math.max(3, Math.round(Math.PI * radius * radius / caveArea));
+  for (let i = 0; i < count; i++) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const angle = rand() * Math.PI * 2;
+      const cliff = rand() < 0.3;
+      let distance = radius * (0.12 + rand() * 0.63);
+      if (cliff) {
+        for (let d = 1; d < radius + 10; d++) {
+          if (getTop(Math.floor(cx + Math.cos(angle) * d), Math.floor(cz + Math.sin(angle) * d)) === -32768) break;
+          distance = d;
         }
       }
-      // Solid ground for three blocks under the water level everywhere, so
-      // neither the shallow edge nor the deeper middle sits over a cave.
-      ok = ok && basin.every(({ x, z }) => [1, 2, 3].every((k) => isSolid(world.getBlock(x, level - k, z))));
-      if (!ok || highest - level > POND_MAX_DIG) continue;
-      for (const { x, z, top, d } of basin) {
-        for (let y = level + 1; y <= top + 2; y++) world.setBlock(x, y, z, BLOCK.AIR);
-        world.setBlock(x, level, z, BLOCK.WATER);
-        if (d < 0.55) world.setBlock(x, level - 1, z, BLOCK.WATER);
-      }
-      sandShores(world, noise, cx - reach - 3, cz - reach - 3, cx + reach + 3, cz + reach + 3);
+      const x = Math.floor(cx + Math.cos(angle) * distance);
+      const z = Math.floor(cz + Math.sin(angle) * distance);
+      const surface = getTop(x, z);
+      if (surface === -32768 || nearKeep(x, z)) continue;
+      const y = cliff ? Math.round((surface + getBottom(x, z)) / 2) : surface - 1;
+      const yaw = angle + Math.PI + (cliff ? 0 : (rand() - 0.5) * 1.6);
+      branch({ x, y, z }, yaw, cliff ? -0.12 : -0.55,
+        105 + Math.floor(rand() * 85), 2.8 + rand() * 1.2, 0);
       break;
     }
   }
 }
 
-// Flood-fills the solid blocks (6-connected) and clears pieces under MIN_FRAGMENT.
-function removeFragments(data, sx, sy, sz) {
-  const seen = new Uint8Array(data.length);
-  const stack = new Int32Array(data.length);
-  const piece = [];
-  const layer = sx * sz;
-  for (let start = 0; start < data.length; start++) {
-    if (!data[start] || seen[start]) continue;
-    let top = 0;
-    stack[top++] = start;
-    seen[start] = 1;
-    piece.length = 0;
-    const visit = (n) => {
-      if (!data[n] || seen[n]) return;
-      seen[n] = 1;
-      stack[top++] = n;
-    };
-    while (top > 0) {
-      const i = stack[--top];
-      if (piece.length < MIN_FRAGMENT) piece.push(i);
-      const lx = i % sx, lz = Math.floor(i / sx) % sz, ly = Math.floor(i / layer);
-      if (lx > 0) visit(i - 1);
-      if (lx < sx - 1) visit(i + 1);
-      if (lz > 0) visit(i - sx);
-      if (lz < sz - 1) visit(i + sx);
-      if (ly > 0) visit(i - layer);
-      if (ly < sy - 1) visit(i + layer);
+function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
+  const { radius, x: ix, z: iz, getTop } = terrain;
+  const tiny = terrain.kind === 'tiny';
+  const count = tiny ? (radius >= 10 && rand() < 0.35 ? 1 : 0)
+    : Math.max(6, Math.round(radius * radius / pondArea));
+  for (let i = 0; i < count; i++) for (let attempt = 0; attempt < 40; attempt++) {
+    const angle = rand() * Math.PI * 2, distance = Math.sqrt(rand()) * radius * (tiny ? 0.3 : 0.72);
+    const cx = Math.floor(ix + Math.cos(angle) * distance);
+    const cz = Math.floor(iz + Math.sin(angle) * distance);
+    const r = tiny ? 1.7 + rand() * 1.3 : 4 + rand() * 5;
+    const reach = Math.ceil(r + (tiny ? 1 : 3));
+    if (nearKeep(cx, cz)) continue;
+    const cells = [];
+    let level = Infinity, highest = -Infinity, valid = true;
+    for (let dz = -reach; dz <= reach && valid; dz++) for (let dx = -reach; dx <= reach && valid; dx++) {
+      const x = cx + dx, z = cz + dz, top = getTop(x, z);
+      if (top === -32768 || world.getBlock(x, top, z) !== BLOCK.GRASS || nearKeep(x, z)) { valid = false; break; }
+      level = Math.min(level, top);
+      if (Math.hypot(dx, dz) < r * (1 + 0.15 * noise(x / 4, z / 4))) {
+        cells.push({ x, z, top });
+        highest = Math.max(highest, top);
+      }
     }
-    // `piece` holds the whole piece only when it's small.
-    if (piece.length < MIN_FRAGMENT) for (const i of piece) data[i] = 0;
+    if (!valid || highest - level > (tiny ? 2 : 6)
+      || cells.some(({ x, z }) => !isSolid(world.getBlock(x, level - (tiny ? 1 : 3), z)))) continue;
+    for (const { x, z, top } of cells) {
+      for (let y = level; y <= top + 2; y++) world.setBlock(x, y, z, BLOCK.AIR);
+      world.setBlock(x, level, z, BLOCK.WATER);
+    }
+    sandShores(world, noise, cx - reach - 3, cz - reach - 3,
+      cx + reach + 3, cz + reach + 3, getTop);
+    break;
   }
 }
 
-function writeIsland(world, { x0, y0, z0, sx, sy, sz, data }) {
-  let i = 0;
-  for (let ly = 0; ly < sy; ly++) {
-    for (let lz = 0; lz < sz; lz++) {
-      for (let lx = 0; lx < sx; lx++, i++) {
-        if (data[i]) world.setBlock(x0 + lx, y0 + ly, z0 + lz, data[i]);
+export function generateIslandWorld(seed, teamCount, config) {
+  const plan = planIslands(seed, teamCount, config);
+  const { islands, keeps } = plan;
+  const extent = Math.max(...islands.map((island) => Math.max(Math.abs(island.x), Math.abs(island.z)) + island.radius));
+  const width = Math.ceil((2 * (extent + config.worldMargin)) / CHUNK_SIZE) * CHUNK_SIZE;
+  const origin = width / 2;
+  for (const island of islands) { island.x += origin; island.z += origin; }
+  for (const keep of keeps) { keep.cx += origin; keep.cz += origin; }
+  const lowest = Math.min(...islands.map((island) => island.bottomY));
+  const highest = Math.max(...islands.map((island) => island.topY));
+  const world = new World(seed, width, width, { sizeY: Math.ceil(highest + 20), minY: Math.floor(lowest - 20) });
+  world.islands = islands.map(({ x, z, radius, surfaceY, topY, bottomY, kind, teamIndex, tinyGroup }) =>
+    ({ x, z, radius, surfaceY, topY, bottomY, kind, teamIndex, tinyGroup }));
+  const noise = createNoise2D(mulberry32(seed ^ 0x68e31da4));
+  const detail = createNoise2D(mulberry32(seed ^ 0xb742c35e));
+  const noise3 = createNoise3D(mulberry32(seed ^ 0x1b873593));
+  const nearKeep = (x, z) => keeps.some((site) =>
+    Math.abs(x - site.cx) <= KEEP_CLEARANCE && Math.abs(z - site.cz) <= KEEP_CLEARANCE);
+  const terrains = islands.map((island, index) => terrainFor(world, { ...island, index }, noise, detail));
+  for (const terrain of terrains) {
+    if (terrain.kind === 'tiny') continue;
+    const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x79b9d7f3));
+    carveCaves(world, terrain, rand, noise3, nearKeep, config.caveArea);
+  }
+
+  // One pass over the terrain's chunks keeps ore cost linear in world blocks.
+  for (const chunk of world.chunks.values()) {
+    for (let ly = 0; ly < CHUNK_SIZE; ly++) for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      if (chunk.get(lx, ly, lz) !== BLOCK.STONE) continue;
+      const x = chunk.cx * CHUNK_SIZE + lx, y = chunk.cy * CHUNK_SIZE + ly, z = chunk.cz * CHUNK_SIZE + lz;
+      const exposed = HORIZONTAL.some(([dx, dz]) => world.getBlock(x + dx, y, z + dz) === BLOCK.AIR)
+        || world.getBlock(x, y - 1, z) === BLOCK.AIR || world.getBlock(x, y + 1, z) === BLOCK.AIR;
+      if (noise3(x / 5 + 2000, y / 5, z / 5 + 2000) > (exposed ? 0.69 : 0.83)) {
+        world.setBlock(x, y, z, BLOCK.IRON_ORE);
       }
     }
   }
-}
 
-// Top of the land in a column within `range` of an island's altitude, or null.
-function landTop(world, x, z, around, range) {
-  for (let y = Math.min(world.sizeY - 1, around + range); y >= Math.max(0, around - range); y--) {
-    if (isSolid(world.getBlock(x, y, z))) return y;
-  }
-  return null;
-}
-
-// The open stretch on a winding path from island a to island b: samples every
-// half block, `wiggle` blocks of sideways sway (0 at the ends). Returns the
-// samples plus where the gap starts and ends, with the land heights there, or
-// null if the islands touch.
-function gapPath(world, noise, a, b, wiggle) {
-  const dist = Math.hypot(b.x - a.x, b.z - a.z);
-  const steps = Math.ceil(dist * 2);
-  const px = -(b.z - a.z) / dist, pz = (b.x - a.x) / dist;
-  const seedA = a.ox;
-  const samples = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const sway = Math.sin(Math.PI * t) * wiggle * (Math.sin(t * Math.PI * 2.3 + seedA) * 0.7 + noise(t * 3 + seedA, 7.7) * 0.3);
-    samples.push({ x: Math.floor(a.x + (b.x - a.x) * t + px * sway), z: Math.floor(a.z + (b.z - a.z) * t + pz * sway) });
-  }
-  const rangeA = Math.ceil(a.hillAmp) + 4, rangeB = Math.ceil(b.hillAmp) + 4;
-  let start = 0;
-  while (start < steps && landTop(world, samples[start + 1].x, samples[start + 1].z, a.top, rangeA) !== null) start++;
-  let end = steps;
-  while (end > start && landTop(world, samples[end - 1].x, samples[end - 1].z, b.top, rangeB) !== null) end--;
-  if (end - start < 2) return null;
-  const hA = landTop(world, samples[start].x, samples[start].z, a.top, rangeA);
-  const hB = landTop(world, samples[end].x, samples[end].z, b.top, rangeB);
-  if (hA === null || hB === null) return null;
-  return { samples, start, end, hA, hB, px, pz, length: (end - start) / 2 };
-}
-
-function setIfAir(world, x, y, z, id) {
-  if (world.getBlock(x, y, z) === BLOCK.AIR) world.setBlock(x, y, z, id);
-}
-
-// A thin (2 wide) winding grass bridge over the gap, sloping evenly between
-// the two ends. Skipped if the slope would be too steep to walk and jump.
-function buildBridge(world, noise, a, b) {
-  const gap = gapPath(world, noise, a, b, Math.min(12, Math.hypot(b.x - a.x, b.z - a.z) / 8));
-  if (!gap || Math.abs(gap.hB - gap.hA) > gap.length * 0.5) return false;
-  const { samples, start, end, hA, hB } = gap;
-  const sideX = Math.round(gap.px), sideZ = Math.round(gap.pz);
-  for (let i = start + 1; i < end; i++) {
-    const { x, z } = samples[i];
-    const prev = samples[i - 1];
-    const y = Math.round(hA + ((hB - hA) * (i - start)) / (end - start));
-    const cells = [[x, z], [x + sideX, z + sideZ]];
-    // A diagonal step only touches at a corner; fill it in so it can be walked.
-    if (prev.x !== x && prev.z !== z) cells.push([prev.x, z]);
-    for (const [bx, bz] of cells) {
-      setIfAir(world, bx, y, bz, BLOCK.GRASS);
-      setIfAir(world, bx, y - 1, bz, BLOCK.DIRT);
-    }
-  }
-  return true;
-}
-
-// Single floating blocks across the gap, STONE_SPACING apart (jumpable gaps),
-// rising or falling at most one block per stone.
-function buildSteppingStones(world, noise, a, b) {
-  const gap = gapPath(world, noise, a, b, 0);
-  if (!gap) return false;
-  const { samples, start, end, hA, hB } = gap;
-  const stones = [];
-  for (let i = start + STONE_SPACING * 2; i <= end - STONE_SPACING * 2; i += STONE_SPACING * 2) stones.push(samples[i]);
-  if (stones.length === 0 || Math.abs(hB - hA) > stones.length) return false;
-  let y = hA;
-  stones.forEach((s, k) => {
-    const remaining = stones.length - k;
-    y += Math.sign(hB - y) * (Math.abs(hB - y) >= remaining ? 1 : 0);
-    setIfAir(world, s.x, y, s.z, BLOCK.STONE);
+  world.keeps = keeps.map((site) => {
+    const terrain = terrains[islands.indexOf(site.island)];
+    const floorY = clamp(terrain.getTop(site.cx, site.cz), world.minY + 5, world.sizeY - KEEP_HEIGHT - 3);
+    const keep = { cx: site.cx, cz: site.cz, floorY };
+    buildKeep(world, keep, { fillDepth: 20, clearTo: world.sizeY });
+    return keep;
   });
-  return true;
-}
-
-// Bridges and stepping stones between some nearby ring islands, and a couple
-// of bridges from ring islands to the center. Most islands stay unconnected.
-function connectIslands(world, random, noise, ring, center) {
-  const linked = new Set();
-  const pairKey = (a, b) => [ring.indexOf(a), ring.indexOf(b)].sort((p, q) => p - q).join();
-  for (const a of ring) {
-    let nearest = null, best = Infinity;
-    for (const b of ring) {
-      if (b === a) continue;
-      const gap = Math.hypot(b.x - a.x, b.z - a.z) - a.r - b.r;
-      if (gap < best) { best = gap; nearest = b; }
-    }
-    const roll = random();
-    if (!nearest || best > MAX_CONNECT_GAP || linked.has(pairKey(a, nearest))) continue;
-    if (roll < BRIDGE_CHANCE) {
-      if (buildBridge(world, noise, a, nearest)) linked.add(pairKey(a, nearest));
-    } else if (roll < BRIDGE_CHANCE + STONES_CHANCE) {
-      if (buildSteppingStones(world, noise, a, nearest)) linked.add(pairKey(a, nearest));
-    }
+  for (const terrain of terrains) {
+    const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x68bc21eb));
+    addPonds(world, terrain, rand, noise, nearKeep, config.pondArea);
+    plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
+      { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop });
   }
-  const byDistance = [...ring].sort((p, q) =>
-    Math.hypot(p.x - center.x, p.z - center.z) - Math.hypot(q.x - center.x, q.z - center.z));
-  const candidates = byDistance.slice(0, 8);
-  for (let built = 0, tries = 0; built < CENTER_BRIDGES && tries < 20 && candidates.length; tries++) {
-    const [island] = candidates.splice(Math.floor(random() * candidates.length), 1);
-    if (buildBridge(world, noise, island, center)) built++;
-  }
-}
-
-// 1-3 little rock clumps floating beside and below an island.
-function addCrumbs(world, random, island) {
-  const count = 1 + Math.floor(random() * 3);
-  for (let i = 0; i < count; i++) {
-    const angle = random() * Math.PI * 2;
-    const dist = island.r * (1.05 + random() * 0.5);
-    let x = Math.floor(island.x + Math.cos(angle) * dist);
-    let y = Math.max(MIN_BOTTOM, Math.floor(island.top - 3 - random() * island.depth * 0.6));
-    let z = Math.floor(island.z + Math.sin(angle) * dist);
-    const size = 1 + Math.floor(random() * 3);
-    for (let b = 0; b < size; b++) {
-      setIfAir(world, x, y, z, BLOCK.STONE);
-      const dir = Math.floor(random() * 3);
-      if (dir === 0) x++; else if (dir === 1) z++; else y--;
-    }
-  }
+  return world;
 }
