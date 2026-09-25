@@ -5,7 +5,7 @@ import { mulberry32 } from './structures.js';
 import { rollMods } from './modifiers.js';
 
 // Entries: { item, weight, min, max, modChance? }. modChance is the chance a
-// moddable item rolls with modifiers (1 or 2, shared/modifiers.js).
+// moddable item rolls its one fixed-value modifier (shared/modifiers.js).
 // Common gear is rarely modded; rarer finds often are.
 const COMMON_MODS = 0.15;
 const IRON_MODS = 0.3;
@@ -52,22 +52,28 @@ const rareWeapons = (weight) => [ITEM.WIND_AXE, ITEM.ICE_SWORD].map((item) => ({
 const lootGear = (rareWeight) => [ropeBundles, ...uncommonGear, ...rareWeapons(rareWeight)];
 
 export const LOOT_TABLES = {
-  looseChest: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
-  looseChestCentral: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(2), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
+  looseChest: { rolls: [2, 3], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
+  looseChestCentral: { rolls: [4, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
   tinyIsland: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(4), riftOrb, ...lootGear(1)] },
-  house: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
-  tower: { rolls: [3, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
-  cave: { rolls: [4, 6], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
-  caveCentral: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(3), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
+  house: { rolls: [2, 4], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
+  houseCentral: { rolls: [4, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
+  tower: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
+  towerCentral: { rolls: [4, 7], entries: [...supplies, ...usefulGear, ...ironGear(2), goldenBeef(3), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
+  cave: { rolls: [3, 5], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
+  caveCentral: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(2),
+    { item: ITEM.IRON_INGOT, weight: 10, min: 2, max: 5 }, goldenBeef(3), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
   underside: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(4), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
-  dungeon: { rolls: [5, 8], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(4), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
+  undersideCentral: { rolls: [6, 8], entries: [...supplies, ...usefulGear, ...ironGear(2),
+    { item: ITEM.IRON_INGOT, weight: 12, min: 2, max: 6 }, goldenBeef(4), ...accessoryEntries(6), riftOrb, ...lootGear(6)] },
+  dungeon: { rolls: [4, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(3), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
   // The nest chest at a dragon roost: iron gear, accessories, Golden Beef and
   // Rift Orbs, modded more often than anywhere else.
   roost: { rolls: [5, 8], entries: [...supplies.map((entry) => ({ ...entry, weight: entry.weight / 3 })),
     ...ironGear(4, 0.6), ...accessoryEntries(5).map((entry) => ({ ...entry, modChance: 0.7 })),
     goldenBeef(6), { ...riftOrb, weight: 6, max: 2 }, ...rareWeapons(3).map((entry) => ({ ...entry, modChance: 0.7 })),
     { ...uncommonGear[0], modChance: 0.6 }] },
-  dungeonCentral: { rolls: [6, 8], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(5), ...accessoryEntries(5), riftOrb, ...lootGear(5)] },
+  dungeonCentral: { rolls: [6, 9], entries: [...supplies, ...usefulGear, ...ironGear(2),
+    { item: ITEM.IRON_INGOT, weight: 12, min: 2, max: 6 }, goldenBeef(5), ...accessoryEntries(6), riftOrb, ...lootGear(6)] },
   // The Goblin Totem's pile when it's destroyed: lots of iron, Golden Beef,
   // accessories and Rift Orbs, modded most of the time.
   goblinTotem: { rolls: [16, 22], entries: [

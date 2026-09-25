@@ -249,11 +249,9 @@ canvas {
 body:not(.in-game) #crosshair,
 body:not(.in-game) #hotbar,
 body:not(.in-game) #health,
-body:not(.in-game) #daytime,
 body.spectating #crosshair,
 body.spectating #hotbar,
-body.spectating #health,
-body.spectating #daytime {
+body.spectating #health {
   display: none;
 }
 
@@ -776,6 +774,15 @@ body.dead canvas {
   font-size: 1.2em;
 }
 
+.inv-creative-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: calc(var(--slot) * 4);
+}
+.inv-creative-controls[hidden] { display: none; }
+.inv-creative-controls button { padding: 7px 9px; cursor: pointer; }
+
 #inv-preview {
   width: calc(var(--slot) * 4);
   height: calc(var(--slot) * 6.8);
@@ -1090,30 +1097,6 @@ body.frosted::after {
   font-weight: bold;
 }
 
-/* Time of day: a small sun or moon on an arc, just above the health bar. */
-#daytime {
-  position: fixed;
-  left: 50%;
-  bottom: 90px;
-  margin-left: -22px;
-  width: 44px;
-  height: 22px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
-  opacity: 0.8;
-}
-#daytime .icon {
-  position: absolute;
-  width: auto;
-  height: auto;
-  transform: translate(-50%, 50%);
-  color: #ffd75e;
-  font-size: 15px;
-  line-height: 1;
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
-}
-#daytime.night .icon {
-  color: #dfe6ff;
-}
 
 /* Creative-mode goblin inspector (goblinInspector.js). */
 #goblin-inspector {

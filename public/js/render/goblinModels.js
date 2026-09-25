@@ -94,10 +94,6 @@ const EXTRAS = {
     quiver.rotation.z = -0.35;
     for (const x of [-0.03, 0.03]) box(quiver, 0.02, 0.1, 0.02, x, 0.2, 0, lambert(0xd8d0b8));
   },
-  // A leather cap (builders).
-  cap(body, arms, head) {
-    box(head, 0.42, 0.08, 0.38, 0, 0.36, 0, lambert(0x8a6238));
-  },
   // An iron helmet (soldiers).
   helmet(body, arms, head) {
     box(head, 0.44, 0.14, 0.4, 0, 0.36, 0, lambert(0x6d7277));
@@ -113,8 +109,6 @@ const EXTRAS = {
 // held gear and extras.
 export const GOBLIN_LOOKS = {
   goblinWorker: { height: GOBLINS.worker.height, skin: 0x6f9b3c, tunic: 0x7a5a32, belt: 0x3d2a17, gear: 'pick' },
-  goblinBuilder: { height: GOBLINS.builder.height, skin: 0x7aa347, tunic: 0x8a6a3a, belt: 0x5b4128, gear: 'hammer',
-    extras: ['cap'] },
   goblinSoldier: { height: GOBLINS.soldier.height, skin: 0x5f8a33, tunic: 0x5a3a2a, belt: 0x2a2a2a, gear: 'sword',
     extras: ['shield', 'helmet'] },
   goblinArcher: { height: GOBLINS.archer.height, skin: 0x6f9b3c, tunic: 0x4a6a32, belt: 0x3d2a17, gear: 'bow',

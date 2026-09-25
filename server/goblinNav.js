@@ -17,11 +17,14 @@
 import { moduleAt, exitsOf, FACES } from '../shared/goblinModules.js';
 import { findPath } from './pathfind.js';
 import { isOnLadder } from '../shared/physics.js';
+import { GOBLINS } from '../shared/goblins.js';
+import { ENTITY_TYPE } from '../shared/protocol.js';
 
 const REACHED = 0.35;
 const NODE_REACHED = 0.4;
 // Largest sideways nudge per tick toward a ladder's column (blocks).
 const LADDER_NUDGE = 0.12;
+const modulePathCache = new WeakMap();
 
 // Yaw that faces the direction (dx, dz); yaw 0 faces -Z.
 export function yawToward(dx, dz) {
@@ -31,13 +34,26 @@ export function yawToward(dx, dz) {
 // Modules to pass through from `from` to `to` (module objects): the exits
 // taken, in order, or null if they aren't connected. Connections still
 // being dug only lead into (or out of) the site they belong to.
-function searchModules(fortress, from, to) {
+function searchModules(fortress, from, to, level = null) {
   if (from === to) return [];
+  const stable = !fortress.connections.some((connection) => connection.pending);
+  const version = `${fortress.modules.length}:${fortress.connections.length}`;
+  const key = `${from.id}:${to.id}:${level ?? '*'}`;
+  let cache = modulePathCache.get(fortress);
+  if (stable) {
+    if (!cache || cache.version !== version) {
+      cache = { version, paths: new Map() };
+      modulePathCache.set(fortress, cache);
+    }
+    if (cache.paths.has(key)) return cache.paths.get(key);
+  }
   const previous = new Map([[from.id, null]]);
   const queue = [from];
   while (queue.length) {
     const module = queue.shift();
     for (const exit of exitsOf(fortress, module)) {
+      if (level !== null && (exit.other.floorY !== level || module.floorY !== level
+        || exit.points.some((p) => p.kind?.startsWith('ladder')))) continue;
       if (previous.has(exit.other.id)) continue;
       if (exit.connection.pending && exit.other !== to && module !== from) continue;
       if (exit.other.building && exit.other !== to) continue;
@@ -45,16 +61,18 @@ function searchModules(fortress, from, to) {
       if (exit.other === to) {
         const exits = [];
         for (let id = to.id; previous.get(id); id = previous.get(id).from.id) exits.unshift(previous.get(id).exit);
+        if (stable) cache.paths.set(key, exits);
         return exits;
       }
       queue.push(exit.other);
     }
   }
+  if (stable) cache.paths.set(key, null);
   return null;
 }
 
-function graphActions(fortress, start, end) {
-  const exits = searchModules(fortress, start, end);
+function graphActions(fortress, start, end, level = null) {
+  const exits = searchModules(fortress, start, end, level);
   if (!exits) return null;
   const actions = [];
   for (const { points } of exits) {
@@ -126,6 +144,7 @@ function climbIn(entrance, column) {
 export function planRoute(controller, goblin, from, goal, { urgent = false, climb = null } = {}) {
   const fortress = controller.fortress;
   const actions = [];
+  const level = goblin.type === ENTITY_TYPE.GOBLIN_KING ? controller.hall?.floorY ?? null : null;
   let here = locate(controller, from);
   const target = climb ? null : locate(controller, goal);
   // A climb target: go to the column's bottom, then climb.
@@ -161,14 +180,14 @@ export function planRoute(controller, goblin, from, goal, { urgent = false, clim
   }
   const end = target.entrance ? { module: target.entrance.base } : target;
   if (here.module && end.module) {
-    actions.push(...(graphActions(fortress, here.module, end.module) ?? []));
+    actions.push(...(graphActions(fortress, here.module, end.module, level) ?? []));
   } else if (here.module && end.surface) {
     const entrance = nearestEntrance(controller, goal);
-    const toBase = entrance && graphActions(fortress, here.module, entrance.base);
+    const toBase = entrance && graphActions(fortress, here.module, entrance.base, level);
     if (toBase) actions.push(...toBase, ...climbOut(entrance, columnFor(entrance, goblin), goblin, controller, urgent));
   } else if (here.surface && end.module) {
     const entrance = nearestEntrance(controller, from);
-    const fromBase = entrance && graphActions(fortress, entrance.base, end.module);
+    const fromBase = entrance && graphActions(fortress, entrance.base, end.module, level);
     if (fromBase) actions.push(...climbIn(entrance, columnFor(entrance, goblin)), ...fromBase);
   }
   actions.push({ type: 'walk', x: goal.x, y: goal.y, z: goal.z });
@@ -209,7 +228,8 @@ export function followRoute(route, goblin, world) {
       if (!route.local) {
         const cell = { x: Math.floor(state.x), y: Math.floor(state.y + 0.01), z: Math.floor(state.z) };
         route.local = findPath(world, cell, { x: Math.floor(action.x), z: Math.floor(action.z) },
-          { height: 2, maxNodes: route.surfaceWalk ? 1500 : 500, maxDrop: route.surfaceWalk ? 12 : 3 }).map((node) => ({ x: node.x + 0.5, z: node.z + 0.5 }));
+          { height: 2, maxNodes: route.surfaceWalk ? GOBLINS.navigation.surfaceMaxNodes : GOBLINS.navigation.chamberMaxNodes,
+            maxDrop: GOBLINS.navigation.safeDrop }).map((node) => ({ x: node.x + 0.5, z: node.z + 0.5 }));
       }
       while (route.local.length && Math.hypot(route.local[0].x - state.x, route.local[0].z - state.z) < NODE_REACHED) {
         route.local.shift();

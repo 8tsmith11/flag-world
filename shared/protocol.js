@@ -15,6 +15,7 @@ export const C2S = {
   OPEN_CONTAINER: 'openContainer',
   ANVIL_REROLL: 'anvilReroll',
   CREATIVE_TOGGLE: 'creativeToggle',
+  CREATIVE_ACTION: 'creativeAction',
 };
 
 // Server -> client
@@ -41,6 +42,7 @@ export const S2C = {
   EMBER_BURST: 'emberBurst',
   QUARRY_PUFF: 'quarryPuff',
   CREATIVE: 'creative',
+  DAY_TIME: 'dayTime',
   // A line for everyone's chat/event feed (e.g. the Goblin Totem falling).
   CHAT: 'chat',
   GOBLIN_TOTEM_DESTROYED: 'goblinTotemDestroyed',
@@ -101,7 +103,6 @@ export const ENTITY_TYPE = {
   GOBLIN_WORKER: 'goblinWorker',
   GOBLIN_KING: 'goblinKing',
   GOBLIN_TOTEM: 'goblinTotem',
-  GOBLIN_BUILDER: 'goblinBuilder',
   GOBLIN_SOLDIER: 'goblinSoldier',
   GOBLIN_ARCHER: 'goblinArcher',
 };

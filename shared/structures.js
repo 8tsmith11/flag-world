@@ -3,7 +3,7 @@
 // seeded PRNG all world gen uses.
 
 import { KEEP_SIZE, KEEP_HEIGHT, KEEP_MARGIN, BIOME_SETTINGS } from './config.js';
-import { BLOCK, isSolid } from './blocks.js';
+import { BLOCK, isSolid, isWater } from './blocks.js';
 
 // mulberry32: tiny seeded PRNG so world gen matches across machines.
 export function mulberry32(seed) {
@@ -115,8 +115,6 @@ export function sandShores(world, noise, x0, z0, x1, z1, surfaceAt = (x, z) => w
 // on grass, clear of keeps (with their margin) and the world edge.
 // requireFooting: also need solid ground two blocks out on every side, so
 // trees don't grow on bridges or hang off island edges.
-const TREE_CELL = 7;
-const TREE_CHANCE = 0.45;
 const TREE_MIN_TRUNK = 4;
 const TREE_MAX_TRUNK = 6;
 const LEAF_RADIUS = 2;
@@ -127,18 +125,26 @@ export function plantTrees(world, seed, { requireFooting = false,
   // A separate stream from the terrain, so trees don't shift the terrain.
   const random = mulberry32(seed ^ 0x5bd1e995);
   const clearOfKeeps = KEEP_REACH + LEAF_RADIUS;
+  const TREE_CELL = BIOME_SETTINGS.forestTreeCell;
   for (let cz = Math.floor(bounds.z0 / TREE_CELL) * TREE_CELL; cz <= bounds.z1; cz += TREE_CELL) {
     for (let cx = Math.floor(bounds.x0 / TREE_CELL) * TREE_CELL; cx <= bounds.x1; cx += TREE_CELL) {
       // Always draw every number so each cell uses the same amount of the stream.
       const roll = random(), ox = random(), oz = random(), trunkRoll = random();
       const x = cx + Math.floor(ox * TREE_CELL), z = cz + Math.floor(oz * TREE_CELL);
       const biome = world.biomeAt(x, z);
-      if (roll >= Math.min(0.95, TREE_CHANCE * BIOME_SETTINGS[biome].trees)) continue;
+      const density = biome === 'forest' ? 1 : (TREE_CELL / BIOME_SETTINGS.treeCell) ** 2;
+      if (roll >= Math.min(0.95, BIOME_SETTINGS.treeChance * BIOME_SETTINGS[biome].trees * density)) continue;
       if (x < bounds.x0 || x > bounds.x1 || z < bounds.z0 || z > bounds.z1) continue;
       if (x < LEAF_RADIUS || z < LEAF_RADIUS || x >= world.sizeX - LEAF_RADIUS || z >= world.sizeZ - LEAF_RADIUS) continue;
       if (world.keeps.some((k) => Math.abs(x - k.cx) <= clearOfKeeps && Math.abs(z - k.cz) <= clearOfKeeps)) continue;
       const ground = surfaceAt(x, z);
       if (ground < 0 || world.getBlock(x, ground, z) !== BLOCK.GRASS) continue;
+      if (world.structures.some(({ box }) => box && x >= box.x0 - LEAF_RADIUS && x <= box.x1 + LEAF_RADIUS
+        && z >= box.z0 - LEAF_RADIUS && z <= box.z1 + LEAF_RADIUS)) continue;
+      if (Array.from({ length: LEAF_RADIUS * 2 + 1 }, (_, i) => i - LEAF_RADIUS).some((dx) =>
+        Array.from({ length: LEAF_RADIUS * 2 + 1 }, (_, i) => i - LEAF_RADIUS).some((dz) =>
+          isWater(world.getBlock(x + dx, surfaceAt(x + dx, z + dz), z + dz))
+          || world.riverColumns?.has(`${x + dx},${z + dz}`)))) continue;
       if (requireFooting && [[2, 0], [-2, 0], [0, 2], [0, -2]].some(([dx, dz]) => !isSolid(world.getBlock(x + dx, ground, z + dz)))) continue;
       const trunk = TREE_MIN_TRUNK + Math.floor(trunkRoll * (TREE_MAX_TRUNK - TREE_MIN_TRUNK + 1))
         + (biome === 'forest' && trunkRoll < BIOME_SETTINGS.forestLargeTreeChance
@@ -156,6 +162,13 @@ export function canGrowTree(world, x, ground, z, top) {
   if (top + 2 >= world.sizeY) return false;
   const soil = world.getBlock(x, ground, z);
   if (soil !== BLOCK.GRASS && soil !== BLOCK.DIRT) return false;
+  for (let dx = -LEAF_RADIUS; dx <= LEAF_RADIUS; dx++) for (let dz = -LEAF_RADIUS; dz <= LEAF_RADIUS; dz++) {
+    const sx = x + dx, sz = z + dz;
+    if (world.riverColumns?.has(`${sx},${sz}`)) return false;
+    for (let y = Math.max(world.minY, ground - 3); y <= ground + 2; y++) {
+      if (isWater(world.getBlock(sx, y, sz))) return false;
+    }
+  }
   for (let y = ground + 1; y <= top; y++) {
     const block = world.getBlock(x, y, z);
     if (block !== BLOCK.AIR && !(y === ground + 1 && block === BLOCK.SAPLING)) return false;

@@ -109,20 +109,23 @@ export const RESPAWN_DELAY = 3;
 // Falling below this y kills the player.
 export const VOID_Y = -20;
 export const VOID_BELOW_LOWEST_ISLAND = 95;
-export const EEL_BAND = { belowIsland: 30, aboveVoid: 10, minHeight: 40 };
+export const EEL_BAND = { belowIsland: 30, outerBelowIsland: 20, aboveVoid: 10, minHeight: 40 };
 export const CENTRAL_EXTRA_DEPTH = 45;
 export const BIOME_SETTINGS = {
   noiseScale: 95, blend: 0.17, surfacePatchScale: 7,
-  plains: { hill: 4, offset: 0, trees: 0.35, grassTint: 0xffffff, cows: 1.8 },
-  forest: { hill: 10, offset: 1, trees: 1.8, grassTint: 0xb5d59b, cows: 0.8 },
-  mountains: { hill: 27, offset: 8, trees: 0.22, grassTint: 0xd2d5bb, cows: 0.25 },
-  swamp: { hill: 2, offset: -7, trees: 0.8, grassTint: 0x799b78, cows: 0.3 },
-  snowHeight: 17, cliffSlope: 5, mountainOreThreshold: 0.54,
+  plains: { hill: 2.2, offset: 0, trees: 0.35, cows: 1.8 },
+  forest: { hill: 4, offset: 1, trees: 1.8, cows: 0.8 },
+  mountains: { hill: 27, offset: 8, trees: 0.22, cows: 0.25 },
+  cliffSlope: 5, mountainOreThreshold: 0.54,
+  undersideJagAmplitude: 0.07, undersideRootChance: 0.82,
+  undersideRootDepth: 8, undersideRootScale: 12,
+  treeCell: 7, forestTreeCell: 4, treeChance: 0.45,
+  riverSkyClearance: 10,
   forestLargeTreeChance: 0.28, forestLargeTreeExtra: 2,
   towerOtherBiomeChance: 0.22,
-  swampPondScale: 3, swampWaterDepth: [1, 2], waterRimClearance: 7,
 };
 export const RIVER_SETTINGS = { width: [3, 5], channelDepth: 2, bankWidth: 2,
+  skyClearance: 10,
   sourceMinHeight: 10, sourceSearch: 300, pathStep: 2, maxSteps: 250,
   rimMargin: 4, pondAvoidance: 3, endPoolRadius: 5,
   placementAttempts: 100, sourceJitter: 20 };
@@ -165,6 +168,9 @@ export const ARROW_STICK_TIME = 10;
 // An arrow can't hit whoever shot it this soon after leaving the bow.
 export const ARROW_SAFE_TIME = 0.2;
 export const ARROW_KNOCKBACK = 3;
+export const TURRET = { range: 20, damage: 3, cooldown: 1.5, arrowSpeed: 28,
+  updateTicks: 5, sightCacheSeconds: 0.25, spatialCell: 8, arcStep: 2,
+  headTurnRadiansPerTick: 0.15 };
 
 // Crossbows: hold right click CROSSBOW_LOAD_TIME to load, then click to fire.
 // Bolts fly 1.6x a full bow draw with a flatter arc (less gravity).
@@ -242,8 +248,8 @@ export const EEL_LUNGE_WINDUP = 1;
 export const EEL_LUNGE_DURATION = 0.45;
 export const EEL_TURN_RATE = 0.2;
 export const EEL_GLIDE_BREAK = 1.5;
-export const EEL_DETECT_RADIUS = 12;
-export const EEL_DETECT_HEIGHT = 90;
+export const EEL_DETECT_RADIUS = 24;
+export const EEL_DETECT_HEIGHT = 180;
 export const EEL_NIGHT_DETECT_SCALE = 1.3;
 export const EEL_NIGHT_RISE_SCALE = 1.3;
 export const EEL_FORGET_TIME = 10;

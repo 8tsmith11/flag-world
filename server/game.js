@@ -56,7 +56,9 @@ import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
 import { GoblinController } from './goblins.js';
-import { KING_BOX, WORKER_BOX, BUILDER_BOX, SOLDIER_BOX, ARCHER_BOX } from './goblin.js';
+import { TurretController } from './turrets.js';
+import { turretType } from '../shared/turrets.js';
+import { KING_BOX, WORKER_BOX, SOLDIER_BOX, ARCHER_BOX } from './goblin.js';
 import { GOBLINS } from '../shared/goblins.js';
 import { assignMobSteering, steerGround, resolveMobOverlaps } from './mobSteering.js';
 
@@ -126,6 +128,7 @@ export class Game {
     // Ids for lobby members, players and entities. A member keeps its id as a player.
     this.nextId = 1;
     this.tick = 0;
+    this.dayOffset = 0;
 
     // Lobby phase: id -> { id, session, name, color, ready }, in join order.
     this.members = new Map();
@@ -142,6 +145,7 @@ export class Game {
     this.saplings = null;
     this.quarry = null;
     this.goblins = null;
+    this.turretController = null;
     // Flags by owner id, and the last player standing once the match is decided.
     this.flags = new Map();
     this.winnerId = null;
@@ -244,6 +248,9 @@ export class Game {
       case C2S.CREATIVE_TOGGLE:
         this.toggleCreative(session);
         break;
+      case C2S.CREATIVE_ACTION:
+        this.creativeAction(session, msg.action);
+        break;
     }
   }
 
@@ -262,9 +269,43 @@ export class Game {
       const player = session.player;
       player.creative = session.creative;
       player.state.creative = player.creative;
-      if (!player.creative) player.state.flying = false;
+      if (!player.creative) {
+        player.state.flying = false;
+        player.immortal = false;
+      }
     }
-    sendTo(session.socket, { type: S2C.CREATIVE, enabled: session.creative });
+    this.sendCreativeState(session);
+  }
+
+  sendCreativeState(session) {
+    sendTo(session.socket, { type: S2C.CREATIVE, enabled: !!session.creative,
+      immortal: !!session.player?.immortal, flying: !!session.player?.state.flying,
+      totemExists: !!this.goblins?.totemAlive });
+  }
+
+  creativeAction(session, action) {
+    const player = session.player;
+    if (!session.localHost || !session.creative || !player?.creative || player.dead) return;
+    if (action === 'toggleImmortal') player.immortal = !player.immortal;
+    else if (action === 'toggleFlight') player.state.flying = !player.state.flying;
+    else if (action === 'maxGoblinBase') {
+      if (!this.goblins?.startFastBuild()) return;
+    }
+    else if (action === 'setDay' || action === 'setNight') {
+      const target = action === 'setDay' ? 0.25 : 0.75;
+      this.dayOffset = target - DAY_START - this.tick / (DAY_LENGTH * TICK_RATE);
+      this.broadcast({ type: S2C.DAY_TIME, dayTime: this.dayTime(), tick: this.tick });
+    } else if (action === 'teleportTotem' && this.goblins?.totemAlive) {
+      const t = this.goblins.totemSpot;
+      const hall = this.goblins.hall.box;
+      const x = hall.x0 + 2.5, y = t.y, z = hall.z0 + 2.5;
+      if (playerFitsAt(this.world, { ...player.state, x, z }, y)) {
+        Object.assign(player.state, { x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0,
+          grapple: null, onGround: false });
+        player.fallTop = null;
+      }
+    } else return;
+    this.sendCreativeState(session);
   }
 
   // ---- Lobby ----
@@ -336,7 +377,7 @@ export class Game {
     this.teamCount = occupiedTeams.length;
     const started = performance.now();
     this.world = generateWorld(this.seed, occupiedTeams.length, this.worldSize);
-    this.quarry = new QuarryRegrowth(this);
+    this.turretController = new TurretController(this);
     this.water = new WaterSimulation(this.world);
     this.leafDecay = new LeafDecay(this.world, (x, y, z) => {
       if (Math.random() < 0.04) this.dropAt(ITEM.TREE_SEED, x, y, z);
@@ -348,14 +389,19 @@ export class Game {
         && p.state.z - playerBoxOf(p.state).halfW < z + 1
         && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y),
       (x, y, z) => this.goblins?.saplingGrowTime(x, y, z));
+    this.quarry = new QuarryRegrowth(this);
     this.world.onBlockChanged = (x, y, z, id, oldId) => {
       this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id });
-      this.broadcast({ type: S2C.BLOCK_CHANGE, x, y, z, id });
+      const door = isDoor(id) ? doorState(id) : isDoor(oldId) ? doorState(oldId) : null;
+      const team = door?.reinforced ? this.world.doorTeams.get(`${x},${door.upper ? y - 1 : y},${z}`) ?? null : undefined;
+      this.broadcast({ type: S2C.BLOCK_CHANGE, x, y, z, id, ...(team !== undefined ? { team } : {}) });
       this.water.enqueueAround(x, y, z);
       if (oldId === BLOCK.WOOD && id !== BLOCK.WOOD) this.leafDecay.enqueueAroundLog(x, y, z);
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
       if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
       if (id === BLOCK.QUARRY_STONE || oldId === BLOCK.QUARRY_STONE) this.quarry.changed(x, y, z, id);
+      if (turretType(oldId) && id !== oldId) this.turretController.remove(x, y, z);
+      this.turretController.invalidate();
       this.goblins?.blockChanged(x, y, z, id, oldId);
     };
     for (const [key, table] of this.world.lootChests) {
@@ -453,7 +499,12 @@ export class Game {
       tick: this.tick,
       dayTime: this.dayTime(),
       creative: player.creative,
+      immortal: player.immortal,
+      flying: player.state.flying,
+      totemExists: !!this.goblins?.totemAlive,
       blocks: [...this.blockChanges.values()],
+      doorTeams: [...this.world.doorTeams].map(([key, team]) => ({ key, team })),
+      turrets: this.turretController.snapshot(),
       litFurnaces: [...this.world.tileEntities].filter(([, c]) => c.kind === 'furnace' && c.burn > 0)
         .map(([key]) => {
           const [x, y, z] = key.split(',').map(Number);
@@ -623,10 +674,12 @@ export class Game {
   breakBlock(x, y, z) {
     const id = this.world.getBlock(x, y, z);
     if (isDoor(id)) {
-      const lower = doorState(id).upper ? y - 1 : y;
+      const state = doorState(id);
+      const lower = state.upper ? y - 1 : y;
+      if (state.reinforced) this.world.doorTeams.delete(`${x},${lower},${z}`);
       this.world.setBlock(x, lower, z, BLOCK.AIR);
       this.world.setBlock(x, lower + 1, z, BLOCK.AIR);
-      this.dropAt(ITEM.DOOR, x, lower, z);
+      this.dropAt(state.reinforced ? ITEM.REINFORCED_DOOR : ITEM.DOOR, x, lower, z);
     } else {
       this.world.setBlock(x, y, z, BLOCK.AIR);
       const drop = getBlockDef(id).drops;
@@ -680,9 +733,11 @@ export class Game {
     if (!isDoor(id) || !this.inReach(player, pos)) return;
     const { facing, open, upper } = doorState(id);
     const lower = upper ? pos.y - 1 : pos.y;
+    const reinforced = doorState(id).reinforced;
+    if (reinforced && this.world.doorTeams.get(`${pos.x},${lower},${pos.z}`) !== player.team) return;
     if (open && (this.playerIn(pos.x, lower, pos.z) || this.playerIn(pos.x, lower + 1, pos.z))) return;
-    this.world.setBlock(pos.x, lower, pos.z, doorBlock(facing, !open, false));
-    this.world.setBlock(pos.x, lower + 1, pos.z, doorBlock(facing, !open, true));
+    this.world.setBlock(pos.x, lower, pos.z, doorBlock(facing, !open, false, reinforced));
+    this.world.setBlock(pos.x, lower + 1, pos.z, doorBlock(facing, !open, true, reinforced));
     this.swing(player);
   }
 
@@ -693,6 +748,7 @@ export class Game {
     if (!pos || !stack || !this.inReach(player, pos)) return;
     const def = getItemDef(stack.item);
     if (def.block === null && def.places === null) return;
+    if (turretType(this.world.getBlock(pos.x, pos.y - 1, pos.z))) return;
     if (!this.buildable(pos.x, pos.y, pos.z)) return;
 
     // What goes where: [x, y, z, block id] for each cell.
@@ -713,18 +769,31 @@ export class Game {
       // above the first cell that can't be built in (a solid block, a keep's
       // no-build zone, the bottom of the world).
       cells = [];
-      for (let y = pos.y; y > pos.y - ROPE_LENGTH && this.buildable(pos.x, y, pos.z); y--) {
-        cells.push([pos.x, y, pos.z, BLOCK.ROPE]);
+      let x = pos.x, z = pos.z, y = pos.y;
+      const selected = this.world.getBlock(pos.x - (pos.nx ?? 0), pos.y - (pos.ny ?? 0), pos.z - (pos.nz ?? 0));
+      if (selected === BLOCK.ROPE) {
+        x -= pos.nx ?? 0; z -= pos.nz ?? 0; y -= pos.ny ?? 0;
+        while (this.world.getBlock(x, y - 1, z) === BLOCK.ROPE) y--;
+        y--;
       }
-    } else if (def.places === 'door') {
+      for (let length = 0; length < ROPE_LENGTH && this.buildable(x, y, z); length++, y--) {
+        cells.push([x, y, z, BLOCK.ROPE]);
+      }
+      if (!cells.length) return;
+    } else if (def.places === 'door' || def.places === 'reinforcedDoor') {
       // Two tall on a full block, facing the way the player looks.
       if (!this.buildable(pos.x, pos.y + 1, pos.z)) return;
       if (!isSupport(this.world.getBlock(pos.x, pos.y - 1, pos.z))) return;
       if (this.playerIn(pos.x, pos.y, pos.z) || this.playerIn(pos.x, pos.y + 1, pos.z)) return;
       const look = lookDirection(player.state.yaw, 0);
       const facing = Math.abs(look.x) > Math.abs(look.z) ? facingOf(Math.sign(look.x), 0) : facingOf(0, Math.sign(look.z));
-      cells = [[pos.x, pos.y, pos.z, doorBlock(facing, false, false)], [pos.x, pos.y + 1, pos.z, doorBlock(facing, false, true)]];
+      const reinforced = def.places === 'reinforcedDoor';
+      cells = [[pos.x, pos.y, pos.z, doorBlock(facing, false, false, reinforced)],
+        [pos.x, pos.y + 1, pos.z, doorBlock(facing, false, true, reinforced)]];
     } else {
+      if (turretType(def.block) && (this.world.getBlock(pos.x, pos.y + 1, pos.z) !== BLOCK.AIR
+        || !this.buildable(pos.x, pos.y + 1, pos.z)
+        || this.playerIn(pos.x, pos.y + 1, pos.z))) return;
       const attached = NEIGHBOURS.some(([dx, dy, dz]) => {
         const id = this.world.getBlock(pos.x + dx, pos.y + dy, pos.z + dz);
         return isTargetable(id) && !isWater(id);
@@ -748,11 +817,13 @@ export class Game {
       player.state.y = pos.y + 1;
       player.state.vy = Math.max(player.state.vy, 0);
     }
+    if (def.places === 'reinforcedDoor') this.world.doorTeams.set(`${pos.x},${pos.y},${pos.z}`, player.team);
     for (const [x, y, z, id] of cells) {
       this.world.setBlock(x, y, z, id);
       const container = createContainer(getBlockDef(id).tileEntity);
       if (container) this.world.tileEntities.set(`${x},${y},${z}`, container);
     }
+    if (turretType(def.block)) this.turretController.place(pos.x, pos.y, pos.z, def.block, player.team);
     player.inventoryDirty = true;
     this.swing(player);
   }
@@ -762,7 +833,7 @@ export class Game {
     if (!egg || !pos || !this.inReach(player, pos) || !isSolid(this.world.getBlock(pos.x, pos.y, pos.z))) return;
     const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
     const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX,
-      goblinWorker: WORKER_BOX, goblinKing: KING_BOX, goblinBuilder: BUILDER_BOX, goblinSoldier: SOLDIER_BOX,
+      goblinWorker: WORKER_BOX, goblinKing: KING_BOX, goblinSoldier: SOLDIER_BOX,
       goblinArcher: ARCHER_BOX };
     const box = boxes[egg.type];
     if (!box || !playerFitsAt(this.world, { x, y, z, box }, y)) return;
@@ -792,7 +863,6 @@ export class Game {
         break;
       }
       case 'goblinWorker':
-      case 'goblinBuilder':
       case 'goblinSoldier':
       case 'goblinArcher':
       case 'goblinKing':
@@ -1126,9 +1196,13 @@ export class Game {
     for (const arrow of this.arrows.values()) {
       const flying = !arrow.stuckIn;
       // Goblin arrows only hit players.
-      const result = arrow.step(this.world, arrow.shooter.goblin ? [...this.players.values()]
-        : [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
-          ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()]);
+      const targets = arrow.shooter.goblin ? [...this.players.values()]
+        : arrow.shooter.turret
+          ? [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
+            ...this.dragons.values(), ...[...this.mobs.values()].filter((m) => m.goblin || m instanceof Crawler || m instanceof VoidEel)]
+          : [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
+            ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()];
+      const result = arrow.step(this.world, targets);
       if (result === 'gone' || arrow.y < this.world.voidY) {
         this.removeArrow(arrow);
       } else if (result?.hit) {
@@ -1353,7 +1427,8 @@ export class Game {
 
   eelBand() {
     const lowest = Math.min(...this.world.islands.map((island) => island.bottomY));
-    return { top: lowest - EEL_BAND.belowIsland, bottom: this.world.voidY + EEL_BAND.aboveVoid };
+    return { top: lowest - EEL_BAND.belowIsland, bottom: this.world.voidY + EEL_BAND.aboveVoid,
+      outerBelowIsland: EEL_BAND.outerBelowIsland };
   }
 
   // Half start under the center; the others are spread across the world.
@@ -1384,7 +1459,7 @@ export class Game {
     for (const mob of this.mobs.values()) {
       const s = mob.state;
       // Offscreen goblins stand still; the simulation moves them.
-      if (mob.goblin && this.goblins.frozen(mob)) {
+      if (mob.goblin && (this.goblins.frozen(mob) || this.goblins.sleeping(mob))) {
         if (mob.teleported) moved.push(mob);
         mob.teleported = false;
         continue;
@@ -1527,6 +1602,7 @@ export class Game {
   // attacker is credited to whoever hit them recently.
   damage(target, amount, attacker, cause = DEATH_CAUSE.PLAYER) {
     if (target.dead) return;
+    if (target.immortal) return;
     if (attacker && attacker.team === target.team) return;
     if (this.tick < target.invulnerableUntilTick) return;
     if (cause !== DEATH_CAUSE.FALL && cause !== DEATH_CAUSE.VOID) {
@@ -1638,6 +1714,12 @@ export class Game {
 
   checkVoid(player) {
     if (player.state.y >= this.world.voidY) return;
+    if (player.immortal) {
+      const spawn = this.keepSpawn(player.keep);
+      Object.assign(player.state, { ...spawn, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, grapple: null });
+      player.fallTop = null;
+      return;
+    }
     this.kill(player, this.recentAttacker(player), DEATH_CAUSE.VOID);
   }
 
@@ -1801,7 +1883,7 @@ export class Game {
   // Time of day, 0..1 (0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight),
   // from the match clock. Clients keep it from `welcome` and the ticks in `state`.
   dayTime() {
-    return (DAY_START + this.tick / (DAY_LENGTH * TICK_RATE)) % 1;
+    return ((DAY_START + this.dayOffset + this.tick / (DAY_LENGTH * TICK_RATE)) % 1 + 1) % 1;
   }
 
   inReach(player, pos) {
@@ -1863,6 +1945,7 @@ export class Game {
     this.saplings.tick(this.tick);
     this.quarry.tick(this.tick);
     this.goblins.update(this.tick);
+    this.turretController.step(this.tick);
 
     this.updateFlags();
     this.updatePortals();
@@ -1891,6 +1974,7 @@ export class Game {
         ...movedItems.map((e) => e.snapshot()),
       ],
       flags: [...this.flags.values()].map((f) => f.snapshot()),
+      turrets: this.turretController.snapshot(),
     });
   }
 

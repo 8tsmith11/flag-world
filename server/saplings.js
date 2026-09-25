@@ -65,4 +65,14 @@ export class SaplingGrowth {
       growTree(this.world, x, y - 1, z, top);
     }
   }
+
+  // Creative goblin fast build advances plot growth without advancing the
+  // match clock or touching saplings that are scheduled after `toTick`.
+  fastForward(toTick) {
+    for (let guard = 0; guard < 1000; guard++) {
+      const next = [...this.buckets.keys()].filter((due) => due <= toTick).sort((a, b) => a - b)[0];
+      if (next === undefined) break;
+      this.tick(next);
+    }
+  }
 }

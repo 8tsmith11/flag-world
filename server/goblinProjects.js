@@ -1,7 +1,7 @@
 // Goblin projects: what the fortress builds, as ordered lists of block
-// tasks. A task digs a block out (workers) or places one (builders, who
-// break whatever is in the way first). Planners here pick sites and turn
-// intended blocks into tasks; the controller (goblins.js) chooses which
+// tasks. A task digs or places a block (both are done by workers).
+// Planners here pick sites and turn intended blocks into tasks; the
+// controller (goblins.js) chooses which
 // project runs, goblins (goblin.js) claim and do its tasks, and offscreen
 // mode (goblinOffscreen.js) applies them at estimated rates.
 //
@@ -26,7 +26,7 @@ export const blockKey = (x, y, z) => `${x},${y},${z}`;
 
 // ---- Blocks ----
 
-const SOIL = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.SAND, BLOCK.SNOW, BLOCK.SCORCHED_EARTH]);
+const SOIL = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.SAND, BLOCK.SCORCHED_EARTH]);
 const ROCK = new Set([BLOCK.STONE, BLOCK.IRON_ORE, BLOCK.STONE_BRICKS, BLOCK.MOSSY_STONE_BRICKS,
   BLOCK.CRACKED_STONE_BRICKS, BLOCK.QUARRY_STONE]);
 
@@ -40,7 +40,7 @@ export function yieldOf(id) {
   if (ROCK.has(id)) return 'stone';
   if (SOIL.has(id)) return 'dirt';
   if (id === BLOCK.WOOD) return 'wood';
-  if (id === BLOCK.PLANKS || id === BLOCK.FENCE || isLadder(id)) return 'planks';
+  if (id === BLOCK.PLANKS || isLadder(id)) return 'planks';
   if (id === BLOCK.GOBLIN_BRICKS) return 'bricks';
   return null;
 }
@@ -213,6 +213,11 @@ export function solidBelow(world, x, y, z, depth) {
 // keep, world structure (other than the fortress itself), river and goblin
 // surface building / shaft.
 export function clearSite(world, controller, box, margin) {
+  for (let z = box.z0 - margin; z <= box.z1 + margin; z++) {
+    for (let x = box.x0 - margin; x <= box.x1 + margin; x++) {
+      if (controller.wallFootprints?.has(`${x},${z}`)) return false;
+    }
+  }
   for (const keep of world.keeps) {
     if (box.x0 - margin <= keep.cx + KEEP_REACH && box.x1 + margin >= keep.cx - KEEP_REACH
       && box.z0 - margin <= keep.cz + KEEP_REACH && box.z1 + margin >= keep.cz - KEEP_REACH) return false;
@@ -414,20 +419,9 @@ export function moduleProject(world, controller, spec, label) {
   const parentPlan = plans.find((plan) => [plan.connection.a, plan.connection.b].includes(spec.parent?.id)) ?? plans[0];
   const door = parentPlan?.blocks[0] ?? { x: module.center.x, y: module.floorY, z: module.center.z };
   const order = (b) => Math.abs(b.x - door.x) + Math.abs(b.y - door.y) * 0.5 + Math.abs(b.z - door.z);
-  // Bricks that are solid already stay unless they face the module's hollow
-  // or the open air outside it (then they're replaced, so the walls show
-  // bricks everywhere). Open cells always get bricks.
-  const keepSolid = (b) => {
-    for (const [dx, dy, dz] of NEIGHBOURS) {
-      const k = blockKey(b.x + dx, b.y + dy, b.z + dz);
-      const inside = blocks.get(k);
-      if (inside) {
-        if (inside.id !== BLOCK.GOBLIN_BRICKS) return false;
-      } else if (open(world.getBlock(b.x + dx, b.y + dy, b.z + dz))) return false;
-    }
-    return true;
-  };
-  const tasks = addBlockTasks(project, world, [...blocks.values()], { keepSolid, order });
+  // Every cell in a new module is converted to its template. Replacing stone
+  // with bricks yields the excavated stone for the colony's stores.
+  const tasks = addBlockTasks(project, world, [...blocks.values()], { order });
   // A ladder up from the module below is built from the ladder, and when
   // that's the way in, everything else waits for it.
   const climbing = tasks.filter((t) => t.climb);
@@ -528,11 +522,46 @@ export function shaftColumnBlocks(world, column, wall, floorY, top, ceilingY, { 
     for (const face of HORIZONTAL) {
       const [dx, , dz] = FACES[face].dir;
       const x = column.x + dx, z = column.z + dz;
-      if (!isSolid(world.getBlock(x, y, z))) blocks.push({ x, y, z, id: BLOCK.GOBLIN_BRICKS, climb, lining: true });
+      blocks.push({ x, y, z, id: BLOCK.GOBLIN_BRICKS, climb, lining: true });
     }
   }
   for (let y = top + 1; y <= top + 2; y++) {
     if (world.getBlock(column.x, y, column.z) !== BLOCK.AIR) blocks.push({ x: column.x, y, z: column.z, id: BLOCK.AIR, climb });
+  }
+  return blocks;
+}
+
+// A three-wide relocation shaft: a clear 3×3 interior with one ladder column
+// against its outer brick wall. The other eight cells remain open.
+export function wideShaftBlocks(column, wall, floorY, top, ceilingY) {
+  const facing = FACES[wall].facing;
+  const [wx, , wz] = FACES[wall].dir;
+  const along = wall === 'N' || wall === 'S' ? [1, 0] : [0, 1];
+  const interior = new Set();
+  for (let depth = 0; depth < 3; depth++) for (let side = -1; side <= 1; side++) {
+    interior.add(blockKey(column.x - wx * depth + along[0] * side, 0,
+      column.z - wz * depth + along[1] * side));
+  }
+  const climb = { x: column.x, z: column.z, wall, floorY, topY: top };
+  const blocks = [];
+  for (let y = floorY; y <= top; y++) {
+    blocks.push({ x: column.x, y, z: column.z, id: ladderBlock(facing), climb, column: true });
+    if (y < ceilingY) continue;
+    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+      const x = column.x + dx, z = column.z + dz;
+      const inside = interior.has(blockKey(x, 0, z));
+      const adjacent = HORIZONTAL.some((face) => {
+        const [fx, , fz] = FACES[face].dir;
+        return interior.has(blockKey(x + fx, 0, z + fz));
+      });
+      if (!inside && !adjacent) continue;
+      if (x === column.x && z === column.z) continue;
+      blocks.push({ x, y, z, id: inside ? BLOCK.AIR : BLOCK.GOBLIN_BRICKS, climb, lining: !inside });
+    }
+  }
+  for (let y = top + 1; y <= top + 2; y++) for (const key of interior) {
+    const [x, , z] = key.split(',').map(Number);
+    blocks.push({ x, y, z, id: BLOCK.AIR, climb });
   }
   return blocks;
 }
@@ -571,35 +600,16 @@ export function shaftProject(world, controller, candidate, label = 'Surface shaf
   project.kind = 'shaft';
   const module = project.module;
   const { column, wall, top } = candidate;
-  const blocks = shaftColumnBlocks(world, column, wall, module.floorY, top, module.box.y1);
+  const blocks = candidate.width === GOBLINS.projects.relocationWidth
+    ? wideShaftBlocks(column, wall, module.floorY, top, module.box.y1)
+    : shaftColumnBlocks(world, column, wall, module.floorY, top, module.box.y1);
   const tasks = addBlockTasks(project, world, blocks, {});
   wireShaftTasks(project, tasks, GOBLINS.worker.reach);
   const surface = tasks.find((t) => t.kind === 'dig' && t.y === top && t.x === column.x && t.z === column.z);
   project.breakthroughTask = surface ?? null;
   reserveShaftCells(controller, column, module.box.y1 + 1, top + 2);
-  project.entrance = { base: module, wall, columns: [{ ...column }], floorY: module.floorY, topY: top };
-  return project;
-}
-
-// Widening an entrance by one more ladder column beside the others.
-export function widenProject(world, controller, entrance) {
-  const offsets = [1, -1];
-  const taken = entrance.columns.map((c) => (entrance.wall === 'N' || entrance.wall === 'S' ? c.x - entrance.columns[0].x : c.z - entrance.columns[0].z));
-  const offset = offsets.find((o) => !taken.includes(o));
-  if (offset === undefined) return null;
-  const base = cellOrigin(controller.fortress, entrance.base.cell);
-  const column = ladderSpot(base, entrance.wall, offset);
-  const project = new Project('widen', 'Widen the shaft');
-  const blocks = shaftColumnBlocks(world, column, entrance.wall, entrance.floorY, entrance.topY, entrance.base.box.y1)
-    // Lining never goes into the other columns.
-    .filter((b) => !(b.lining && entrance.columns.some((c) => c.x === b.x && c.z === b.z)));
-  // Climb the first column to dig the new one.
-  for (const b of blocks) b.climb = { ...b.climb, x: entrance.columns[0].x, z: entrance.columns[0].z };
-  const tasks = addBlockTasks(project, world, blocks, {});
-  wireShaftTasks(project, tasks, GOBLINS.worker.reach);
-  project.site = { x: entrance.columns[0].x + 0.5, y: entrance.floorY, z: entrance.columns[0].z + 0.5 };
-  project.widening = { ...entrance, columns: [...entrance.columns, { ...column }] };
-  project.onComplete = () => entrance.columns.push({ ...column });
+  project.entrance = { base: module, wall, columns: [{ ...column }], width: candidate.width ?? 1,
+    floorY: module.floorY, topY: top };
   return project;
 }
 
@@ -615,6 +625,42 @@ function surfaceBlocks(world, template, origin, turns, skip = () => false) {
   const bounds = templateBounds(template, origin.x, origin.z, turns);
   const byKey = new Map(blocks.map((b) => [blockKey(b.x, b.y, b.z), b]));
   const extra = [];
+  const { clearMargin: margin, treeReach, treeHeight } = GOBLINS.surface;
+  const clearBox = { x0: bounds.x0 - margin, x1: bounds.x1 + margin,
+    z0: bounds.z0 - margin, z1: bounds.z1 + margin };
+  // Remove whole natural trees when either their trunk or canopy enters the
+  // site. The dig tasks yield logs to storage like other worker digging.
+  for (let tz = clearBox.z0 - treeReach; tz <= clearBox.z1 + treeReach; tz++) {
+    for (let tx = clearBox.x0 - treeReach; tx <= clearBox.x1 + treeReach; tx++) {
+      const ground = surfaceHeight(world, tx, tz);
+      if (ground === NONE || world.getBlock(tx, ground + 1, tz) !== BLOCK.WOOD) continue;
+      let enters = tx >= clearBox.x0 && tx <= clearBox.x1 && tz >= clearBox.z0 && tz <= clearBox.z1;
+      if (!enters) {
+        for (let z = Math.max(clearBox.z0, tz - treeReach); z <= Math.min(clearBox.z1, tz + treeReach) && !enters; z++) {
+          for (let x = Math.max(clearBox.x0, tx - treeReach); x <= Math.min(clearBox.x1, tx + treeReach) && !enters; x++) {
+            for (let y = ground + 1; y <= ground + treeHeight; y++) {
+              if (world.getBlock(x, y, z) === BLOCK.LEAVES) { enters = true; break; }
+            }
+          }
+        }
+      }
+      if (!enters) continue;
+      for (let y = ground + 1; y <= ground + treeHeight; y++) {
+        if (world.getBlock(tx, y, tz) === BLOCK.WOOD) extra.push({ x: tx, y, z: tz, id: BLOCK.AIR });
+        for (let z = tz - treeReach; z <= tz + treeReach; z++) for (let x = tx - treeReach; x <= tx + treeReach; x++) {
+          if (world.getBlock(x, y, z) === BLOCK.LEAVES) extra.push({ x, y, z, id: BLOCK.AIR });
+        }
+      }
+    }
+  }
+  // Level the entire construction area, including a margin around it.
+  for (let z = clearBox.z0; z <= clearBox.z1; z++) for (let x = clearBox.x0; x <= clearBox.x1; x++) {
+    if (skip({ x, y: origin.y, z })) continue;
+    const ground = surfaceHeight(world, x, z);
+    if (ground === NONE) continue;
+    for (let y = origin.y + 1; y <= ground; y++) extra.push({ x, y, z, id: BLOCK.AIR });
+    for (let y = ground + 1; y <= origin.y; y++) extra.push({ x, y, z, id: y === origin.y ? BLOCK.GRASS : BLOCK.DIRT, ground: true });
+  }
   for (let z = bounds.z0; z <= bounds.z1; z++) for (let x = bounds.x0; x <= bounds.x1; x++) {
     if (skip({ x, y: origin.y, z })) continue;
     for (let y = origin.y + 1; y <= origin.y + height + GOBLINS.surface.maxSlope; y++) {
@@ -639,7 +685,7 @@ function surfaceBlocks(world, template, origin, turns, skip = () => false) {
       }
     }
   }
-  return [...extra, ...blocks];
+  return [...new Map([...extra, ...blocks].map((b) => [blockKey(b.x, b.y, b.z), b])).values()];
 }
 
 // Orders surface tasks: clearing and foundations first (bottom up), then
@@ -678,14 +724,11 @@ export function chooseSurfaceSite(world, controller, template, random) {
     // Solid ground under (nearly) all of it, a block around included.
     if (!ok || hollow > heights.length * (template.plot ? settings.plotHollowShare : settings.hollowShare)) continue;
     heights.sort((a, b) => a - b);
-    if (heights.at(-1) - heights[0] > settings.maxSlope) continue;
+    if (heights.at(-1) - heights[0] > (template.plot ? settings.plotMaxSlope : settings.maxSlope)) continue;
     const ground = heights[Math.floor(heights.length / 2)];
-    // No natural trees on the site (chopping them isn't this project's job).
-    let trees = false;
-    for (let z = bounds.z0; z <= bounds.z1 && !trees; z++) for (let x = bounds.x0; x <= bounds.x1 && !trees; x++) {
-      for (let y = ground; y <= ground + sy + 2; y++) if (world.getBlock(x, y, z) === BLOCK.WOOD) { trees = true; break; }
-    }
-    if (trees) continue;
+    const island = centralIsland(world);
+    if (island && Math.hypot(cx - island.x, cz - island.z)
+      < island.radius * settings.innerRadiusFraction) continue;
     return { origin: { x: ox, y: ground, z: oz }, turns, bounds: { ...bounds, y0: ground - 2, y1: ground + sy + 1 }, entrance };
   }
   return null;
@@ -772,6 +815,12 @@ export function gatehouseProject(world, controller, entrance) {
   const [ax, az] = turnLocal(template.shaft.x - 1, template.shaft.z, turns);
   const [bx, bz] = turnLocal(template.shaft.x + 1, template.shaft.z, turns);
   const spots = [{ x: column.x, z: column.z }, { x: origin.x + ax, z: origin.z + az }, { x: origin.x + bx, z: origin.z + bz }];
+  if (entrance.width === GOBLINS.projects.relocationWidth) {
+    for (let dz = 1; dz <= 2; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const [sx, sz] = turnLocal(template.shaft.x + dx, template.shaft.z + dz, turns);
+      spots.push({ x: origin.x + sx, z: origin.z + sz });
+    }
+  }
   const skip = (b) => spots.some((s) => s.x === b.x && s.z === b.z) && b.y <= origin.y;
   const project = surfaceProject(world, controller, 'gatehouse', 'gatehouse', template, { origin, turns, bounds }, { skip });
   project.label = 'Shaft gatehouse';
@@ -791,3 +840,183 @@ export function entrancePoints(entrance) {
   };
 }
 
+// A three-block-high brick enclosure around a group of existing buildings.
+// The perimeter is levelled and cleared before construction; its two-wide
+// gates stay open for goblin routes. Raised posts use ladders on the inside.
+export function wallProject(world, controller, buildings, outer = false) {
+  if (!buildings.length) return null;
+  const settings = GOBLINS.walls;
+  const margin = outer ? settings.outerMargin : settings.sectionMargin;
+  const x0 = Math.min(...buildings.map((b) => b.box.x0)) - margin;
+  const x1 = Math.max(...buildings.map((b) => b.box.x1)) + margin;
+  const z0 = Math.min(...buildings.map((b) => b.box.z0)) - margin;
+  const z1 = Math.max(...buildings.map((b) => b.box.z1)) + margin;
+  const heights = buildings.map((b) => b.origin.y).sort((a, b) => a - b);
+  const y0 = heights[Math.floor(heights.length / 2)];
+  if (x0 < 1 || z0 < 1 || x1 >= world.sizeX - 1 || z1 >= world.sizeZ - 1) return null;
+  const centerX = (x0 + x1) / 2, centerZ = (z0 + z1) / 2;
+  const toward = controller.entrances[0]?.outside ?? { x: centerX, z: z0 - 1 };
+  const side = Math.abs(toward.x - centerX) > Math.abs(toward.z - centerZ)
+    ? toward.x < centerX ? 'W' : 'E' : toward.z < centerZ ? 'N' : 'S';
+  const gates = new Set();
+  const addGate = (face) => {
+    if (face === 'N' || face === 'S') {
+      const z = face === 'N' ? z0 : z1, x = Math.floor(centerX);
+      for (let i = 0; i < settings.gateWidth; i++) gates.add(`${x + i},${z}`);
+    } else {
+      const x = face === 'W' ? x0 : x1, z = Math.floor(centerZ);
+      for (let i = 0; i < settings.gateWidth; i++) gates.add(`${x},${z + i}`);
+    }
+  };
+  addGate(side);
+  if (outer) addGate(FACES[side].opposite);
+  const perimeter = new Set();
+  if (outer) {
+    // A contour follows the spread-out base without extending the corners of
+    // one enormous rectangle beyond the island's edge.
+    const points = buildings.flatMap(({ box }) => [
+      [box.x0 - margin, box.z0 - margin], [box.x0 - margin, box.z1 + margin],
+      [box.x1 + margin, box.z0 - margin], [box.x1 + margin, box.z1 + margin],
+    ]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const lower = [], upper = [];
+    for (const p of points) { while (lower.length > 1 && cross(lower.at(-2), lower.at(-1), p) <= 0) lower.pop(); lower.push(p); }
+    for (const p of [...points].reverse()) { while (upper.length > 1 && cross(upper.at(-2), upper.at(-1), p) <= 0) upper.pop(); upper.push(p); }
+    const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+    for (let i = 0; i < hull.length; i++) {
+      const [ax, az] = hull[i], [bx, bz] = hull[(i + 1) % hull.length];
+      const steps = Math.max(Math.abs(bx - ax), Math.abs(bz - az));
+      for (let step = 0; step <= steps; step++) perimeter.add(`${Math.round(ax + (bx - ax) * step / steps)},${Math.round(az + (bz - az) * step / steps)}`);
+    }
+  } else {
+    for (let x = x0; x <= x1; x++) { perimeter.add(`${x},${z0}`); perimeter.add(`${x},${z1}`); }
+    for (let z = z0; z <= z1; z++) { perimeter.add(`${x0},${z}`); perimeter.add(`${x1},${z}`); }
+  }
+  const wallHeights = new Map();
+  for (const key of perimeter) {
+    const [x, z] = key.split(',').map(Number);
+    const ground = surfaceHeight(world, x, z);
+    if (ground === NONE && !outer) return null;
+    if (!outer && Math.abs(ground - y0) > settings.maxFlatten) return null;
+    if (!outer && world.riverColumns?.has(key)) return null;
+    if (!outer && controller.wallFootprints.has(key)) return null;
+    if (world.keeps.some((keep) => Math.abs(x - keep.cx) <= KEEP_REACH && Math.abs(z - keep.cz) <= KEEP_REACH)) return null;
+    if (world.structures.some(({ box }) => box && y0 >= box.y0 && y0 <= box.y1
+      && x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1)) return null;
+    if (controller.buildings.some((b) => b.box && (!outer || (b.kind !== 'wall' && b.kind !== 'wallPost'))
+      && x >= b.box.x0 && x <= b.box.x1 && z >= b.box.z0 && z <= b.box.z1)) return null;
+    const river = outer && world.riverColumns?.has(key);
+    const naturalTop = world.naturalTop[x + world.sizeX * z];
+    wallHeights.set(key, river ? Math.max(y0, naturalTop + settings.riverClearance)
+      : outer && ground !== NONE ? ground : y0);
+  }
+  if (outer) {
+    gates.clear();
+    const pairs = [];
+    for (const key of perimeter) {
+      const [x, z] = key.split(',').map(Number);
+      for (const [dx, dz] of [[1, 0], [0, 1]]) {
+        const other = `${x + dx},${z + dz}`;
+        if (!perimeter.has(other) || surfaceHeight(world, x, z) === NONE
+          || surfaceHeight(world, x + dx, z + dz) === NONE
+          || Math.abs(wallHeights.get(key) - wallHeights.get(other)) > 1) continue;
+        pairs.push({ keys: [key, other], x: x + dx / 2, z: z + dz / 2 });
+      }
+    }
+    pairs.sort((a, b) => Math.hypot(a.x - toward.x, a.z - toward.z)
+      - Math.hypot(b.x - toward.x, b.z - toward.z));
+    if (!pairs.length) return null;
+    for (const key of pairs[0].keys) gates.add(key);
+    const opposite = [...pairs].sort((a, b) => Math.hypot(b.x - pairs[0].x, b.z - pairs[0].z)
+      - Math.hypot(a.x - pairs[0].x, a.z - pairs[0].z))[0];
+    for (const key of opposite.keys) gates.add(key);
+  }
+  const desired = new Map();
+  const put = (b) => desired.set(blockKey(b.x, b.y, b.z), b);
+  const clear = new Map();
+  for (const key of perimeter) {
+    const [x, z] = key.split(',').map(Number);
+    for (let dz = -settings.clearMargin; dz <= settings.clearMargin; dz++) {
+      for (let dx = -settings.clearMargin; dx <= settings.clearMargin; dx++) {
+        const cell = `${x + dx},${z + dz}`;
+        const old = clear.get(cell);
+        if (!old || dx * dx + dz * dz < old.distance) clear.set(cell,
+          { y: wallHeights.get(key), distance: dx * dx + dz * dz });
+      }
+    }
+  }
+  for (const [key, target] of clear) {
+    const [x, z] = key.split(',').map(Number);
+    if (controller.buildings.some((b) => b.box && x >= b.box.x0 && x <= b.box.x1 && z >= b.box.z0 && z <= b.box.z1)) continue;
+    const ground = surfaceHeight(world, x, z);
+    if (ground === NONE) continue;
+    if (outer && Math.abs(ground - target.y) > settings.outerLocalFlatten) continue;
+    for (let y = target.y + 1; y <= ground; y++) put({ x, y, z, id: BLOCK.AIR });
+    for (let y = ground + 1; y <= target.y; y++) put({ x, y, z, id: y === target.y ? BLOCK.GRASS : BLOCK.DIRT, ground: true });
+  }
+  // Whole natural trees touched by the clearing strip are removed.
+  const reach = GOBLINS.surface.treeReach;
+  for (let tz = z0 - settings.clearMargin - reach; tz <= z1 + settings.clearMargin + reach; tz++) {
+    for (let tx = x0 - settings.clearMargin - reach; tx <= x1 + settings.clearMargin + reach; tx++) {
+      const ground = surfaceHeight(world, tx, tz);
+      if (ground === NONE || world.getBlock(tx, ground + 1, tz) !== BLOCK.WOOD) continue;
+      let touched = clear.has(`${tx},${tz}`);
+      for (let dz = -reach; dz <= reach && !touched; dz++) for (let dx = -reach; dx <= reach && !touched; dx++) {
+        if (!clear.has(`${tx + dx},${tz + dz}`)) continue;
+        for (let y = ground + 1; y <= ground + GOBLINS.surface.treeHeight; y++) {
+          if (world.getBlock(tx + dx, y, tz + dz) === BLOCK.LEAVES) { touched = true; break; }
+        }
+      }
+      if (!touched) continue;
+      for (let y = ground + 1; y <= ground + GOBLINS.surface.treeHeight; y++) {
+        if (world.getBlock(tx, y, tz) === BLOCK.WOOD) put({ x: tx, y, z: tz, id: BLOCK.AIR });
+        for (let dz = -reach; dz <= reach; dz++) for (let dx = -reach; dx <= reach; dx++) {
+          const x = tx + dx, z = tz + dz;
+          if (world.getBlock(x, y, z) === BLOCK.LEAVES) put({ x, y, z, id: BLOCK.AIR });
+        }
+      }
+    }
+  }
+  for (const key of perimeter) {
+    const [x, z] = key.split(',').map(Number);
+    const baseY = wallHeights.get(key);
+    put({ x, y: baseY, z, id: BLOCK.GOBLIN_BRICKS });
+    for (let h = 1; h <= settings.height; h++) put({ x, y: baseY + h, z,
+      id: gates.has(key) ? BLOCK.AIR : BLOCK.GOBLIN_BRICKS });
+  }
+  const posts = [];
+  const postSites = outer ? [...perimeter].flatMap((key) => {
+    if (gates.has(key)) return [];
+    const [x, z] = key.split(',').map(Number);
+    if (!perimeter.has(`${x - 1},${z}`) || !perimeter.has(`${x + 1},${z}`)) return [];
+    const inward = z < centerZ ? 1 : -1;
+    if (perimeter.has(`${x},${z + inward}`)) return [];
+    return [{ x, z: z + inward, wall: inward > 0 ? 'N' : 'S', baseY: wallHeights.get(key) }];
+  }) : [{ x: x0 + 3, z: z0 + 1, wall: 'N', baseY: y0 }];
+  const selected = outer && postSites.length > 1
+    ? [postSites[0], [...postSites].sort((a, b) => Math.hypot(b.x - postSites[0].x, b.z - postSites[0].z)
+      - Math.hypot(a.x - postSites[0].x, a.z - postSites[0].z))[0]] : postSites.slice(0, 1);
+  for (const { x: px, z: lz, wall, baseY } of selected) {
+    const climb = { x: px, z: lz, wall, floorY: baseY + 1, topY: baseY + settings.postHeight };
+    for (let h = 1; h <= settings.postHeight; h++) put({ x: px, y: baseY + h, z: lz,
+      id: ladderBlock(FACES[wall].facing), climb });
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      if (dx === 0 && dz === 0) continue;
+      put({ x: px + dx, y: baseY + settings.postHeight, z: lz + dz,
+        id: BLOCK.GOBLIN_BRICKS, climb });
+    }
+    posts.push({ post: { x: px + 0.5, y: baseY + settings.postHeight + 1, z: lz + 0.5 },
+      ladder: climb });
+  }
+  const project = new Project('wall', outer ? 'Outer base wall' : 'Base section wall');
+  addBlockTasks(project, world, [...desired.values()], { order: (b) => b.id === BLOCK.AIR ? 0
+    : b.ground ? 1000 + b.y : isLadder(b.id) ? 4000 + b.y : 2000 + b.y });
+  wireShaftTasks(project, project.tasks.filter((t) => t.climb), GOBLINS.worker.reach);
+  project.sort();
+  project.surface = true;
+  project.site = { x: centerX, y: y0 + 1, z: centerZ, surface: true };
+  project.building = { kind: 'wall', template: outer ? 'outerWall' : 'sectionWall',
+    box: { x0, x1, z0, z1, y0, y1: y0 + settings.postHeight + 1 }, origin: { x: x0, y: y0, z: z0 },
+    front: project.site, blocks: [...desired.values()], footprint: perimeter, posts, intact: false };
+  return project;
+}

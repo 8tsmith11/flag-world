@@ -10,7 +10,7 @@ import {
 import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT, TEAMS } from '/shared/protocol.js';
 import { generateWorld } from '/shared/worldgen.js';
 import {
-  BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, isFurnace, isChest, isAnvil, isFlowingWater,
+  BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, doorState, isFurnace, isChest, isAnvil, isFlowingWater,
 } from '/shared/blocks.js';
 import { breakingStats, rangedStats } from '/shared/tools.js';
 import { getItemDef, ITEM } from '/shared/items.js';
@@ -22,7 +22,7 @@ import { LocalPlayer } from './localPlayer.js';
 import { DebugHud } from './debug.js';
 import { Hotbar } from './hotbar.js';
 import { LobbyScreen, MatchScreen, loadName } from './lobby.js';
-import { HealthBar, EventFeed, ProgressBar, Toast, Label, DayIndicator } from './hud.js';
+import { HealthBar, EventFeed, ProgressBar, Toast, Label } from './hud.js';
 import { FreeCamera } from './spectator.js';
 import { InventoryScreen, CONTAINERS } from './inventoryScreen.js';
 import { createScene, setViewDistance } from './render/scene.js';
@@ -34,11 +34,12 @@ import { BlockHighlight } from './render/blockHighlight.js';
 import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
-import { QuarryEffects } from './render/quarryEffects.js';
 import { GoblinEffects } from './render/goblinEffects.js';
 import { GoblinInspector } from './goblinInspector.js';
 import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
+import { TurretRenderer } from './render/turretRenderer.js';
+import { QuarryEffects } from './render/quarryEffects.js';
 import { Sounds } from './sounds.js';
 
 // Cap on ticks simulated in one frame so a long stall doesn't burst-send inputs.
@@ -75,7 +76,6 @@ let viewDistance = loadViewDistance();
 
 const { renderer, scene, camera, ambient, sun } = createScene(viewDistance);
 const sky = new Sky(scene, { ambient, sun });
-const dayIndicator = new DayIndicator(document.getElementById('daytime'), DAY_LENGTH);
 // The match clock, for the time of day: the time of day and tick from
 // WELCOME, and the latest server tick and when it arrived (performance.now()),
 // so time runs on smoothly between messages.
@@ -90,6 +90,7 @@ const toast = new Toast(document.getElementById('toast'));
 const carryLabel = new Label(document.getElementById('carry'));
 const entities = new EntityRenderer(scene);
 const portals = new PortalRenderer(scene);
+const turretRenderer = new TurretRenderer(scene);
 const goblinEffects = new GoblinEffects(scene);
 const goblinInspector = new GoblinInspector();
 // The local player's grappling hook rope (remote players' are on their models).
@@ -426,6 +427,8 @@ function startGame(msg) {
   dayClock = { baseTime: msg.dayTime, baseTick: msg.tick, tick: msg.tick, at: performance.now() };
   world = generateWorld(msg.seed, msg.teamCount, msg.worldSize);
   for (const b of msg.blocks) world.setBlock(b.x, b.y, b.z, b.id);
+  for (const { key, team } of msg.doorTeams ?? []) world.doorTeams.set(key, team);
+  turretRenderer.sync(msg.turrets);
   chunks = new ChunkRenderer(scene, world, viewDistance);
   clouds = new Clouds(scene, world);
   furnaceEffects = new FurnaceEffects(scene, world);
@@ -438,6 +441,8 @@ function startGame(msg) {
   self = msg.players.find((p) => p.id === msg.id);
   player = new LocalPlayer(msg.id, msg.color, self, world);
   setCreative(!!msg.creative);
+  inventoryScreen.setCreativeState({ immortal: !!msg.immortal, flying: !!msg.flying,
+    totemExists: !!msg.totemExists });
   for (const p of msg.players) {
     names.set(p.id, p.name);
     playerTeams.set(p.id, p.team);
@@ -512,7 +517,15 @@ conn.on(S2C.ENTITY_DESPAWN, (msg) => entities.remove(msg.id));
 conn.on(S2C.PORTAL_SPAWN, (msg) => portals.add(msg.portal));
 conn.on(S2C.PORTAL_DESPAWN, (msg) => portals.remove(msg.id));
 conn.on(S2C.EMBER_BURST, (msg) => portals.burst(msg.x, msg.y, msg.z));
-conn.on(S2C.CREATIVE, (msg) => setCreative(msg.enabled));
+conn.on(S2C.QUARRY_PUFF, (msg) => quarryEffects?.puff(msg.x, msg.y, msg.z));
+conn.on(S2C.CREATIVE, (msg) => {
+  setCreative(msg.enabled);
+  inventoryScreen.setCreativeState(msg);
+  if (player) player.state.flying = !!msg.flying;
+});
+conn.on(S2C.DAY_TIME, (msg) => {
+  dayClock = { baseTime: msg.dayTime, baseTick: msg.tick, tick: msg.tick, at: performance.now() };
+});
 conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor,
   armor: msg.armor, accessory: msg.accessory }));
 conn.on(S2C.SWING, (msg) => entities.swing(msg.id));
@@ -526,10 +539,15 @@ conn.on(S2C.CONTAINER_CLOSE, () => {
   if (inventoryScreen.open && CONTAINERS.includes(inventoryScreen.mode)) closeInventory(false);
 });
 conn.on(S2C.FURNACE_LIT, (msg) => furnaceEffects?.setLit(msg.x, msg.y, msg.z, msg.lit));
-conn.on(S2C.QUARRY_PUFF, (msg) => quarryEffects?.puff(msg.x, msg.y, msg.z));
 
 conn.on(S2C.BLOCK_CHANGE, (msg) => {
   if (!world) return;
+  if (msg.team !== undefined) {
+    const door = isDoor(msg.id) ? doorState(msg.id) : doorState(world.getBlock(msg.x, msg.y, msg.z));
+    const key = `${msg.x},${door.upper ? msg.y - 1 : msg.y},${msg.z}`;
+    if (msg.team === null) world.doorTeams.delete(key);
+    else world.doorTeams.set(key, msg.team);
+  }
   const oldId = world.getBlock(msg.x, msg.y, msg.z);
   if (oldId !== BLOCK.AIR && msg.id === BLOCK.AIR) sounds.blockBreak(oldId,
     { x: msg.x + 0.5, y: msg.y + 0.5, z: msg.z + 0.5 }, camera.position);
@@ -544,6 +562,7 @@ conn.on(S2C.BLOCK_CHANGE, (msg) => {
 
 conn.on(S2C.STATE, (msg) => {
   if (!player) return;
+  turretRenderer.sync(msg.turrets);
   dayClock.tick = msg.tick;
   dayClock.at = performance.now();
   flags.setStates(msg.flags);
@@ -554,6 +573,7 @@ conn.on(S2C.STATE, (msg) => {
     }
     self = e;
     health.set(e.hp, e.maxHp);
+    inventoryScreen.setCreativeState({ flying: !!e.flying });
     if (mode === MODE.DEAD && !e.dead) leaveDeath(e);
     else if (mode === MODE.PLAY) {
       if (Math.hypot(e.x - player.state.x, e.y - player.state.y, e.z - player.state.z) > 8) player.teleport(e);
@@ -770,13 +790,13 @@ function frame(now) {
     sky.update(time, camera);
     setViewDistance(scene, camera, viewDistance, sky.fogScale);
     clouds?.setTint(sky.tint);
-    dayIndicator.set(time);
   }
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
   quarryEffects?.update(dt, camera.position, chunks.viewDistance);
   portals.update(dt, camera);
   goblinEffects.update(dt);
   entities.update(dt);
+  turretRenderer.update(dt);
   sounds.update(dt, camera.position, player.state, world, entities,
     input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'));
   flags.update(dt, player.id, pos);

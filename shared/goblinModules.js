@@ -46,7 +46,7 @@ export const HORIZONTAL = ['N', 'E', 'S', 'W'];
 //               ladder shaft above; shafts both ways)
 //   doorLevels  levels whose perimeter faces can connect (default: all)
 //   feature     what's built inside: 'totem' (the Goblin Totem stands in the
-//               middle), 'quarry' (a Quarry Stone in the middle), 'bunks'
+//               middle), 'bunks'
 //               (BUNKS against the walls) or 'entrance' (the bottom of a
 //               surface shaft, whose ladders climb its ladderFace wall)
 //   capacity    goblins it houses (the Totem Hall's is GOBLINS.population.hallCapacity)
@@ -60,7 +60,6 @@ export const MODULE_TYPES = {
   deadEnd: { label: 'Dead end', shape: 'corridor', size: [1, 1, 1], faces: ['N'] },
   ladderShaft: { label: 'Ladder shaft', shape: 'shaft', size: [1, 1, 1], faces: 'any', vertical: ['U', 'D'] },
   totemHall: { label: 'Totem Hall', shape: 'room', size: [2, 2, 2], faces: 'any', doorLevels: [0], feature: 'totem' },
-  quarryRoom: { label: 'Quarry room', shape: 'room', size: [1, 1, 1], faces: 'any', feature: 'quarry' },
   bunkRoom: { label: 'Bunk Room', shape: 'room', size: [1, 1, 1], faces: 'any', vertical: ['U'], feature: 'bunks', capacity: 2 },
   entrance: { label: 'Shaft base', shape: 'room', size: [1, 1, 1], faces: 'any', feature: 'entrance' },
 };
@@ -79,7 +78,6 @@ export const MATERIAL_OF = {
   [BLOCK.GOBLIN_BRICKS]: 'bricks',
   [BLOCK.PLANKS]: 'planks',
   [BLOCK.WOOD]: 'wood',
-  [BLOCK.FENCE]: 'planks',
   [BLOCK.STONE]: 'stone',
   [BLOCK.DIRT]: 'dirt',
   [BLOCK.GRASS]: 'dirt',
@@ -172,7 +170,6 @@ export function registerModule(fortress, { type, cell, rotation = 0, ladderFace 
   };
   const def = MODULE_TYPES[type];
   if (def.feature === 'totem') module.feature = { kind: 'totem', x: module.center.x, y: box.y0 + 1, z: module.center.z };
-  else if (def.feature === 'quarry') module.feature = { kind: 'quarry', x: box.x0 + 3, y: box.y0 + 1, z: box.z0 + 3 };
   else if (def.feature) module.feature = { kind: def.feature };
   fortress.modules.push(module);
   for (const c of footprintCells(type, cell, rotation)) fortress.cells[cellKey(...c)] = module.id;
@@ -204,7 +201,6 @@ export function moduleBlocks(module) {
     hollow(box.x0 + 1, box.y0 + 1, box.z0 + 1, box.x1 - 1, box.y1 - 1, box.z1 - 1);
   }
   const special = new Map();
-  if (def.feature === 'quarry') special.set(`${box.x0 + 3},${box.y0 + 1},${box.z0 + 3}`, BLOCK.QUARRY_STONE);
   if (def.feature === 'bunks') {
     for (const [x, y, z, material] of BUNKS) {
       special.set(`${box.x0 + x},${box.y0 + y},${box.z0 + z}`, material === 'wood' ? BLOCK.WOOD : BLOCK.PLANKS);
@@ -372,75 +368,10 @@ function corridorFor(faces) {
 // A starting fortress in cell coordinates, with the Totem Hall at (0, 0, 0):
 // { modules: [{ type, cell, rotation, ladderFace }], links: [{ a, face, cellA }] }
 // (links index into modules). A path of connector modules leads from a hall
-// doorway to the Quarry room, maybe climbing a ladder shaft to the second
-// level, maybe with a dead-end branch off it. Null if the random walk boxed
-// itself in (rare; call again).
-export function planStartingLayout(random, config) {
-  const occupied = new Set();
-  const nodes = [{ type: 'totemHall', cell: [0, 0, 0], faces: new Set() }];
-  for (const c of footprintCells('totemHall', [0, 0, 0])) occupied.add(cellKey(...c));
-  const links = [];
-  const free = (cell) => cell[1] >= 0 && cell[1] <= 1 && !occupied.has(cellKey(...cell));
-  const target = randInt(random, ...config.connectors);
-  const branch = target >= 4 && random() < config.branchChance;
-  const pathLength = target - (branch ? 1 : 0);
-  const shaftAt = pathLength >= 3 && random() < config.shaftChance ? randInt(random, 0, pathLength - 2) : -1;
-
-  let face = HORIZONTAL[randInt(random, 0, 3)];
-  const side = randInt(random, 0, 1);
-  let fromCell = { N: [side, 0, 0], S: [side, 0, 1], E: [1, 0, side], W: [0, 0, side] }[face];
-  let from = 0;
-  for (let i = 0; i <= pathLength; i++) {
-    const cell = stepCell(fromCell, face);
-    if (!free(cell)) return null;
-    const node = { cell, faces: new Set(), quarry: i === pathLength, shaft: shaftAt >= 0 && (i === shaftAt || i === shaftAt + 1) };
-    const index = nodes.length;
-    nodes.push(node);
-    occupied.add(cellKey(...cell));
-    links.push({ a: from, face, cellA: fromCell });
-    nodes[from].faces.add(face);
-    node.faces.add(FACES[face].opposite);
-    if (node.quarry) break;
-    let next;
-    if (i === shaftAt) next = 'U';
-    else {
-      const options = HORIZONTAL.filter((f) => !node.faces.has(f) && free(stepCell(cell, f)));
-      if (!options.length) return null;
-      next = options.includes(face) && random() < config.straightChance
-        ? face : options[randInt(random, 0, options.length - 1)];
-    }
-    fromCell = cell;
-    from = index;
-    face = next;
-  }
-
-  if (branch) {
-    const candidates = [];
-    nodes.forEach((node, index) => {
-      if (index === 0 || node.quarry || node.shaft) return;
-      for (const f of HORIZONTAL) if (!node.faces.has(f) && free(stepCell(node.cell, f))) candidates.push([index, f]);
-    });
-    if (candidates.length) {
-      const [index, f] = candidates[randInt(random, 0, candidates.length - 1)];
-      const cell = stepCell(nodes[index].cell, f);
-      nodes.push({ cell, faces: new Set([FACES[f].opposite]) });
-      occupied.add(cellKey(...cell));
-      links.push({ a: index, face: f, cellA: nodes[index].cell });
-      nodes[index].faces.add(f);
-    }
-  }
-
-  const shafts = nodes.filter((node) => node.shaft);
-  const ladderOptions = HORIZONTAL.filter((f) => shafts.every((node) => !node.faces.has(f)));
-  const ladderFace = shafts.length ? ladderOptions[randInt(random, 0, ladderOptions.length - 1)] : null;
-  const modules = nodes.map((node, index) => {
-    if (index === 0) return { type: 'totemHall', cell: node.cell, rotation: 0, ladderFace: null };
-    if (node.shaft) return { type: 'ladderShaft', cell: node.cell, rotation: 0, ladderFace };
-    if (node.quarry) return { type: 'quarryRoom', cell: node.cell, rotation: 0, ladderFace: null };
-    const horizontal = new Set([...node.faces].filter((f) => HORIZONTAL.includes(f)));
-    return { ...corridorFor(horizontal), cell: node.cell, ladderFace: null };
-  });
-  return { modules, links };
+// The hall begins alone; workers dig the first connection toward the surface.
+export function planStartingLayout(random) {
+  return { modules: [{ type: 'totemHall', cell: [0, 0, 0], rotation: 0, ladderFace: null }],
+    links: [], firstFace: HORIZONTAL[Math.floor(random() * HORIZONTAL.length)] };
 }
 
 // Every cell of a layout ({ modules }) with its footprint, in cell coordinates.
@@ -452,6 +383,7 @@ export function layoutCells(layout) {
 // at `origin`. Returns the fortress.
 export function buildLayout(world, origin, layout) {
   const fortress = createFortress(origin);
+  fortress.firstFace = layout.firstFace;
   const modules = layout.modules.map((spec) => addModule(world, fortress, spec));
   for (const link of layout.links) connectModules(world, fortress, modules[link.a], link.face, link.cellA);
   return fortress;
@@ -463,7 +395,7 @@ export function buildLayout(world, origin, layout) {
 // z from back (first row) to front (last row), y from the ground layer
 // (layers[0], at the ground) up. The front faces local +z; placing turns it
 // (turnsFront). Characters:
-//   P planks, W wood log, F fence, B Goblin Bricks, g ground (grass on top
+//   P planks, W wood log, F plank border, B Goblin Bricks, g ground (grass on top
 //   of whatever is there, filled if missing), S sapling,
 //   n e s w a ladder hung on that side's block (local),
 //   . air (cleared), _ left alone
@@ -498,7 +430,7 @@ export const SURFACE_TEMPLATES = {
     ],
   },
   // A platform on four corner posts and a middle pole, climbed by a ladder
-  // on the pole's front, with a fence railing.
+  // on the pole's front. The platform has no railing.
   lookout: {
     label: 'Lookout', capacity: 1, foundationBlock: BLOCK.WOOD, post: [2, 6, 1],
     layers: [
@@ -508,7 +440,6 @@ export const SURFACE_TEMPLATES = {
       ['W...W', '.....', '..W..', '..n..', 'W...W'],
       ['W...W', '.....', '..W..', '..n..', 'W...W'],
       ['PPPPP', 'PPPPP', 'PPPPP', 'PPnPP', 'PPPPP'],
-      ['FFFFF', 'F...F', 'F...F', 'F._.F', 'FFFFF'],
     ],
   },
   // Around the top of a surface shaft (built by entrance.js): the shaft's
@@ -533,8 +464,8 @@ export const DOOR_PATH = 3;
 // Surface dwellings goblins build for room, and how often each is picked.
 export const DWELLINGS = { hut: 3, longhouse: 2, lookout: 1.5 };
 
-// A tree plot template: a fenced square with a grid x grid of saplings
-// `spacing` apart, `margin` in from the fence, and a gap in the front fence.
+// A tree plot template: a plank-bordered square with a grid x grid of
+// saplings `spacing` apart, `margin` in from the border and a front gap.
 export function plotTemplate({ grid, spacing, margin }) {
   const size = margin * 2 + spacing * (grid - 1) + 1;
   const spots = Array.from({ length: grid }, (_, i) => margin + i * spacing);
@@ -585,7 +516,7 @@ export function templateBlocks(template, origin, turns) {
       if (ch === 'g') blocks.push({ ...at, id: BLOCK.GRASS, ground: true });
       else if (ch in LADDER_CHARS) blocks.push({ ...at, id: ladderBlock((LADDER_CHARS[ch] + turns) & 3) });
       else {
-        const id = { P: BLOCK.PLANKS, W: BLOCK.WOOD, F: BLOCK.FENCE, B: BLOCK.GOBLIN_BRICKS, S: BLOCK.SAPLING, '.': BLOCK.AIR }[ch];
+        const id = { P: BLOCK.PLANKS, W: BLOCK.WOOD, F: BLOCK.PLANKS, B: BLOCK.GOBLIN_BRICKS, S: BLOCK.SAPLING, '.': BLOCK.AIR }[ch];
         if (id === undefined) throw new Error(`template character ${ch}`);
         blocks.push({ ...at, id, sapling: ch === 'S' });
       }

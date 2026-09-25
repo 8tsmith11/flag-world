@@ -59,6 +59,15 @@ export class VoidEel {
     return { x: s.x, y: s.y + EEL_BOX.height / 2, z: s.z };
   }
 
+  bandTop(world, x = this.state.x, z = this.state.z) {
+    const center = world.islands?.find((island) => island.kind === 'center');
+    if (center && Math.hypot(x - center.x, z - center.z) <= center.radius) return this.band.top;
+    const outer = world.islands?.filter((island) => island.kind !== 'center')
+      .sort((a, b) => Math.max(0, Math.hypot(x - a.x, z - a.z) - a.radius)
+        - Math.max(0, Math.hypot(x - b.x, z - b.z) - b.radius))[0];
+    return outer ? Math.max(this.band.top, outer.bottomY - this.band.outerBelowIsland) : this.band.top;
+  }
+
   exposed(world, player) {
     const c = this.center(), p = player.state;
     return !world.naturalTerrainBetween(p.x, p.z, c.y, p.y + 0.1);
@@ -109,7 +118,8 @@ export class VoidEel {
     this.wanderUntil = tick + TICK_RATE * (6 + Math.floor(Math.random() * 7));
     this.wanderGoal = {
       x: Math.max(4, Math.min(world.sizeX - 4, s.x + (Math.random() - 0.5) * EEL_WANDER_RADIUS * 2)),
-      y: this.band.bottom + 4 + Math.random() * Math.max(1, this.band.top - this.band.bottom - 8),
+      y: this.band.bottom + 4 + Math.random() * Math.max(1,
+        this.bandTop(world, s.x, s.z) - this.band.bottom - 8),
       z: Math.max(4, Math.min(world.sizeZ - 4, s.z + (Math.random() - 0.5) * EEL_WANDER_RADIUS * 2)),
     };
     return this.wanderGoal;
@@ -117,7 +127,7 @@ export class VoidEel {
 
   returnGoal(world, tick) {
     const s = this.state;
-    if (s.y > this.band.top) {
+    if (s.y > this.bandTop(world)) {
       while (this.escapeTrail.length && Math.hypot(s.x - this.escapeTrail.at(-1).x,
         s.y - this.escapeTrail.at(-1).y, s.z - this.escapeTrail.at(-1).z) < 1) this.escapeTrail.pop();
       if (this.escapeTrail.length) return this.escapeTrail.at(-1);
@@ -131,7 +141,7 @@ export class VoidEel {
         return { x: island.x + Math.cos(angle) * (island.radius + 12),
           y: s.y, z: island.z + Math.sin(angle) * (island.radius + 12) };
       }
-      return { x: s.x, y: this.band.top - 5, z: s.z };
+      return { x: s.x, y: this.bandTop(world) - 5, z: s.z };
     }
     return this.wander(world, tick);
   }
@@ -232,12 +242,12 @@ export class VoidEel {
     goal.y += this.separation?.y ?? 0;
     goal.z += this.separation?.z ?? 0;
     this.swim(world, goal, target ? EEL_CHASE_SPEED : EEL_SPEED, night);
-    if (target && this.state.y > this.band.top) {
+    if (target && this.state.y > this.bandTop(world)) {
       const last = this.escapeTrail.at(-1);
       if (!last || Math.hypot(this.state.x - last.x, this.state.y - last.y,
         this.state.z - last.z) > 1) this.escapeTrail.push({ x: this.state.x, y: this.state.y, z: this.state.z });
       if (this.escapeTrail.length > 500) this.escapeTrail.shift();
-    } else if (this.state.y <= this.band.top) this.escapeTrail.length = 0;
+    } else if (this.state.y <= this.bandTop(world)) this.escapeTrail.length = 0;
     if (target && tick >= this.nextAttackTick
       && Math.hypot(target.state.x - this.state.x, target.state.y - this.state.y, target.state.z - this.state.z) < 5) {
       this.windupTicks = WINDUP_TICKS;

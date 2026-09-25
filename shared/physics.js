@@ -12,7 +12,7 @@ import {
   GRAPPLE_RANGE, GRAPPLE_SPEED, GRAPPLE_COOLDOWN,
   FLIGHT_SPEED,
 } from './config.js';
-import { BLOCK, isSolid, isClimbable, isLadder, isWater, waterLevel } from './blocks.js';
+import { BLOCK, isSolid, isClimbable, isLadder, isDoor, doorState, isWater, waterLevel } from './blocks.js';
 import { accessoryDef } from './accessories.js';
 import { ITEM } from './itemIds.js';
 import { FROST } from './tools.js';
@@ -71,22 +71,28 @@ export function createInput(seq = 0) {
   return { seq, forward: 0, strafe: 0, sprint: false, jump: false, yaw: 0, pitch: 0 };
 }
 
-function collides(world, minX, minY, minZ, maxX, maxY, maxZ) {
+function collides(world, minX, minY, minZ, maxX, maxY, maxZ, state = null) {
   const x0 = Math.floor(minX), x1 = Math.floor(maxX - EPS);
   const y0 = Math.floor(minY), y1 = Math.floor(maxY - EPS);
   const z0 = Math.floor(minZ), z1 = Math.floor(maxZ - EPS);
   for (let y = y0; y <= y1; y++) {
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
-        if (isSolid(world.getBlock(x, y, z))) return true;
+        const id = world.getBlock(x, y, z);
+        if (isSolid(id)) return true;
+        if (state && isDoor(id)) {
+          const door = doorState(id);
+          const team = world.doorTeams?.get(`${x},${door.upper ? y - 1 : y},${z}`);
+          if (door.reinforced && team !== undefined && state.team !== team) return true;
+        }
       }
     }
   }
   return false;
 }
 
-function collidesAt(world, box, x, y, z) {
-  return collides(world, x - box.halfW, y, z - box.halfW, x + box.halfW, y + box.height, z + box.halfW);
+function collidesAt(world, box, x, y, z, state = null) {
+  return collides(world, x - box.halfW, y, z - box.halfW, x + box.halfW, y + box.height, z + box.halfW, state);
 }
 
 // Whether a player standing at (x, y, z) would overlap the block at (bx, by, bz).
@@ -107,7 +113,7 @@ function moveAxis(state, world, box, axis, delta) {
     remaining -= step;
     const prev = state[axis];
     state[axis] = prev + step;
-    if (!collidesAt(world, box, state.x, state.y, state.z)) continue;
+    if (!collidesAt(world, box, state.x, state.y, state.z, state)) continue;
 
     // Snap to the nearest block boundary in the direction of travel.
     const extent = axis === 'y' ? (step > 0 ? box.height : 0) : (step > 0 ? box.halfW : -box.halfW);
@@ -115,7 +121,7 @@ function moveAxis(state, world, box, axis, delta) {
     state[axis] = step > 0
       ? Math.floor(edge) - extent - EPS
       : Math.ceil(edge) - extent + EPS;
-    if (collidesAt(world, box, state.x, state.y, state.z)) state[axis] = prev;
+    if (collidesAt(world, box, state.x, state.y, state.z, state)) state[axis] = prev;
     blocked = true;
     break;
   }
@@ -190,11 +196,11 @@ export function stepPlayer(state, input, world) {
 
   // Crouch while asked; standing back up needs room for the full height.
   if (input.crouch) state.crouching = true;
-  else if (state.crouching && !collidesAt(world, PLAYER_BOX, state.x, state.y, state.z)) state.crouching = false;
+  else if (state.crouching && !collidesAt(world, PLAYER_BOX, state.x, state.y, state.z, state)) state.crouching = false;
   const box = playerBoxOf(state);
 
-  if (input.flyToggle && state.creative && state.accessory === ITEM.FLIGHT_ORB) state.flying = !state.flying;
-  if (!state.creative || state.accessory !== ITEM.FLIGHT_ORB) state.flying = false;
+  if (input.flyToggle && state.creative) state.flying = !state.flying;
+  if (!state.creative) state.flying = false;
 
   // Grappling hook (input.hook is only kept by the server with one in hand).
   // A pull replaces all other movement until it ends.
@@ -220,6 +226,7 @@ export function stepPlayer(state, input, world) {
   }
   if (input.hook) fireGrapple(state, world);
   if (state.grapple && state.carrying) state.grapple = null;
+  if (state.grapple?.latched && input.jump) state.grapple = null;
   if (state.grapple) {
     stepGrapple(state, world, box);
     return;
@@ -288,7 +295,8 @@ export function stepPlayer(state, input, world) {
       if (input.jump) state.springCharge = Math.min(Math.round(spring.chargeSeconds / TICK_DT), state.springCharge + 1);
       else if (state.springCharge > 0) {
         const charge = state.springCharge / Math.round(spring.chargeSeconds / TICK_DT);
-        state.vy = JUMP_VELOCITY + (Math.sqrt(2 * GRAVITY * spring.jumpHeight) - JUMP_VELOCITY) * charge;
+        state.vy = state.springCharge * TICK_DT < spring.tapSeconds ? JUMP_VELOCITY
+          : JUMP_VELOCITY + (Math.sqrt(2 * GRAVITY * spring.jumpHeight) - JUMP_VELOCITY) * charge;
         state.springCharge = 0;
         state.springBouncing = false;
       }
@@ -334,6 +342,10 @@ function fireGrapple(state, world) {
 // there, and fall damage counts from the highest point as usual).
 function stepGrapple(state, world, box) {
   const g = state.grapple;
+  if (g.latched) {
+    state.vx = state.vy = state.vz = state.kx = state.kz = 0;
+    return;
+  }
   const dx = g.x - state.x, dy = g.y - state.y, dz = g.z - state.z;
   const dist = Math.hypot(dx, dy, dz);
   const step = GRAPPLE_SPEED * TICK_DT;
@@ -351,7 +363,10 @@ function stepGrapple(state, world, box) {
   state.vy = dy * speed;
   state.vz = dz * speed;
   state.onGround = blockedY && dy < 0;
-  if (!moving) state.grapple = null;
+  if (!moving) {
+    g.latched = true;
+    state.vx = state.vy = state.vz = 0;
+  }
 }
 
 // Ground within CROUCH_MAX_DROP below a box at (x, y, z), or a ladder to hold

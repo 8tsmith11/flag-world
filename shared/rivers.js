@@ -98,7 +98,12 @@ function carve(world, terrain, points, width) {
     world.riverCells.add(`${x},${waterY},${z}`);
     world.riverColumns.add(`${x},${z}`);
     const top = terrain.getTop(x, z);
-    for (let y = waterY; y <= top + 2; y++) world.setBlock(x, y, z, BLOCK.AIR);
+    for (let y = waterY; y <= Math.max(top + 2, waterY + RIVER_SETTINGS.skyClearance); y++) {
+      if (y > top + 2 && world.islands?.some((island) => island.kind !== 'center'
+        && Math.hypot(x - island.x, z - island.z) <= island.radius
+        && y >= island.bottomY && y <= island.topY)) break;
+      world.setBlock(x, y, z, BLOCK.AIR);
+    }
     for (let y = waterY - RIVER_SETTINGS.channelDepth; y < waterY; y++) {
       if (!isSolid(world.getBlock(x, y, z))) world.setBlock(x, y, z, BLOCK.STONE);
     }

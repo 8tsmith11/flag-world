@@ -89,10 +89,9 @@ function tooltipDetails(stack) {
     if (accessory.visual === 'spring') effects.push(`Charge a jump for ${accessory.chargeSeconds}s to leap up to ${accessory.jumpHeight} blocks`, 'Bounce when you land; prevents fall damage');
     if (accessory.regenDelay) effects.push(`Regeneration begins after ${accessory.regenDelay}s`, `Heals every ${accessory.regenInterval}s`);
     if (accessory.rescueHp) effects.push(`Survive one lethal hit with ${accessory.rescueHp} HP`, `Invulnerable for ${accessory.invulnerableSeconds}s; consumed on use`);
-    if (accessory.visual === 'orb') effects.push('Creative mode only: double-tap jump to toggle flight', 'Jump rises · Crouch descends · 2× walking speed');
   }
-  if (stack.item === BLOCK.QUARRY_STONE) effects.push(`Each open face regrows stone every ${QUARRY_REGROW_TIME}s`, 'Requires tool strength 8 to break');
   if (stack.item === BLOCK.GOBLIN_BRICKS) effects.push('Requires tool strength 8 to break');
+  if (stack.item === BLOCK.QUARRY_STONE) effects.push(`Each open face regrows stone every ${QUARRY_REGROW_TIME}s`, 'Requires tool strength 8 to break');
   if (def.mobType) effects.push(`Right click a block to spawn a ${def.name.replace(' spawn egg', '')}`);
   if (stack.item === ITEM.RIFT_ORB) effects.push(`Throw to create a ${RIFT_ORB.durationSeconds}s portal where it lands`,
     'Fizzles into a dropped orb inside a keep zone');
@@ -199,8 +198,8 @@ export function itemIcon(item) {
     icon.style.background = cssColor(def.color);
   } else {
     icon.classList.add('block');
-    if (item === BLOCK.QUARRY_STONE) icon.classList.add('quarry');
     if (item === BLOCK.GOBLIN_BRICKS) icon.classList.add('goblin-bricks');
+    if (item === BLOCK.QUARRY_STONE) icon.classList.add('quarry');
     icon.style.background = cssColor(def.color);
   }
   return icon;

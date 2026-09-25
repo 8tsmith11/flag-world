@@ -37,7 +37,9 @@ function ironTexture() {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
   return texture;
 }
 
@@ -84,7 +86,33 @@ function goblinBrickTexture() {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+function stoneBrickTexture() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#9b9b9b';
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#777777';
+  for (let row = 0; row < 4; row++) {
+    const y = row * 16;
+    ctx.fillRect(0, y, size, 2);
+    for (let x = (row % 2) * 16; x < size + 32; x += 32) {
+      ctx.fillRect(x, y, 2, 16);
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
   return texture;
 }
 
@@ -103,6 +131,7 @@ export class ChunkRenderer {
     this.opaqueMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.oreMaterial = new THREE.MeshLambertMaterial({ map: ironTexture() });
     this.goblinMaterial = new THREE.MeshLambertMaterial({ map: goblinBrickTexture(), vertexColors: true });
+    this.brickMaterial = new THREE.MeshLambertMaterial({ map: stoneBrickTexture(), vertexColors: true });
     this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
       opacity: 0.75, depthWrite: false });
     this.transparentMaterial = new THREE.MeshLambertMaterial({
@@ -188,12 +217,14 @@ export class ChunkRenderer {
       opaque: geo.opaque && new THREE.Mesh(geo.opaque, this.opaqueMaterial),
       ore: geo.ore && new THREE.Mesh(geo.ore, this.oreMaterial),
       goblin: geo.goblin && new THREE.Mesh(geo.goblin, this.goblinMaterial),
+      bricks: geo.bricks && new THREE.Mesh(geo.bricks, this.brickMaterial),
       glow: geo.glow && new THREE.Mesh(geo.glow, this.glowMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
     };
     if (entry.opaque) this.scene.add(entry.opaque);
     if (entry.ore) this.scene.add(entry.ore);
     if (entry.goblin) this.scene.add(entry.goblin);
+    if (entry.bricks) this.scene.add(entry.bricks);
     if (entry.glow) { entry.glow.renderOrder = 2; this.scene.add(entry.glow); }
     if (entry.transparent) {
       entry.transparent.renderOrder = 1;
@@ -205,7 +236,7 @@ export class ChunkRenderer {
   unload(key) {
     const entry = this.meshes.get(key);
     if (!entry) return;
-    for (const mesh of [entry.opaque, entry.ore, entry.goblin, entry.glow, entry.transparent]) {
+    for (const mesh of [entry.opaque, entry.ore, entry.goblin, entry.bricks, entry.glow, entry.transparent]) {
       if (!mesh) continue;
       this.scene.remove(mesh);
       mesh.geometry.dispose();

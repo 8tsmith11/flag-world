@@ -294,10 +294,6 @@ function createEquipmentItem(item, def, size) {
   } else if (item === ITEM.RIFT_ORB) {
     add(new THREE.SphereGeometry(size * 0.48, 12, 8), 0x674693, 0, 0.5);
     add(new THREE.SphereGeometry(size * 0.27, 10, 7), def.color, 0, 0.5, -0.28);
-  } else if (item === ITEM.FLIGHT_ORB) {
-    add(new THREE.IcosahedronGeometry(size * 0.38, 1), def.color, 0, 0.5);
-    const ring = add(new THREE.TorusGeometry(size * 0.53, size * 0.045, 5, 16), 0xd5e7ff, 0, 0.5);
-    ring.rotation.x = 0.5;
   } else if (def.shape === 'bucket') {
     add(new THREE.CylinderGeometry(size * 0.4, size * 0.32, size * 0.55, 8, 1, true), 0xa6a9ad, 0, 0.31);
     add(new THREE.CylinderGeometry(size * 0.32, size * 0.32, size * 0.05, 8), def.block === null ? 0x777b80 : def.color, 0, 0.57);
@@ -824,7 +820,11 @@ export function setHandItem(hand, item) {
   // not its side, faces the way it swings. Blocks just sit in the fist.
   const tool = getItemDef(item).tool;
   if (tool === 'hammer') model.rotation.set(-Math.PI / 2, Math.PI / 2, 0);
-  else if (tool === 'windAxe') model.rotation.set(-Math.PI / 2, Math.PI / 2, Math.PI / 2, 'ZXY');
+  else if (tool === 'sword' || tool === 'windAxe') {
+    // Roll around the forward axis after tipping the grip toward -Z.
+    // ZYX keeps the blade tip forward while presenting its edge vertically.
+    model.rotation.set(-Math.PI / 2, 0, Math.PI / 2, 'ZYX');
+  }
   else if (tool === 'crossbow') {
     model.scale.setScalar(1.25);
     model.position.set(0, 0.07, -0.15);
@@ -920,14 +920,6 @@ export function createPlayerModel({ color }) {
     new THREE.MeshBasicMaterial({ color: 0xff842b }));
   ember.position.set(0, 0.84, -BODY_RADIUS - 0.08);
   addAccessory(ITEM.EMBER_HEART, ember);
-  const orbOrbit = new THREE.Group();
-  orbOrbit.position.y = 0.95;
-  const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.105, 1),
-    new THREE.MeshBasicMaterial({ color: 0x9bcaff }));
-  orb.position.x = BODY_RADIUS + 0.23;
-  orbOrbit.add(orb);
-  orbOrbit.visible = false;
-  torso.add(orbOrbit);
 
   // Frost: flakes drifting down around the body while an Ice Sword slows them.
   const frost = new THREE.Group();
@@ -942,7 +934,7 @@ export function createPlayerModel({ color }) {
   group.add(frost);
 
   group.userData.player = { torso, head, shoulder, hand, armorParts: [chest, helmet, sleeve], armorMaterial, glider,
-    accessoryParts, orbOrbit, frost, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
+    accessoryParts, frost, walkPhase: 0, swingStart: -Infinity, crouch: 0 };
   return group;
 }
 
@@ -958,11 +950,9 @@ export function handItem(hand) {
 // Per frame. speed: horizontal blocks/s; pitch: look pitch; crouching: squash
 // and lean; draw: how far a bow is drawn (0..1), which raises the arm forward.
 export function animatePlayer(model, { dt, speed, pitch, held, armor = null, accessory = null,
-  crouching = false, draw = 0, gliding = false, slowed = false, orbActive = false }) {
+  crouching = false, draw = 0, gliding = false, slowed = false }) {
   const p = model.userData.player;
   p.glider.visible = gliding;
-  p.orbOrbit.visible = orbActive;
-  if (orbActive) p.orbOrbit.rotation.y += dt * 1.5;
   p.frost.visible = slowed;
   if (slowed) {
     // Flakes spiral down from above the head and start over at the top.

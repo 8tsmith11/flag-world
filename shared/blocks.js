@@ -10,7 +10,7 @@
 //   breakTime    - seconds of holding the break button to mine it
 //   drops        - item id dropped when broken (default: the block's own id), or null
 //   shape        - null for a plain cube, or a name the mesher draws from boxes
-//                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil', 'fence', 'sapling')
+//                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil', 'sapling')
 //
 // Ladders and doors keep their state in the block id:
 //   ladder: LADDER + facing, where facing is the side of the cell it hangs on
@@ -59,11 +59,12 @@ export const BLOCK = {
   // The darkened ground inside a dragon roost's nest.
   SCORCHED_EARTH: 57,
   QUARRY_STONE: 58,
-  SNOW: 59,
+  // ID 59 was snow; reserved so old ids stay stable.
   // Walls, floors and ceilings of the Goblin Fortress (shared/goblinModules.js).
   GOBLIN_BRICKS: 60,
-  // A low wooden fence (goblin tree plots, lookout railings).
-  FENCE: 61,
+  // ID 61 was fence; reserved.
+  REINFORCED_DOOR: 62,
+  ARROW_TURRET: 78,
 };
 
 export function isWater(id) {
@@ -136,17 +137,19 @@ export function ladderFacing(id) {
   return id - BLOCK.LADDER;
 }
 
-export function doorBlock(facing, open, upper) {
-  return BLOCK.DOOR + facing + (open ? 4 : 0) + (upper ? 8 : 0);
+export function doorBlock(facing, open, upper, reinforced = false) {
+  return (reinforced ? BLOCK.REINFORCED_DOOR : BLOCK.DOOR) + facing + (open ? 4 : 0) + (upper ? 8 : 0);
 }
 
 export function isDoor(id) {
-  return id >= BLOCK.DOOR && id < BLOCK.DOOR + 16;
+  return id >= BLOCK.DOOR && id < BLOCK.DOOR + 16
+    || id >= BLOCK.REINFORCED_DOOR && id < BLOCK.REINFORCED_DOOR + 16;
 }
 
 export function doorState(id) {
-  const n = id - BLOCK.DOOR;
-  return { facing: n & 3, open: (n & 4) !== 0, upper: (n & 8) !== 0 };
+  const reinforced = id >= BLOCK.REINFORCED_DOOR && id < BLOCK.REINFORCED_DOOR + 16;
+  const n = id - (reinforced ? BLOCK.REINFORCED_DOOR : BLOCK.DOOR);
+  return { facing: n & 3, open: (n & 4) !== 0, upper: (n & 8) !== 0, reinforced };
 }
 
 const defs = [];
@@ -173,7 +176,6 @@ define(BLOCK.GRASS, 'grass', { color: 0x5da83a, breakTime: 0.6, drops: BLOCK.DIR
 define(BLOCK.DIRT, 'dirt', { color: 0x8a5a36, breakTime: 0.5 });
 define(BLOCK.STONE, 'stone', { color: 0x8a8a8a, hardness: 2, breakTime: 1.5 });
 define(BLOCK.QUARRY_STONE, 'quarry stone', { color: 0x343b42, hardness: 8, breakTime: 4 });
-define(BLOCK.SNOW, 'snow', { color: 0xe7f2f8, hardness: 0.5, breakTime: 0.4 });
 define(BLOCK.GOBLIN_BRICKS, 'goblin bricks', { color: 0x4a4a30, hardness: 8, breakTime: 3 });
 define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: 4, breakTime: 1.5 });
 define(BLOCK.MOSSY_STONE_BRICKS, 'mossy stone bricks', { color: 0x778a70, hardness: 4, breakTime: 1.5 });
@@ -219,6 +221,10 @@ for (let facing = 0; facing < 4; facing++) {
       define(doorBlock(facing, open, upper), 'door', {
         solid: !open, transparent: true, shape: 'door', color: 0x8b5a2b, breakTime: 0.6, drops: ITEM.DOOR,
       });
+      define(doorBlock(facing, open, upper, true), 'reinforced door', {
+        solid: !open, transparent: true, shape: 'door', color: 0xa5a8ac,
+        hardness: 4, breakTime: 2, drops: ITEM.REINFORCED_DOOR,
+      });
     }
   }
 }
@@ -230,9 +236,8 @@ for (const id of FACED[BLOCK.ANVIL]) {
     color: 0x3b3d42, hardness: 2, breakTime: 2, tileEntity: 'anvil', shape: 'anvil', transparent: true, drops: BLOCK.ANVIL,
   });
 }
-// A post with rails toward neighbouring fences and solid blocks (mesher). Solid: it's jumped over.
-define(BLOCK.FENCE, 'fence', { color: 0x9a7248, breakTime: 0.6, shape: 'fence', transparent: true });
 define(BLOCK.SCORCHED_EARTH, 'scorched earth', { color: 0x3a2f29, breakTime: 0.5, drops: BLOCK.DIRT });
+define(BLOCK.ARROW_TURRET, 'arrow turret', { color: 0x85888c, hardness: 3, breakTime: 2 });
 
 // Rope breaks in one tick and leaves nothing behind.
 define(BLOCK.ROPE, 'rope', {
@@ -247,7 +252,7 @@ export function getBlockDef(id) {
 // use their ordinary item (door, ladder, bucket, etc.) instead.
 export function creativeBlockIds() {
   return Object.values(BLOCK).filter((id) => id !== BLOCK.AIR && id !== BLOCK.LADDER
-    && id !== BLOCK.DOOR && !isFlowingWater(id));
+    && id !== BLOCK.DOOR && id !== BLOCK.REINFORCED_DOOR && !isFlowingWater(id));
 }
 
 export function isSolid(id) {

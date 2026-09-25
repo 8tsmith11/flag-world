@@ -1,5 +1,5 @@
 // Goblins: the Goblin Totem, the Goblin King, and the colony: Workers
-// (dig, chop, mine the quarry), Builders (place what projects need),
+// (dig, build, chop and repair),
 // Soldiers and Archers (guard duty). They live in Game.mobs beside Crawlers
 // and Void Eels and reuse the player physics with their own boxes and
 // speeds. What they share (storage, projects, entrances) is kept by
@@ -23,7 +23,6 @@ const boxOf = ({ width, height }) => ({ halfW: width / 2, height });
 export const TOTEM_BOX = boxOf(GOBLINS.totem);
 export const KING_BOX = boxOf(GOBLINS.king);
 export const WORKER_BOX = boxOf(GOBLINS.worker);
-export const BUILDER_BOX = boxOf(GOBLINS.builder);
 export const SOLDIER_BOX = boxOf(GOBLINS.soldier);
 export const ARCHER_BOX = boxOf(GOBLINS.archer);
 
@@ -46,6 +45,7 @@ class Goblin {
     this.controller = controller;
     this.state = createPlayerState(x, y, z);
     this.state.box = box;
+    this.state.edgeGuard = true;
     this.state.yaw = Math.random() * Math.PI * 2;
     this.hp = hp;
     this.maxHp = hp;
@@ -270,7 +270,7 @@ export class GoblinTotem {
 
   snapshot() {
     const s = this.state;
-    return { id: this.id, type: this.type, name: this.name, x: s.x, y: s.y, z: s.z, yaw: 0, hp: Math.ceil(this.hp) };
+    return { id: this.id, type: this.type, name: this.name, x: s.x, y: s.y, z: s.z, yaw: s.yaw, hp: Math.ceil(this.hp) };
   }
 
   extraKey() {
@@ -294,13 +294,18 @@ export class GoblinKing extends Goblin {
   }
 
   inArena(p) {
+    if (this.controller.king === this) {
+      return this.controller.fortress.modules.some((m) => !m.building && !m.removed
+        && m.floorY === this.controller.hall.floorY && p.x >= m.box.x0 + 1 && p.x <= m.box.x1
+        && p.z >= m.box.z0 + 1 && p.z <= m.box.z1 && p.y >= m.floorY && p.y < m.box.y1);
+    }
     const a = this.arena;
     return p.x >= a.x0 && p.x <= a.x1 && p.z >= a.z0 && p.z <= a.z1 && p.y >= a.y0 && p.y <= a.y1;
   }
 
   chooseTarget(world, players, tick) {
     const provoked = this.provocation.current(world, this.eye(), tick);
-    if (provoked) return provoked;
+    if (provoked && this.inArena(provoked.state)) return provoked;
     if (this.target && huntable(this.target) && this.inArena(this.target.state)) return this.target;
     let best = null;
     for (const player of players) {
@@ -314,6 +319,16 @@ export class GoblinKing extends Goblin {
   step(world, players, tick) {
     const s = this.state;
     this.target = this.chooseTarget(world, players, tick);
+    if (this.controller.king === this) {
+      const goal = this.target && this.inArena(this.target.state) ? this.target.state : this.home;
+      this.walkTo(world, { x: goal.x, y: this.home.y, z: goal.z }, GOBLINS.king.speed,
+        { urgent: !!this.target, slack: 0.7 });
+      if (this.target && tick >= this.nextAttackTick && inReach(this, this.target, GOBLINS.king.reach)) {
+        this.nextAttackTick = tick + ticks(GOBLINS.king.cooldown);
+        return this.target;
+      }
+      return null;
+    }
     const a = this.arena;
     const goal = this.target ? { x: this.target.state.x, z: this.target.state.z } : this.home;
     const gx = Math.max(a.x0, Math.min(a.x1, goal.x)), gz = Math.max(a.z0, Math.min(a.z1, goal.z));
@@ -365,8 +380,8 @@ function topLadder(world, climb) {
   return getBlockDef(world.getBlock(climb.x, y, climb.z)).shape === 'ladder' ? y : climb.floorY;
 }
 
-// Workers and Builders: they flee from players, carry things between the
-// totem and their work, and work through jobs. `stray` ones (hatched
+// Workers flee when attacked, carry things between the totem and their work,
+// and work through jobs. `stray` ones (hatched
 // outside the fortress) potter about where they hatched instead.
 class Laborer extends Goblin {
   constructor(id, type, name, controller, x, y, z, box, settings, { stray = false } = {}) {
@@ -387,7 +402,6 @@ class Laborer extends Goblin {
     this.waitingFor = null;
     this.lastTaskTick = -Infinity;
     this.lastClimb = null;
-    this.quarryWait = null;
   }
 
   carried() {
@@ -405,7 +419,6 @@ class Laborer extends Goblin {
     const job = this.job;
     if (job?.task) this.controller.releaseTask(job.task);
     if (job?.tree) this.controller.releaseTree(job.tree);
-    if (job?.claim) this.controller.claims.delete(job.claim.key);
     this.job = null;
     this.route = null;
     this.waitingFor = null;
@@ -429,7 +442,6 @@ class Laborer extends Goblin {
       if (module.building || module.removed) continue;
       const spot = module.feature?.kind === 'totem'
         ? { x: module.box.x0 + 2.5, y: module.floorY, z: module.box.z0 + 2.5 }
-        : module.feature?.kind === 'quarry' ? { x: module.box.x0 + 1.5, y: module.floorY, z: module.box.z0 + 1.5 }
           : module.center;
       const score = away(spot);
       if (!best || score > best.score) best = { spot, score };
@@ -441,17 +453,11 @@ class Laborer extends Goblin {
   // within safeRange for safeTime. True while fleeing.
   flee(world, players, tick) {
     const settings = this.settings;
-    const threat = this.nearestThreat(players, settings.fleeRange);
-    if (threat) {
-      this.lastThreatTick = tick;
-      if (!this.fleeing) {
-        this.releaseWork();
-        this.fleeing = true;
-        this.nextFleePlan = 0;
-      }
-    }
     if (!this.fleeing) return false;
-    if (this.nearestThreat(players, settings.safeRange)) this.lastThreatTick = tick;
+    if (this.attackedBy && huntable(this.attackedBy)
+      && Math.hypot(this.attackedBy.state.x - this.state.x, this.attackedBy.state.z - this.state.z) < settings.safeRange) {
+      this.lastThreatTick = tick;
+    }
     if (tick - this.lastThreatTick >= ticks(settings.safeTime)) {
       this.fleeing = false;
       this.route = null;
@@ -588,17 +594,24 @@ class Laborer extends Goblin {
 const wallDir = (wall) => ({ N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] })[wall];
 
 // Goblin Workers dig for projects, chop wood when the totem is short of it
-// (tending the tree plots) and otherwise mine the fortress quarry.
+// (tending the tree plots).
 export class GoblinWorker extends Laborer {
   constructor(id, controller, x, y, z, options) {
     super(id, ENTITY_TYPE.GOBLIN_WORKER, 'Goblin Worker', controller, x, y, z, WORKER_BOX, GOBLINS.worker, options);
   }
 
+  has(material) {
+    return !material || (this.carrying.get(material) ?? 0) > 0;
+  }
+
   chooseJob(world, tick) {
     const c = this.controller;
+    const placement = c.claimTask(this, 'place', (t) => this.has(t.material));
+    if (placement) return { type: 'place', task: placement };
     if (this.carried() >= this.settings.carryLimit) return { type: 'deposit' };
     const task = c.claimTask(this, 'dig');
     if (task) return { type: 'dig', task };
+    if (c.pendingCount('place')) return BUILD_WORK.chooseJob.call(this, world, tick);
     if (this.stayOnSite(tick)) return { type: 'hold', kind: 'dig', until: tick + ticks(this.holdTime()) };
     if (c.surfaceOpen() && c.storage.saplings > 0) {
       const spot = c.emptyPlotSpots()[0];
@@ -614,38 +627,19 @@ export class GoblinWorker extends Laborer {
         return { type: 'chop', tree };
       }
     }
-    const claim = this.findQuarryWork(world);
-    if (claim) {
-      c.claims.add(claim.key);
-      this.quarryWait = null;
-      return { type: 'quarry', claim };
-    }
-    // Nothing regrown yet: wait by the quarry for a while before carrying a
-    // part load back.
-    if (c.quarry && this.carried() > 0 && this.carried() < this.settings.carryLimit) {
-      this.quarryWait = this.quarryWait ?? tick;
-      if (tick - this.quarryWait < ticks(this.settings.idleDeposit)) return { type: 'quarryWait', until: tick + ticks(1) };
-    }
-    this.quarryWait = null;
     if (this.carried() > 0) return { type: 'deposit' };
     return { type: 'idle', until: tick + ticks(3) };
   }
 
   doJob(world, tick) {
     const job = this.job;
+    if (job.type === 'place' || job.type === 'fetch') return BUILD_WORK.doJob.call(this, world, tick);
     const c = this.controller;
     const reach = this.settings.reach;
     switch (job.type) {
       case 'deposit':
         if (this.depositTrip(world)) this.job = null;
         return;
-      case 'quarryWait': {
-        const q = c.quarry;
-        const corner = this.id % 4;
-        this.walkTo(world, { x: q.x + (corner & 1 ? 2.5 : -1.5), y: q.y, z: q.z + (corner & 2 ? 2.5 : -1.5) }, this.settings.speed);
-        if (tick >= job.until) this.job = null;
-        return;
-      }
       case 'idle':
         if (this.carried() > 0 && tick >= job.until + ticks(GOBLINS.worker.idleDeposit)) this.job = { type: 'deposit' };
         else this.walkTo(world, c.project?.site && !c.project.surface ? c.project.site : this.idleSpot(), this.settings.speed * 0.6);
@@ -724,61 +718,15 @@ export class GoblinWorker extends Laborer {
         job.work = 0;
         return;
       }
-      case 'quarry': {
-        const { block } = job.claim;
-        if (world.getBlock(block.x, block.y, block.z) !== BLOCK.STONE) {
-          c.claims.delete(job.claim.key);
-          this.job = null;
-          return;
-        }
-        const ready = this.approach(world, block, reach, tick);
-        if (ready === 'fail') {
-          c.claims.delete(job.claim.key);
-          this.job = null;
-          return;
-        }
-        if (!ready) return;
-        if (!this.workOn(block, goblinBreakTicks(BLOCK.STONE))) return;
-        c.setBlock(block.x, block.y, block.z, BLOCK.AIR);
-        this.carry('stone');
-        c.stats.quarried++;
-        c.claims.delete(job.claim.key);
-        this.job = this.carried() >= this.settings.carryLimit ? { type: 'deposit' } : null;
-        return;
-      }
       default:
         this.job = null;
     }
   }
 
-  // A stone next to the fortress quarry that nobody has claimed, or null.
-  findQuarryWork(world) {
-    const quarry = this.controller.quarry;
-    if (!quarry || world.getBlock(quarry.x, quarry.y, quarry.z) !== BLOCK.QUARRY_STONE) return null;
-    const options = [];
-    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
-      const block = { x: quarry.x + dx, y: quarry.y + dy, z: quarry.z + dz };
-      const key = `${block.x},${block.y},${block.z}`;
-      if (world.getBlock(block.x, block.y, block.z) !== BLOCK.STONE || this.controller.claims.has(key)) continue;
-      options.push({ key, block, d: Math.hypot(block.x - this.state.x, block.z - this.state.z) });
-    }
-    options.sort((a, b) => a.d - b.d);
-    return options[0] ?? null;
-  }
 }
 
-// Goblin Builders take materials from the totem and place them for
-// projects: bricks for the fortress, ladders for shafts, planks and logs for
-// surface buildings. They never fight.
-export class GoblinBuilder extends Laborer {
-  constructor(id, controller, x, y, z, options) {
-    super(id, ENTITY_TYPE.GOBLIN_BUILDER, 'Goblin Builder', controller, x, y, z, BUILDER_BOX, GOBLINS.builder, options);
-  }
-
-  has(material) {
-    return !material || (this.carrying.get(material) ?? 0) > 0;
-  }
-
+// Placement actions shared by every Worker.
+const BUILD_WORK = {
   chooseJob(world, tick) {
     const c = this.controller;
     this.waitingFor = null;
@@ -791,11 +739,9 @@ export class GoblinBuilder extends Laborer {
       c.releaseTask(wanted);
       return { type: 'fetch', material: wanted.material };
     }
-    const soon = c.activeProjects().flatMap((p) => p.tasks).find((t) => !t.done && t.kind === 'place' && !this.has(t.material));
-    if (soon) return { type: 'fetch', material: soon.material };
     if (this.carried() > 0) return { type: 'deposit' };
     return { type: 'idle', until: tick + ticks(3) };
-  }
+  },
 
   doJob(world, tick) {
     const job = this.job;
@@ -879,7 +825,7 @@ export class GoblinBuilder extends Laborer {
         this.job = null;
     }
   }
-}
+};
 
 // Soldiers and Archers: guard duty. They patrol between the fortress, the
 // entrances and the dwellings, go for players within aggroRange (with line
@@ -909,6 +855,7 @@ class Guard extends Goblin {
       const angle = Math.random() * Math.PI * 2, d = Math.random() * 6;
       return { x: this.home.x + Math.cos(angle) * d, y: this.home.y, z: this.home.z + Math.sin(angle) * d };
     }
+    if (this.controller.alerted && this.controller.lastIntruderPos) return { ...this.controller.lastIntruderPos, kind: 'alarm' };
     const spots = this.controller.patrolSpots();
     if (!spots.length) return this.idleSpot();
     const kinds = [...new Set(spots.map((s) => s.kind))];
@@ -925,6 +872,11 @@ class Guard extends Goblin {
   chooseTarget(world, players, tick) {
     const provoked = this.provocation.current(world, this.eye(), tick);
     if (provoked) return provoked;
+    if (this.controller.alerted && this.controller.intruders.length) {
+      return this.controller.intruders.filter(huntable)
+        .sort((a, b) => Math.hypot(a.state.x - this.state.x, a.state.z - this.state.z)
+          - Math.hypot(b.state.x - this.state.x, b.state.z - this.state.z))[0] ?? null;
+    }
     const anchor = this.anchor();
     const settings = this.settings;
     if (this.target && huntable(this.target)) {
@@ -974,7 +926,12 @@ class Guard extends Goblin {
   step(world, players, tick) {
     this.mining = false;
     this.aiming = false;
-    this.target = this.chooseTarget(world, players, tick);
+    const ai = GOBLINS.optimization;
+    const distant = !this.controller.alerted && !this.target && players.every((player) => !huntable(player)
+      || Math.hypot(player.state.x - this.state.x, player.state.z - this.state.z) > ai.farPlayerRange);
+    if (!distant || tick % ai.farAITicks === this.id % ai.farAITicks) {
+      this.target = this.chooseTarget(world, players, tick);
+    }
     if (!this.target) {
       this.patrol(world, tick);
       return null;
@@ -1016,6 +973,7 @@ export class GoblinArcher extends Guard {
   // an entrance, or patrol.
   patrolSpot() {
     if (this.stray) return super.patrolSpot();
+    if (this.controller.alerted) return super.patrolSpot();
     const post = this.controller.claimPost(this);
     if (post) {
       this.post = post;
@@ -1069,6 +1027,17 @@ export class GoblinArcher extends Guard {
       this.move(world, { dx: s.x - t.x, dz: s.z - t.z }, settings.speed);
     } else if ((d > settings.range * 0.85 || !sees) && !onPost) {
       this.chase(world, tick, { x: t.x, y: t.y, z: t.z });
+    } else if (onPost) {
+      const building = this.controller.buildings.find((b) => b.post === this.post);
+      if (building) {
+        const cx = (building.box.x0 + building.box.x1 + 1) / 2;
+        const cz = (building.box.z0 + building.box.z1 + 1) / 2;
+        const dx = t.x - cx, dz = t.z - cz;
+        const edge = Math.abs(dx) > Math.abs(dz)
+          ? { x: cx + Math.sign(dx) * 1.5, y: this.post.y, z: cz }
+          : { x: cx, y: this.post.y, z: cz + Math.sign(dz) * 1.5 };
+        this.walkTo(world, edge, settings.speed * 0.7, { slack: 0.4 });
+      } else this.move(world, null, settings.speed);
     } else {
       this.move(world, null, settings.speed);
     }
@@ -1091,4 +1060,3 @@ export class GoblinArcher extends Guard {
     return `${this.climbing},${this.aiming}`;
   }
 }
-

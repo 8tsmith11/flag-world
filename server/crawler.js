@@ -101,7 +101,7 @@ export class Crawler {
       }
     }
     // Only idle crawlers mind the edge; hunting ones follow you off it.
-    s.edgeGuard = !this.target;
+    s.edgeGuard = true;
     // Climb only toward a player above us. Idle wandering into a ruin wall
     // should choose another stroll, and a roof must stop a climb.
     const above = this.target && this.target.state.y > s.y + CRAWLER_HEIGHT;

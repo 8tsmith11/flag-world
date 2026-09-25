@@ -19,7 +19,6 @@ const CHEST_SIZE = 27;
 export const CONTAINERS = ['furnace', 'chest', 'anvil'];
 import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
-import { ITEM } from '/shared/itemIds.js';
 import { recipesAt, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
 import { canHaveMods, modLines, stackName } from '/shared/modifiers.js';
 import { renderStack } from './itemIcon.js';
@@ -34,6 +33,12 @@ export class InventoryScreen {
     this.recipeList = document.getElementById('inv-recipes');
     this.open = false;
     this.creative = false;
+    this.creativeState = { immortal: false, flying: false, totemExists: false };
+    this.creativeControls = document.getElementById('inv-creative-controls');
+    for (const button of this.creativeControls.querySelectorAll('[data-creative-action]')) {
+      button.addEventListener('click', () => this.conn.send({ type: C2S.CREATIVE_ACTION,
+        action: button.dataset.creativeAction }));
+    }
     this.mode = 'inventory';
     // Block position of the workbench or furnace in use, or null.
     this.at = null;
@@ -141,6 +146,7 @@ export class InventoryScreen {
     document.getElementById('inv-chest-panel').hidden = mode !== 'chest';
     document.getElementById('inv-anvil').hidden = mode !== 'anvil';
     document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : mode === 'workbench' ? 'Workbench' : 'Crafting';
+    this.creativeControls.hidden = !this.creative || container;
     // Empty until the server's first CONTAINER message arrives.
     if (mode === 'furnace') this.setContainer({ kind: 'furnace', slots: [null, null, null], burn: 0, progress: 0 });
     if (mode === 'chest') this.setContainer({ kind: 'chest', slots: new Array(CHEST_SIZE).fill(null) });
@@ -151,10 +157,18 @@ export class InventoryScreen {
 
   setCreative(enabled) {
     this.creative = !!enabled;
+    this.creativeControls.hidden = !this.creative || CONTAINERS.includes(this.mode);
     if (this.open) {
       document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : this.mode === 'workbench' ? 'Workbench' : 'Crafting';
       this.update(this.inventory);
     }
+  }
+
+  setCreativeState(state) {
+    Object.assign(this.creativeState, state);
+    document.getElementById('creative-immortal').textContent = `Immortality: ${this.creativeState.immortal ? 'On' : 'Off'}`;
+    document.getElementById('creative-flight').textContent = `Flight: ${this.creativeState.flying ? 'On' : 'Off'}`;
+    document.getElementById('creative-totem').disabled = !this.creativeState.totemExists;
   }
 
   // view: the server's CONTAINER message ({ kind, slots, ... }).
@@ -253,8 +267,7 @@ export class InventoryScreen {
     }
     model.rotation.y += dt * PREVIEW_TURN_SPEED;
     animatePlayer(model, { dt, speed: 0, pitch: 0, held,
-      armor: this.inventory.armor?.item ?? null, accessory: this.inventory.accessory?.item ?? null,
-      orbActive: this.creative && this.inventory.accessory?.item === ITEM.FLIGHT_ORB });
+      armor: this.inventory.armor?.item ?? null, accessory: this.inventory.accessory?.item ?? null });
     renderer.render(scene, camera);
   }
 }

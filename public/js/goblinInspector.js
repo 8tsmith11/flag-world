@@ -8,7 +8,7 @@ import { raycastPlayers } from '/shared/raycast.js';
 
 // How far away the totem can be looked at.
 const RANGE = 48;
-const TYPES = [['goblinWorker', 'Workers'], ['goblinBuilder', 'Builders'], ['goblinSoldier', 'Soldiers'], ['goblinArcher', 'Archers']];
+const TYPES = [['goblinWorker', 'Workers'], ['goblinSoldier', 'Soldiers'], ['goblinArcher', 'Archers']];
 const MATERIALS = [['stone', 'Stone'], ['bricks', 'Goblin Bricks'], ['wood', 'Wood'], ['planks', 'Planks'], ['dirt', 'Dirt'], ['saplings', 'Saplings']];
 
 export class GoblinInspector {

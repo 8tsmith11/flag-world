@@ -174,8 +174,10 @@ function tinyColumn(island, x, z, noise, detail) {
   if (distance >= edge) return null;
   const t = distance / edge;
   const yTop = Math.round(island.surfaceY + (1.2 * noise(x / 6 + phase, z / 6) + 0.6 * detail(x / 4, z / 4)) * (1 - 0.5 * t * t));
-  const spur = Math.max(0, detail(x / 2.5 + 300, z / 2.5 + 300) - 0.35) * island.radius * 0.45 * (1 - t);
-  const jag = 0.85 + 0.25 * detail(x / 5 + 100, z / 5 + 100);
+  const spur = Math.max(0, detail(x / 6 + 300, z / 6 + 300) - BIOME_SETTINGS.undersideRootChance)
+    * BIOME_SETTINGS.undersideRootDepth * (1 - t);
+  const jag = 1 + BIOME_SETTINGS.undersideJagAmplitude * detail(x / BIOME_SETTINGS.undersideRootScale + 100,
+    z / BIOME_SETTINGS.undersideRootScale + 100);
   const depth = Math.max(2, Math.round((1.5 + island.radius * TINY_ROOT_DEPTH * (1 - t) ** 1.6 + spur) * jag));
   return { yTop, yBottom: yTop - depth };
 }
@@ -196,10 +198,13 @@ function terrainColumn(island, x, z, noise, detail) {
   const hill = biome.hill * (noise(x / 48, z / 48) + 0.35 * detail(x / 17, z / 17)
     + 0.3 * noise(x / 105 + 200, z / 105 + 200));
   const yTop = Math.round(island.surfaceY + biome.offset + hill * (1 - t * t));
-  const jag = 0.78 + 0.32 * detail(x / 7 + 100, z / 7 + 100);
+  const jag = 1 + BIOME_SETTINGS.undersideJagAmplitude * detail(x / BIOME_SETTINGS.undersideRootScale + 100,
+    z / BIOME_SETTINGS.undersideRootScale + 100);
+  const root = Math.max(0, detail(x / 9 + 300, z / 9 + 300) - BIOME_SETTINGS.undersideRootChance)
+    * BIOME_SETTINGS.undersideRootDepth * (1 - t);
   const depth = Math.round((island.kind === 'center'
     ? 12 + (island.radius * 0.28 + CENTRAL_EXTRA_DEPTH) * centerTaper(t)
-    : 12 + island.radius * 0.28 * (1 - t) ** 1.4) * jag);
+    : 12 + island.radius * 0.28 * (1 - t) ** 1.4) * jag + root);
   return { yTop, yBottom: yTop - depth, weights };
 }
 
@@ -253,7 +258,7 @@ function terrainFor(world, island, noise, detail) {
     if (!column) continue;
     const { yTop, yBottom } = column;
     const weights = island.kind === 'tiny'
-      ? { plains: 0, forest: 0, mountains: 0, swamp: 0, [island.biomeOverride ?? 'forest']: 1 }
+      ? { plains: 0, forest: 0, mountains: 0, [island.biomeOverride ?? 'forest']: 1 }
       : column.weights;
     const biome = surfaceBiome(weights, x, z, detail);
     world.biomeCodes[x + world.sizeX * z] = biomeCode(biome);
@@ -263,8 +268,7 @@ function terrainFor(world, island, noise, detail) {
     bottom[index(x, z)] = yBottom;
     world.recordNaturalTerrain(x, z, yBottom, yTop);
     for (let y = yBottom; y <= yTop; y++) {
-      const snowy = biome === 'mountains' && yTop >= island.surfaceY + BIOME_SETTINGS.snowHeight;
-      world.setBlock(x, y, z, y === yTop ? (snowy ? BLOCK.SNOW : BLOCK.GRASS)
+      world.setBlock(x, y, z, y === yTop ? BLOCK.GRASS
         : y > yTop - dirt ? BLOCK.DIRT : BLOCK.STONE);
     }
   }
@@ -276,7 +280,7 @@ function terrainFor(world, island, noise, detail) {
       if (slope < BIOME_SETTINGS.cliffSlope) continue;
       for (let yy = y; yy >= y - 3; yy--) {
         if (world.getBlock(x, yy, z) === BLOCK.GRASS || world.getBlock(x, yy, z) === BLOCK.DIRT
-          || world.getBlock(x, yy, z) === BLOCK.SNOW) world.setBlock(x, yy, z, BLOCK.STONE);
+          ) world.setBlock(x, yy, z, BLOCK.STONE);
       }
     }
   }
@@ -365,17 +369,13 @@ function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea, reserved =
 function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
   const { radius, x: ix, z: iz, getTop } = terrain;
   const tiny = terrain.kind === 'tiny';
-  const count = tiny ? 0 : Math.max(6, Math.round(radius * radius / pondArea))
-    * (terrain.kind === 'center' ? BIOME_SETTINGS.swampPondScale : 1);
+  const count = tiny ? 0 : Math.max(4, Math.round(radius * radius / pondArea * 0.7));
   for (let i = 0; i < count; i++) for (let attempt = 0; attempt < 40; attempt++) {
     const angle = rand() * Math.PI * 2, distance = Math.sqrt(rand()) * radius * (tiny ? 0.3 : 0.72);
     const cx = Math.floor(ix + Math.cos(angle) * distance);
     const cz = Math.floor(iz + Math.sin(angle) * distance);
-    const swamp = world.biomeAt(cx, cz) === 'swamp';
-    if (terrain.kind === 'center' && !swamp && rand() < 0.65) continue;
     const r = tiny ? 1.7 + rand() * 1.3 : 4 + rand() * 5;
-    const reach = Math.ceil(r + (tiny ? 1 : 3)
-      + (swamp ? BIOME_SETTINGS.waterRimClearance : 0));
+    const reach = Math.ceil(r + (tiny ? 1 : 3));
     if (nearKeep(cx, cz)) continue;
     const cells = [];
     let level = Infinity, highest = -Infinity, valid = true;
@@ -383,16 +383,14 @@ function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
       const x = cx + dx, z = cz + dz, top = getTop(x, z);
       if (top === -32768 || world.getBlock(x, top, z) !== BLOCK.GRASS || nearKeep(x, z)) { valid = false; break; }
       level = Math.min(level, top);
-      if (Math.hypot(dx, dz) < r * (1 + 0.15 * noise(x / 4, z / 4))
-        && !(swamp && noise(x / 3 + 200, z / 3 - 100) > 0.55)) {
+      if (Math.hypot(dx, dz) < r * (1 + 0.15 * noise(x / 4, z / 4))) {
         cells.push({ x, z, top });
         highest = Math.max(highest, top);
       }
     }
     if (!valid || highest - level > (tiny ? 2 : 6)
       || cells.some(({ x, z }) => !isSolid(world.getBlock(x, level - (tiny ? 1 : 3), z)))) continue;
-    const waterDepth = swamp ? BIOME_SETTINGS.swampWaterDepth[0]
-      + Math.floor(rand() * (BIOME_SETTINGS.swampWaterDepth[1] - BIOME_SETTINGS.swampWaterDepth[0] + 1)) : 1;
+    const waterDepth = 1;
     const pondCells = new Set(cells.map(({ x, z }) => `${x},${z}`));
     for (const { x, z, top } of cells) {
       for (let y = level; y <= top + 2; y++) world.setBlock(x, y, z, BLOCK.AIR);
@@ -556,9 +554,6 @@ export function generateIslandWorld(seed, teamCount, config) {
   for (const terrain of terrains) {
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x68bc21eb));
     addPonds(world, terrain, rand, noise, nearKeep, config.pondArea);
-    if (terrain.kind === 'tiny') plantTinyTrees(world, terrain, rand, config.tinyTrees);
-    else plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
-      { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop });
   }
   generateRivers(world, terrains[0], seed, config.rivers);
   
@@ -567,7 +562,11 @@ export function generateIslandWorld(seed, teamCount, config) {
     teamIndex: null, x: Math.floor((box.x0 + box.x1) / 2), y: box.y0, z: Math.floor((box.z0 + box.z1) / 2), box })));
   generateStructures(world, terrains, config, seed, fortressBoxes);
   placeQuarries(world, terrains, seed, config.quarry);
-  const fortressQuarry = world.goblinFortress?.modules.find((module) => module.feature?.kind === 'quarry')?.feature;
-  if (fortressQuarry) world.quarries.push({ x: fortressQuarry.x, y: fortressQuarry.y, z: fortressQuarry.z });
+  for (const terrain of terrains) {
+    const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x68bc21eb));
+    if (terrain.kind === 'tiny') plantTinyTrees(world, terrain, rand, config.tinyTrees);
+    else plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
+      { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop });
+  }
   return world;
 }

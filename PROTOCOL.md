@@ -60,8 +60,7 @@ unique within the lobby (ignoring case).
 | `springBouncing` | bool | Whether a Spring Boots landing can continue bouncing |
 | `gliding`  | bool | Glider open; also part of predicted movement state |
 | `glideBlockedTicks` | int | Ticks left before a Void Eel bite permits gliding again; part of predicted movement state |
-| `flying` | bool | Flight Orb flight active; part of predicted movement state |
-| `orbActive` | bool | Creative player wearing a Flight Orb; draw its orbiting glow |
+| `flying` | bool | Creative flight active; part of predicted movement state |
 | `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back. With a crossbow in hand: how far it's loaded, 1 while loaded (the bolt shows on it) |
 | `slowTicks` | int    | Ticks of Ice Sword frost slow left (40 on a hit); movement is 40% slower while above 0 and frost flakes are drawn around them. Part of predicted movement state |
 | `grapple`  | object \| null | While a grappling hook pulls: `{ hx, hy, hz }` where the hook caught and `{ x, y, z }` where their feet are headed; drawn as a rope to the hook. Part of predicted movement state |
@@ -71,7 +70,7 @@ unique within the lobby (ignoring case).
 
 **BlockPos** — `{ x, y, z }`, integer block coordinates inside the world.
 
-**BlockChange** — `{ x, y, z, id }`, a block that now holds block id `id`.
+**BlockChange** — `{ x, y, z, id, team? }`, a block that now holds block id `id`. `team` records ownership when a reinforced door changes.
 
 Block ids are in `shared/blocks.js`. Ladders and doors carry their state in the
 id, so opening a door or placing a ladder is just a `blockChange`. Facing is 0
@@ -83,8 +82,11 @@ north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
 | 14–29 | door | `14 + facing + 4·open + 8·upper`: facing is the way the placer looked. Solid only when closed |
 | 52 | rope | Hung by a Rope Bundle. Not solid, climbable like a ladder, breaks in one tick and drops nothing |
 | 57 | scorched earth | The ground inside a dragon roost's nest; drops dirt |
-| 58 | Quarry Stone | Dark, glowing cracked stone; hardness 8, drops itself, regrows stone on each clear face every 5 s |
-| 59 | Snow | Soft, pale mountain cap with procedural flecks; low hardness |
+| 58 | Quarry Stone | Glowing cracked stone; hardness 8, regrows stone on each open face |
+| 62–77 | reinforced door | `62 + facing + 4·open + 8·upper`; hardness 4, iron texture, opens only for its placer's team |
+| 78 | arrow turret | Solid base; the cell above is reserved for its rotating head |
+
+Ids 59 and 61 are reserved after removal of Snow and fences.
 
 Other blocks added with crafting: 30 iron ore (hardness 3), 31 sand, 32
 workbench (right click: crafting screen).
@@ -100,7 +102,7 @@ front that faces the player who placed them. They have one id per facing
 | 53–56 | anvil (hardness 2) | 53, 54, 55, 56. The horn is at the east end when it faces north |
 
 **ItemStack** — `{ item, count, mods? }`. `mods`, only on weapons, tools,
-armor and accessories, is 1 or 2 modifiers `[{ id, value }]` (see
+armor and accessories, is at most one modifier `[{ id, value }]` (see
 **Modifiers** below); a stack with `mods` is one item instance and never
 merges with another. Item ids (`shared/items.js`,
 `shared/itemIds.js`): 0–255 are the blocks (placed as that block); 256 and up
@@ -118,15 +120,12 @@ loot-only Wind Axe, Ice Sword, crossbow, Rope Bundle (stack size 8) and
 grappling hook. `287` Dragon Scale (dropped by dragons), `288` Silk (dropped by
 Crawlers, no use yet) and `289` Dragonscale Armor. Block `53` (anvil) is also
 its item.
-`290` is the creative-only Flight Orb accessory. `291`–`296` are Cow,
+`290` is reserved after removal of the Flight Orb. `291`–`296` are Cow,
 Dragon, Crawler, Void Eel, Goblin Worker and Goblin King spawn eggs, and
-`297`–`299` Goblin Builder, Goblin Soldier and Goblin Archer spawn eggs; their definitions live in
+`297` is reserved; `298`–`299` are Goblin Soldier and Goblin Archer spawn eggs; their definitions live in
 `shared/mobEggs.js`. All egg types are creative-only to obtain, but anyone
 holding one can use it. Grass and dirt both drop dirt. Block `60` is Goblin
-Bricks (hardness 8, drops itself), the walls of the Goblin Fortress. Block
-`61` is a fence (a post with rails toward neighbouring fences and solid
-blocks; solid, one block tall), which goblins use around tree plots and on
-lookouts.
+Bricks (hardness 8, drops itself), the walls of the Goblin Fortress.
 Buckets, armor, accessories, gliders, hammers, swords, bows, crossbows, Wind
 Axes and grappling hooks have stack size 1;
 ordinary items stack to 64. What held tools do is in `shared/tools.js`.
@@ -183,7 +182,7 @@ then in `state` only on ticks it moved.
 | `yaw` | number | Facing (0 looks toward -Z) |
 | `climbing` | bool | Climbing a wall (drawn tipped up it) |
 
-**GoblinSnapshot** — a Goblin Worker, Builder, Soldier, Archer or the Goblin
+**GoblinSnapshot** — a Goblin Worker, Soldier, Archer or the Goblin
 King. Sent in `entitySpawn` / `welcome` (with `maxHp`), then in `state` on
 ticks it moved or its `climbing`, `mining`, `carrying` or `aiming` changed
 (and on ticks offscreen mode moved it).
@@ -191,14 +190,14 @@ ticks it moved or its `climbing`, `mining`, `carrying` or `aiming` changed
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | int | Entity id |
-| `type` | string | `"goblinWorker"`, `"goblinBuilder"`, `"goblinSoldier"`, `"goblinArcher"` or `"goblinKing"` |
+| `type` | string | `"goblinWorker"`, `"goblinSoldier"`, `"goblinArcher"` or `"goblinKing"` |
 | `name` | string | `"Goblin Worker"` etc., used in the event feed |
-| `x`,`y`,`z` | number | Feet position (boxes: worker and builder 0.6 × 1.2, soldier 0.7 × 1.3, archer 0.6 × 1.25, King 1.1 × 2.6) |
+| `x`,`y`,`z` | number | Feet position (boxes: worker 0.6 × 1.2, soldier 0.7 × 1.3, archer 0.6 × 1.25, King 1.1 × 2.6) |
 | `yaw` | number | Facing (0 looks toward -Z) |
 | `hp` | number | Health (`maxHp` in `entitySpawn` / `welcome`) |
 | `walking`, `climbing` | bool | Walking; on a ladder |
 | `mining` | bool | Swinging its tool at a block (digging, chopping, building, clearing its way) |
-| `carrying` | int | Workers and Builders: items or materials it's carrying |
+| `carrying` | int | Worker: items or materials carried |
 | `aiming` | bool | Archer only: bow up at a target |
 
 **GoblinTotemSnapshot** — the Goblin Totem. Sent in `welcome` / `entitySpawn`
@@ -359,7 +358,7 @@ players can have the same one open.
 The Reroll button at an anvil you have open (`openContainer`, in reach). If
 its slot holds a weapon, tool, armor or accessory and your slots hold 2 iron
 ingots, the server takes the ingots and replaces the item's modifiers with a
-fresh roll (1 modifier 75%, 2 modifiers 25%), including on items that had
+fresh roll of one fixed-value modifier, including on items that had
 none. The results arrive as `container` and `inventory`. Otherwise ignored.
 
 | Field | Type | Notes |
@@ -392,6 +391,20 @@ No fields. Only a connection from localhost that has joined the lobby or a
 match may toggle its own creative mode. Other requests are silently ignored.
 The server responds only to that connection with `creative`.
 
+### `creativeAction`
+
+`{action}` from the local creative host during a match. Accepted actions are
+`"teleportTotem"` (to an open spot in the Totem Hall while the totem exists),
+`"setDay"` (noon), `"setNight"` (midnight), `"toggleImmortal"`, and
+`"toggleFlight"`, and `"maxGoblinBase"`. The last action grants 10,000 each
+of stone, Goblin Bricks, wood, planks, dirt and saplings to the totem, then
+forces accelerated offscreen construction even with players nearby until
+the module, dwelling and tree-plot caps, entrance relocation and outer wall
+are built.
+The server replies with `creative`; time changes also broadcast `dayTime`.
+Immortality prevents damage and returns a player who falls into the void to
+their keep.
+
 ### `reclaim`
 
 Match-in-progress screen only. Takes over a disconnected match player; gets
@@ -412,7 +425,7 @@ Match players only. Sent once per simulation tick (20/s). Each input advances th
 | `sprint`  | bool | Run while moving forward (Ctrl held or W tapped twice within 300 ms); ignored in water, on ladders, while crouching, eating or drawing a bow |
 | `strafe`  | number | -1..1 (D = 1, A = -1) |
 | `jump`    | bool   | Jump held (swim up in water, jump out at the surface) |
-| `flyToggle` | bool | Double-tap jump within 300 ms. Toggles flight only while creative and wearing a Flight Orb |
+| `flyToggle` | bool | Double-tap jump within 300 ms. Toggles flight while creative |
 | `crouch`  | bool   | Crouch held (Shift, only while no screen is open) |
 | `draw`    | bool   | Right mouse held with a bow or crossbow in hand (the client sends it only then; the server ignores it without one): draws the bow or loads the crossbow |
 | `fire`    | bool   | A click (either button) with a loaded crossbow in hand: shoots its bolt this tick. Ignored without a crossbow |
@@ -457,8 +470,9 @@ and is outside every keep's volume. Then, by item:
 - **Sapling:** right click the top of grass or dirt to plant it. It grows a
   tree after 3–5 minutes (`SAPLING_GROW_TIME`) if the trunk has room; blocked
   saplings retry.
-- **Rope Bundle:** any clicked face. Rope fills this cell and each cell
-  straight below it, up to 40 in all, stopping above the first cell that
+- **Rope Bundle:** any clicked face, or an existing rope column to extend it
+  downward from its bottom end. Rope fills each cell straight below the
+  starting point, up to 40 in all, stopping above the first cell that
   isn't air or water (a solid block, for example) or is in a keep's no-build
   zone. One bundle is used however long the column is.
 
@@ -535,10 +549,11 @@ the nearest player they can see within 12 blocks, give up beyond 24, and bite
 for 3 (every 1 s, before armor) when within 0.6 blocks of the player's box. A
 dead Crawler drops 0–2 Silk.
 
-Void Eels: `eels` in `WORLD_SIZES` (4, 7, 10) roam a deep void band from
-30 blocks below the lowest natural island underside to 10 blocks above the
-void kill height. Half start under the central island. An eel detects a player
-in a 12-block-radius column extending 90 blocks above it (30% farther at
+Void Eels: `eels` in `WORLD_SIZES` (4, 7, 10) roam a void band whose top
+stays deep under the central island and rises to about 20 blocks below the
+nearest outer island underside elsewhere. Half start under the central
+island. An eel detects a player
+in a 24-block-radius column extending 180 blocks above it (30% farther at
 night) when no natural island terrain separates them. Player-built blocks do
 not block detection. It rises toward exposed players, chases up to about 30
 blocks away, and returns to the deep band after losing a target for 10 s or
@@ -575,11 +590,11 @@ up to 30 blocks, against solid blocks, and starts a 3 s cooldown whether it
 hits or not. On a hit, the player is pulled in a straight line at 20
 blocks/s toward the hook: onto a top face, or to bring the middle of their
 body to a side or bottom face. Gravity, walking and knockback don't apply
-during the pull. It ends on arrival or as soon as the move is blocked on any
-axis, leaving the player at rest, and at once if they start carrying a flag.
+during the pull. After arrival the player stays attached at the hook point,
+without gravity or sliding, even after switching items; jump releases them.
+It also releases if the player starts carrying a flag.
 A hook can't be fired while carrying a flag. The pull is part of the shared
-physics (`grapple` in the snapshot), so it's predicted, and fall damage
-counts from the highest point as usual once it ends.
+physics (`grapple` in the snapshot), so it's predicted.
 
 `attack` is confirmed by the server: it casts a ray from the attacker's eyes
 along this input's `yaw`/`pitch`, up to `REACH_DISTANCE` or the first block in
@@ -656,7 +671,10 @@ reclaim.
 | `tick`    | int           | Current server tick |
 | `dayTime` | number        | Time of day at `tick`, 0..1 (see **Day and night**). Clients advance it with the ticks in `state` |
 | `creative` | bool | Whether this connection's player has creative mode active |
+| `immortal`,`flying`,`totemExists` | bool | Creative control state and whether Totem teleport is available |
 | `blocks`  | BlockChange[] | Every block changed since generation; apply after `generateWorld` |
+| `doorTeams` | `{key,team}[]` | Reinforced door ownership by lower-half block coordinate key |
+| `turrets` | `{x,y,z,id,team,yaw,pitch}[]` | Current turret bases and head angles |
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
 | `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Orb portals; `expiresTick` is a server tick |
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
@@ -676,6 +694,7 @@ Broadcast every server tick (20/s).
 | `tick`     | int              | Server tick number |
 | `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | All players, dragons and Void Eels, plus only the items, projectiles, cows, Crawlers and goblins that moved (or changed, see their snapshots) this tick. One not listed stays where it was |
 | `flags`    | FlagState[] | Every flag |
+| `turrets` | `{x,y,z,id,team,yaw,pitch}[]` | Current turret bases and head angles |
 
 ### `portalSpawn`, `portalDespawn`, `emberBurst`
 
@@ -693,13 +712,19 @@ player who caused it.
 |-----------|------|-------|
 | `x`,`y`,`z` | int | Block position |
 | `id`      | int  | New block id |
+| `team`    | int \| null | Reinforced door owner, or null when ownership is removed; omitted for other blocks |
 
 ### `creative`
 
-Sent only to the localhost player after an accepted `creativeToggle`.
-`{enabled: boolean}` controls the private Creative Mode label and crafting
-catalogue. Creative players keep their inventory on death, but take normal
-damage. Turning creative mode off keeps all acquired items.
+Sent only to the localhost player after an accepted `creativeToggle` or
+`creativeAction`: `{enabled, immortal, flying, totemExists}`. The flags update
+the private Creative Mode label, controls and crafting catalogue. Turning
+creative mode off disables flight and immortality while keeping acquired items.
+
+### `dayTime`
+
+Broadcast after a creative `setDay` or `setNight` action as `{dayTime, tick}`.
+Clients restart their visual day clock from this pair.
 
 ### `quarryPuff`
 
@@ -775,14 +800,16 @@ state, which their client shows while they look at the Goblin Totem.
 | `totemId` | int \| null | The Totem's entity id |
 | `totemAlive` | bool | |
 | `storage` | object | Totem storage by material: `stone`, `bricks`, `wood`, `planks`, `dirt`, `saplings` |
-| `project` | object \| null | The work in hand (repairs first): `{ kind, label, progress (0..1), done, total, waiting }`; `kind` is `repairs`, `shaft`, `gatehouse`, `module`, `dwelling`, `plot` or `widen`; `waiting` when builders are short of a material |
-| `nextProjectIn` | int | Seconds until the next project may start (0 while one runs) |
-| `population` | object | Colony goblins alive by type (`goblinWorker`, `goblinBuilder`, `goblinSoldier`, `goblinArcher`) |
+| `project` | object \| null | The work in hand (repairs first): `{ kind, label, progress (0..1), done, total, waiting }`; `kind` includes `repairs`, `shaft`, `gatehouse`, `module`, `dwelling`, `plot`, `wall` and `relocationPlug`; `waiting` when materials are short |
+| `nextProjectIn` | int | Always 0; projects start back to back |
+| `population` | object | Colony goblins alive by type (`goblinWorker`, `goblinSoldier`, `goblinArcher`) |
 | `total`, `capacity`, `hardCap` | int | Colony size, current capacity, and the world size's hard cap |
 | `modules`, `moduleCap` | int | Brick modules and their cap |
 | `dwellings`, `dwellingCap` | int | Standing surface dwellings and their cap |
 | `plots` | int | Tree plots |
-| `entrances` | `{ width, gatehouse }[]` | Surface entrances: ladder columns wide, gatehouse built |
+| `walls`, `outerWall` | int, bool | Number of finished wall projects and whether the final outer wall is built |
+| `entrances` | `{ width, gatehouse, sealed }[]` | Surface entrance width, gatehouse state and whether its shaft is plugged |
+| `relocation` | string | `pending`, `digging`, `new entrance` or `complete` |
 | `offscreen` | bool | Goblins are in offscreen (estimated) mode |
 
 ### `goblinTotemDestroyed`
@@ -936,8 +963,9 @@ stops gliding on the next input tick. A gliding landing takes no fall damage.
 The `gliding` snapshot field drives first and third person canopy rendering.
 
 Wind Boots multiply move speed by 1.25, including sprinting and flag-carrier
-slowdown. With Spring Boots, hold jump on the ground for up to 1 s and release
-for a charged jump up to about five blocks high. Falls over three blocks
+slowdown. With Spring Boots, a tap released before about 0.2 s gives a normal
+jump. Hold jump on the ground for up to 1 s and release for a charged jump
+up to about eight blocks high. Falls over three blocks
 bounce at half impact speed, repeatedly until the bounce would be under one
 block; crouching on landing cancels the bounce. Spring movement is predicted
 with the shared physics and checked by the server. Heart Amulet raises maximum
@@ -969,21 +997,24 @@ Eels use this mask to distinguish exposed bridges from protected island ground.
 ## Biomes and rivers
 
 Low-frequency noise selects plains and forest on team islands, and plains,
-forest, mountains and swamp on the central island. Height and tree density
+forest and mountains on the central island. Height and tree density
 blend across a broad transition band, while scattered surface patches avoid
 hard color boundaries. Tiny islands inherit the nearest main island's biome;
-faraway ones are plains or forest. Plains have low hills and more cows. Forests
-have denser, sometimes larger trees and darker grass. Mountains have tall
-peaks, exposed stone, more exposed iron ore and soft Snow caps. Swamps have
-low ground, darker grass, shallow contained water and trees on dry hummocks.
+faraway ones are plains or forest. Plains have broad flat open areas, gentle
+rolls, sparse trees and more cows. Forests have gentle terrain with large flat
+areas and closely spaced trees of varied size. Grass has one color everywhere.
+Mountains have tall peaks, exposed stone on steep faces and grass/dirt on
+gentle slopes; they have no snow or generated springs.
 Houses occur in forest or plains; mountain sites favor towers. Loose chests
 and underside ruins keep their normal placement rules.
 
 The central island has 1 / 2 / 3 downhill rivers on Small / Medium / Large.
 They start on high ground, prefer mountains, and carve channels 3–5 blocks
 wide. Banks keep water in its channel until it reaches an edge. Generated
-rivers avoid keeps and all structures. Ponds and swamp water stay inside the
-island rim; river waterfalls may run into the void.
+rivers avoid keeps and all structures and clear natural terrain from their
+channels up to roughly ten blocks above the water without cutting another
+island stacked overhead. Trees are generated after rivers, ponds and
+structures, and cannot stand over water. Ponds are about 30% less common.
 
 ## Island generation
 
@@ -1000,13 +1031,15 @@ loose chest or a dragon roost (see **Tiny islands**). There are no
 loose surface chests on main islands. The counts and
 chances are in each `WORLD_SIZES` preset. Keeps and surface structures use
 median terrain height, filled foundations, and sloped margins; only keeps are
-indestructible. Underside ruins are either cliffside rooms embedded near the
-lower island wall, with outward balconies, or hanging rooms built into the
-roots. They have no built-in ladder or route from the surface. Ruins have
+indestructible. Underside ruins are cliffside rooms embedded near the lower
+island wall, with outward balconies. They have no built-in ladder or route
+from the surface. Ruins have
 missing and weathered blocks. Generated chests use
 the tables in `shared/loot.js` (a `roost` table for roost nests; Rope Bundles are fairly common, crossbows
 and grappling hooks uncommon, and Wind Axes and Ice Swords rare, less so in
-central, dungeon and underside chests); the server rolls their slots on first open from
+central, dungeon and underside chests). Central island tables have more iron,
+accessories and rare gear; team island tables are weaker except cliffside
+ruins, which retain their good underside loot. The server rolls slots on first open from
 the world seed and chest position. Breaking one before opening it drops its
 seeded contents. Player-placed chests start empty.
 When wood is removed, the server checks nearby leaves in bounded batches.
@@ -1046,24 +1079,24 @@ modded). Its dragon is leashed to the island (radius + 20).
 
 ## Modifiers
 
-Weapons, tools, armor and accessories can carry modifiers (`shared/modifiers.js`):
-an item has none, one or two, never the same twice, each with a value rolled in
-its range. The item's name gains them as prefixes ("Keen Heavy Iron Sword") and
-its tooltip lists each with its value.
+Weapons, tools, armor and accessories can carry at most one modifier
+(`shared/modifiers.js`). Each modifier has the same fixed value on every item.
+Its name is a prefix (for example, "Keen Iron Sword") and the tooltip shows
+the effect.
 
 | Category | Items | Modifiers |
 |---|---|---|
-| Melee | swords, Ice Sword, Wind Axe | Sharp (+1–2 damage), Keen (−15–25% attack cooldown), Heavy (+30–60% knockback), Vampiric (25–50% chance to heal 1 HP on a hit) |
-| Ranged | bow, crossbow | Power (+1–2 arrow damage), Quickdraw (−20–35% draw and load time), Far (+20–40% arrow speed) |
-| Armor | leather, iron, dragonscale | Sturdy (+1–2 armor points), Light (+5–10% move speed), Thorns (a melee attacker, player or mob, takes 1–2 damage per hit) |
-| Accessory | all five | Vital (+1–2 max HP), Fleet (+5–10% move speed), Cushioned (−20–40% fall damage) |
-| Hammer | hammers | Efficient (+20–40% break speed) |
+| Melee | swords, Ice Sword, Wind Axe | Sharp (+2 damage), Keen (−20% attack cooldown), Heavy (+45% knockback), Vampiric (35% chance to heal 1 HP on a hit) |
+| Ranged | bow, crossbow | Power (+2 arrow damage), Quickdraw (−25% draw and load time), Far (+30% arrow speed) |
+| Armor | leather, iron, dragonscale | Sturdy (+2 armor points), Light (+8% move speed), Thorns (2 damage to a melee attacker) |
+| Accessory | all five | Vital (+2 max HP), Fleet (+8% move speed), Cushioned (−30% fall damage) |
+| Hammer | hammers | Efficient (+30% break speed) |
 
 Other items never have modifiers. Loot rolls them per chest entry
 (`modChance`: about 15% for wood and stone gear, bows and leather armor, 30%
 for iron gear and crossbows, 50% for the Wind Axe, Ice Sword and accessories,
-and 60–70% in roost nests); a modded item gets one modifier (75%) or
-two (25%). Crafted items have none. Light and Fleet multiply, and are part of
+and 60–70% in roost nests); a modded item gets one modifier with its fixed
+value from `shared/modifiers.js`. Crafted items have none. Light and Fleet multiply, and are part of
 the predicted movement (`moveScale`).
 
 The anvil (crafted at a workbench from 6 iron ingots) holds one moddable item.
@@ -1095,21 +1128,21 @@ a double-click on the Flag World title, then clicks in the top-left, top-right,
 bottom-right and bottom-left screen quadrants within 3 s. The server confirms
 the toggle with `creative`; only that client shows the Creative Mode label.
 Clicking the label while the pointer is unlocked turns creative off. Creative
-mode gives access to the one-dirt catalogue and retains inventory on death;
-damage still applies normally and acquired items remain when it is turned off.
+mode gives access to the one-dirt catalogue and retains inventory on death.
+Its inventory controls teleport to the Goblin Totem, set noon or midnight,
+toggle immortality and flight, and instantly max the Goblin base by granting
+10,000 of each material and accelerating construction. Double-tapping jump also toggles flight
+while creative. Jump rises, crouch descends, horizontal flight is twice
+walking speed, and flight has no gravity or fall damage. Acquired items remain
+when creative is turned off.
 
-The Flight Orb is a creative-only accessory. While creative is active and it
-is equipped, double-tap jump to toggle flight. Jump rises, crouch descends,
-horizontal flight is twice walking speed, and flight has no gravity or fall
-damage. The orb glows as it orbits the player.
-
-Spawn eggs exist for Cow, Dragon, Crawler, Void Eel, Goblin Worker, Builder,
+Spawn eggs exist for Cow, Dragon, Crawler, Void Eel, Goblin Worker,
 Soldier, Archer and Goblin King. Right-clicking a solid block with one spawns
 its normal mob on top and consumes the egg. Cow, Dragon and Crawler use the
 spawn position as home or leash center; a Void Eel uses the nearest island. A
-Goblin Worker, Builder, Soldier or Archer hatched inside the Goblin Fortress
+Goblin Worker, Soldier or Archer hatched inside the Goblin Fortress
 joins the colony (and counts toward its population); outside it, it's a
-stray: Workers and Builders potter about where they hatched and flee players,
+stray: Workers potter about where they hatched and flee when attacked,
 Soldiers and Archers guard around it. A Goblin King
 hatched in the Totem Hall guards it; anywhere else it guards a 16-block square
 around where it hatched. Anyone holding an egg can use it.
@@ -1122,14 +1155,14 @@ World gen builds one Goblin Fortress deep inside the central island
 blocks with its own Goblin Brick walls, floor and ceiling; neighbouring modules
 connect through 2-wide, 3-tall doorways cut through both walls, or, between
 ladder shafts, a ladder through the floor and ceiling. Module types: room,
-hallway, corner, T and cross junctions, dead end, ladder shaft, the Totem Hall
-(2 × 2 cells, 2 levels tall) and the Quarry room. The starting fortress is the
-Totem Hall, 3–5 hallway/junction/corner/shaft modules and the Quarry room (a
-Quarry Stone in the middle), sometimes over two levels. It stands at a seeded
+hallway, corner, T and cross junctions, ladder shaft, Bunk Room and the Totem
+Hall (2 × 2 cells, 2 levels tall). The starting fortress contains only the
+Totem Hall. Its totem faces the first planned expansion toward the surface
+shaft. It stands at a seeded
 angle and 30–62% of the radius from the island's center, at least 30% out,
 with natural stone at least 3 blocks under, 5 over and 3 beside it, 10 blocks
 above the deepest spot that fits (room to grow below). The central island's
-underside barely tapers, so the fortress can spread sideways; where the
+underside tapers smoothly with occasional roots; where the
 island is still too thin, its underside is deepened under the fortress. Caves
 and structures keep clear of it. The graph (modules, connections and the
 points goblins walk through) is `world.goblinFortress`; later phases add
@@ -1144,9 +1177,9 @@ bursts (`goblinTotemDestroyed`), drops a `goblinTotem` loot pile, is announced
 (`chat`), and goblins stop spawning and stop starting or working on projects
 for the rest of the match; the goblins alive carry on otherwise.
 
-The Goblin King (80 HP) stays in the Totem Hall, attacks players inside it (7
-damage, strong knockback, every 1.5 s), is provoked like other mobs but never
-leaves the hall, and returns beside the totem when it has no target. It drops
+The Goblin King (80 HP) can walk between chambers on the Totem Hall's ground
+level, attacks players there (7 damage, strong knockback, every 1.5 s), and
+never climbs ladders. It drops
 `goblinKing` loot and doesn't respawn.
 
 All goblin numbers are in `shared/goblins.js` (`GOBLINS`); `goblinTimeScale`
@@ -1156,74 +1189,78 @@ waits, plot tree growth), though not walking.
 
 ### The colony
 
-A match starts with 1 Worker and 1 Builder, and the totem holds 9 saplings
-and enough planks to ladder the planned surface shaft, plus 10.
+A match starts with 1 Worker, the King and the Totem. The totem holds 9
+saplings and enough planks to ladder the planned surface shaft, plus 80.
 
-- **Workers** (10 HP) dig out what projects need, carrying what they dig to
-  the totem (stone, dirt, wood, planks, bricks), chop wood when storage is
-  short of it, and otherwise mine the stone the Quarry Stone regrows.
-- **Builders** (10 HP) take materials from the totem and place them: Goblin
-  Bricks for the fortress (stone becomes bricks 1:1 at the totem when they're
-  needed), ladders for shafts, planks and logs for surface buildings (wood
-  becomes 4 planks when needed). They never fight.
-- Workers and Builders flee from any player within 8 blocks and go back to
-  work once none has been within 12 for 3 s. Killed, they drop what they
-  carry (materials as their blocks).
-- Both break anything in the way of their work or their path, including
-  player-placed blocks, taking longer the harder the block (as with a hammer
-  of strength 2: each point of hardness above that adds the base time again).
-  They never break keep blocks, and never touch the totem. Builders scoop out
-  water (sources and flowing) where it's in the way.
-- **Soldiers** (16 HP, walking speed) carry a crude sword and a small shield:
+- **Workers** (10 HP) dig and build every project, repair damaged structures,
+  carry materials to and from the totem, and chop wood when needed. Stone
+  comes only from digging the fortress, shafts and other construction sites;
+  no goblin quarry exists. Stone becomes Goblin Bricks 1:1 and wood becomes
+  four planks when needed. Workers ignore nearby players while working and
+  flee only after being attacked; they return to work when safe. Killed,
+  they drop what they carry.
+- Workers break obstacles, including player blocks, at the configured break
+  speed (about 1.5 times slower than before). They never break keeps or the
+  totem. They remove all blocks from a new module cell before placing its
+  Goblin Brick floor, walls and ceiling; hallway and ladder modules toward
+  the exit take priority so they dig their own route out.
+- **Soldiers** (16 HP, about 1.15 times player walking speed) carry a crude sword and a small shield:
   4 damage every 1 s. **Archers** (10 HP) shoot server-simulated arrows (3
   damage, range 20, every 1.5 s) and back away from players within 5 blocks.
-  Both patrol between the fortress, the entrances and the dwellings (Archers
-  prefer standing on a Lookout, or near an entrance), attack players within
+  Archers hold Lookouts or wall posts when available and move to the post edge
+  nearest a target before shooting; otherwise they patrol with soldiers.
+  Both patrol between the fortress, the entrances and the dwellings, attack players within
   12 (Soldiers) / 20 (Archers) blocks that they can see, give up a chase 25
   blocks from their patrol spot, and are provoked like other mobs (ignoring
-  that limit). Goblin arrows only hit players.
+  that limit). When a player enters any fortress module, all soldiers and
+  archers converge on the intruder, leaving posts. They resume ordinary
+  duty after 30 seconds without an intruder. Goblin arrows only hit players.
 - Goblins going up to the surface gather at the bottom of the shaft and climb
   together once 3–5 have gathered (or after 8 s), soldiers first, half a
   second apart.
 
-**Population:** capacity is 3 (the Totem Hall) plus 2 per Bunk Room plus the
-standing dwellings' capacity, never more than 25 / 40 / 60 (Small / Medium /
-Large). While below capacity and the totem stands, a goblin spawns by the
-totem every 3 minutes if the totem can pay 10 stone and 5 planks (never with
-what the current work still needs). Its type is by need: a Builder when
-placements pile up, a Worker when materials are short or digs pile up,
-otherwise toward 35% Workers, 20% Builders, 25% Soldiers, 20% Archers. Dead
-goblins aren't respawned; the population refills by spawning.
+**Population:** capacity is 3 (the Totem Hall) plus 2 per underground Bunk
+Room plus standing dwellings' capacity, capped at 25 / 40 / 60 (Small /
+Medium / Large). Spawns and respawns are free while the totem lives and
+follow the spawn timer. Every goblin occupies a fixed-number slot; the next
+spawn fills the lowest open slot within capacity. Slot 1 is Worker, 2–4
+Soldier, 5 Archer, 6 Worker, then the repeating Soldier, Soldier, Archer,
+Soldier, Worker pattern. The pattern resets each match.
 
 ### Projects
 
-Goblins work through one project at a time (projects are lists of block
-tasks: digs for Workers, placements for Builders). Between projects they rest
-4 minutes. Repairs always go first. Otherwise, by priority:
+Goblins work through one project at a time (lists of dig and place tasks for
+Workers). Projects run back to back. Repairs always go first. Otherwise,
+by priority:
 
-1. **Repairs.** Blocks the goblins built and keep (fortress modules, shafts,
-   gatehouses) that anyone else changes, by breaking, blocking or flooding
-   them, become repair tasks after 2 s: blocks put back, blockages dug out,
-   water sources scooped up (flowing water drains by itself).
+1. **Repairs.** A block change inside a goblin structure footprint marks that
+   structure damaged. Workers compare marked structures to their templates
+   and rebuild only differences, then clear the damage mark.
 2. **Surface shaft** (the first project): a shaft base module beside the
    fortress (on its top level when possible) and a ladder column from it up
    to the central island's surface, emerging at a seeded spot clear of keeps,
    structures and rivers, on the most level, solid, low ground available.
-   Workers dig it, Builders ladder it and brick up any open sides. The moment
+   Workers dig it, add ladders and line every side with Goblin Bricks,
+   including 1 × 1 shafts. The moment
    it breaks through to the sky, `chat` announces it.
 3. **Shaft gatehouse**, right after: a Goblin Brick house around the shaft's
    top (ladders on its back wall, a doorway in front, a path cleared out of
    the door).
-4. **Tree plot** (at most 1 / 1 / 2) when wood storage is low: an 11 × 11
-   flattened, fenced plot near an entrance with a 3 × 3 grid of saplings 4
+4. **Tree plot** (at most 1 / 1 / 2) when wood storage is low: a 13 × 13
+   flattened, plank-bordered plot near an entrance with a 3 × 3 grid of saplings 4
    apart. Workers harvest grown trees and replant at once (the harvest gives
    the sapling back). Before any plot, Workers chop at most 4 natural trees
    near an entrance; after that only plot trees.
-5. **Entrance upgrades**, now and then (15% of choices): widen a shaft by
-   another ladder column (up to 3), or, once the fortress has 16 / 22 / 30
-   modules, dig a second entrance with its own gatehouse (2 at most). Only
-   with the planks for the ladders at hand.
-6. Alternating **fortress modules** and **surface dwellings** (dwellings only
+5. **Entrance relocation**, once the surface base has several buildings and
+   the fortress has expanded: a distant module connects to a new 3 × 3 lined
+   shaft, ladders and gatehouse. After it is complete, workers fill the
+   entire old shaft with Goblin Bricks and remove its gatehouse. This does
+   not send a chat announcement.
+6. **Wall sections** begin after at least six surface dwellings. Three-block
+   Goblin Brick walls enclose groups of buildings, with two-wide gates and
+   ladder-accessible archer posts. At the dwelling cap, a final outer wall
+   encloses the base.
+7. Alternating **fortress modules** and **surface dwellings** (dwellings only
    when the population is within 1 of capacity); when one is capped or has
    nowhere to go, the other.
 
@@ -1238,13 +1275,18 @@ over structures, rivers, keeps or goblin buildings. A module may rise out of
 the ground (then it stands as a brick building on the surface), or, at the
 island's edge, a sealed room at the end of a hallway may poke out of the cliff
 (nothing grows past it). Its whole shell is Goblin Bricks: where it passes
-through caves or open air, Builders brick up every open cell of its walls,
+through caves or open air, Workers brick up every open cell of its walls,
 floor and ceiling. Brick modules are capped at 25 / 35 / 50.
 
-**Surface dwellings** stand within 30 blocks of an entrance, on level, solid
+**Surface dwellings** stand near an entrance, outside the inner 35% of the
+central island's radius, on level, solid
 ground (flattened and filled underneath), doors facing the entrance: Hut (+2
 capacity), Longhouse (+4) and Lookout (+1; a raised platform with a ladder,
-where an Archer stands guard). Capped at 6 / 10 / 14. Players can break them;
+where an Archer stands guard). Capped at 18 / 30 / 42 independently from the
+brick module cap. Before construction, workers clear and flatten the full
+footprint plus a three-block margin, removing whole trees for wood without
+counting them toward the four natural trees they may chop for supplies.
+Players can break them;
 one that loses 30% of its blocks stops counting and may be rebuilt later as a
 normal project. When wood is gone for good, a waiting dwelling is given up.
 
@@ -1253,12 +1295,16 @@ normal project. When wood is gone for good, a waiting dwelling is given up.
 When no player is within 100 blocks of the fortress, the entrances, the
 surface buildings, the active site and every colony goblin, goblins stop
 moving and their work advances at estimated rates instead: every 2 s, each
-Worker and Builder gets 2 s of work, spent on the same tasks (cost: the
+Worker gets an estimated work budget, spent on the same dig and place tasks (cost: the
 block's break or place time, plus its share of the trips between the totem
 and the site). Changes are applied to the world directly in batches (as
 ordinary `blockChange`s), spawning continues as usual, and goblins are placed
 at plausible spots for their work (appearing in `state`). When a player comes
-within range, full simulation resumes from there.
+within range, full simulation resumes from there. Idle goblins inside the
+fortress are skipped until a player enters; moving and working goblins keep
+simulating. AI work is staggered and distant goblins update less often. The
+creative max-base action grants resources and forces accelerated offscreen
+construction even while players are nearby.
 
 ## Day and night
 
@@ -1269,4 +1315,4 @@ sends it as `dayTime` in `welcome`; clients count on from the ticks in
 `state`. It's purely visual: the sun and moon cross the sky, the sky and fog
 color move through dawn, day, dusk and night, stars come out, lights dim to a
 blue moonlight (never pitch black) and fog draws in to 75% of the view
-distance at night. The HUD shows a small sun or moon on an arc.
+distance at night. The creative inventory can switch directly to noon or midnight.

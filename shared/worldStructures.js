@@ -62,7 +62,7 @@ function surfaceSite(world, terrain, placed, random, halfX, halfZ, height, maxVa
   return null;
 }
 
-function buildHouse(world, terrain, site, random) {
+function buildHouse(world, terrain, site, random, table = 'house') {
   const { x, z, floorY, box } = site;
   prepareSurface(world, box.x0, box.z0, box.x1, box.z1, floorY, terrain.getTop,
     { clearTo: floorY + 8 });
@@ -85,10 +85,10 @@ function buildHouse(world, terrain, site, random) {
   }
   world.setBlock(x, floorY + 1, box.z1, doorBlock(2, false, false));
   world.setBlock(x, floorY + 2, box.z1, doorBlock(2, false, true));
-  placeChest(world, box.x0 + 1, floorY + 1, box.z0 + 1, 'house', 2);
+  placeChest(world, box.x0 + 1, floorY + 1, box.z0 + 1, table, 2);
 }
 
-function buildTower(world, terrain, site, random) {
+function buildTower(world, terrain, site, random, table = 'tower') {
   const { x, z, floorY, box } = site;
   const top = box.y1 - 1;
   prepareSurface(world, box.x0, box.z0, box.x1, box.z1, floorY, terrain.getTop,
@@ -107,7 +107,7 @@ function buildTower(world, terrain, site, random) {
     }
     if (y > floorY && y < top) world.setBlock(box.x1 - 1, y, z, ladderBlock(1));
   }
-  placeChest(world, x, top + 1, z, 'tower', 2);
+  placeChest(world, x, top + 1, z, table, 2);
 }
 
 function buildLooseChest(world, terrain, site, table, random) {
@@ -218,7 +218,7 @@ function cliffBox(x, y, z, outX, outZ, balconyLength) {
     z1: Math.max(...corners.map((point) => point.z)), y0: y - 2, y1: y + 5 };
 }
 
-function buildCliffside(world, site, random) {
+function buildCliffside(world, site, random, lootTable = 'underside') {
   const { x, y, z, outX, outZ, balconyLength } = site;
   const sideX = -outZ, sideZ = outX;
   const cell = (depth, width) => ({ x: x + outX * depth + sideX * width,
@@ -251,10 +251,10 @@ function buildCliffside(world, site, random) {
     }
   }
   const first = cell(-1, -1);
-  placeChest(world, first.x, y + 1, first.z, 'underside', 2);
+  placeChest(world, first.x, y + 1, first.z, lootTable, 2);
   if (random() < 0.4) {
     const second = cell(2, 1);
-    placeChest(world, second.x, y + 1, second.z, 'underside', 0);
+    placeChest(world, second.x, y + 1, second.z, lootTable, 0);
   }
 }
 
@@ -321,13 +321,13 @@ export function generateStructures(world, terrains, config, seed, reserved = [])
     const houseCount = central ? settings.houseCentral
       : randInt(random, ...settings.houseTeam);
     addSurface('house', houseCount, 3, 3, 8,
-      (site) => buildHouse(world, terrain, site, random),
+      (site) => buildHouse(world, terrain, site, random, central ? 'houseCentral' : 'house'),
       (biome) => biome === 'plains' || biome === 'forest');
     const towerCount = central ? settings.towerCentral : Number(random() < settings.towerTeamChance);
     addSurface('tower', towerCount, 2, 2, 19,
       (site) => {
         site.box.y1 = site.floorY + randInt(random, 12, 18) + 1;
-        buildTower(world, terrain, site, random);
+        buildTower(world, terrain, site, random, central ? 'towerCentral' : 'tower');
       }, (biome, random) => biome === 'mountains' || random() < BIOME_SETTINGS.towerOtherBiomeChance);
     const dungeonCount = central ? settings.dungeonCentral : settings.dungeonTeam;
     for (let index = 0; index < dungeonCount; index++) {
@@ -385,10 +385,9 @@ export function generateStructures(world, terrains, config, seed, reserved = [])
       const preferred = central
         ? world.islands.filter((entry) => entry.kind === 'team')[index % world.keeps.length]
         : world.islands[0];
-      let variant = random() < 0.5 ? 'cliffside' : 'hanging';
+      const variant = 'cliffside';
       let site = null;
       for (let pass = 0; pass < 2 && !site; pass++) {
-        if (pass === 1) variant = variant === 'cliffside' ? 'hanging' : 'cliffside';
         for (let attempt = 0; attempt < 200; attempt++) {
           const facing = preferred && (central || random() < 0.75)
             ? Math.atan2(preferred.z - terrain.z, preferred.x - terrain.x)
@@ -422,8 +421,7 @@ export function generateStructures(world, terrains, config, seed, reserved = [])
         }
       }
       if (!site) continue;
-      if (variant === 'cliffside') buildCliffside(world, site, random);
-      else buildHanging(world, site, random);
+      buildCliffside(world, site, random, central ? 'undersideCentral' : 'underside');
       record(world, placed, 'underside', island, site.box);
       world.structures.at(-1).variant = variant;
       const cells = [];

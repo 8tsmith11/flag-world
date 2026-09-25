@@ -1,8 +1,7 @@
 // Offscreen goblins. While no player is near (GoblinController.updateMode),
 // colony goblins stop moving and this simulation advances their work at
-// estimated rates instead: every GOBLINS.offscreen.step seconds, workers and
-// builders each get that much working time, spent on the same tasks they
-// would do (repairs, project digs and placements, chopping, quarrying).
+// estimated rates instead: every GOBLINS.offscreen.step seconds, workers
+// get a work budget for repairs, project digs and placements, and chopping.
 // A task costs its break or place time plus its share of the trips between
 // the totem and the site (a load of carryLimit per trip). Changes are
 // applied to the world directly, in batches, and goblins are put at their
@@ -20,9 +19,9 @@ export class OffscreenSim {
   constructor(controller) {
     this.controller = controller;
     this.workerCredit = 0;
-    this.builderCredit = 0;
+    this.placeCredit = 0;
     this.nextStep = 0;
-    // Builders ran out of a material this step (for spawning decisions).
+    // A placement ran out of material this step.
     this.starved = false;
   }
 
@@ -61,7 +60,7 @@ export class OffscreenSim {
       if (g.carrying?.size) c.deposit(g);
       this.place(g);
     }
-    this.workerCredit = this.builderCredit = 0;
+    this.workerCredit = this.placeCredit = 0;
     this.nextStep = c.game.tick + Math.round(GOBLINS.offscreen.step * TICK_RATE);
   }
 
@@ -94,20 +93,22 @@ export class OffscreenSim {
   tick(tick) {
     if (tick < this.nextStep) return;
     const c = this.controller;
-    const step = GOBLINS.offscreen.step;
-    this.nextStep = tick + Math.round(step * TICK_RATE);
+    const step = c.fastBuild ? GOBLINS.creativeBoost.workSecondsPerTick : GOBLINS.offscreen.step;
+    this.nextStep = tick + (c.fastBuild ? 1 : Math.round(step * TICK_RATE));
     const share = step * (1 - GOBLINS.offscreen.overhead);
-    const workers = c.countOf(ENTITY_TYPE.GOBLIN_WORKER), builders = c.countOf(ENTITY_TYPE.GOBLIN_BUILDER);
+    const workers = c.countOf(ENTITY_TYPE.GOBLIN_WORKER);
     // Credit carries over (a task can take longer than a step), but only so far.
     // While wood is wanted, part of the workers' time goes to chopping.
     const woodTime = c.surfaceOpen() && c.woodWanted() && c.woodSources().length ? workers * share * GOBLINS.offscreen.woodShare : 0;
     this.woodCredit = woodTime ? Math.min((this.woodCredit ?? 0) + woodTime, 150) : 0;
     // (The cap leaves room to save up for a whole tree.)
     this.workerCredit = Math.min(this.workerCredit + workers * share - woodTime, workers * step * 4 + 150);
-    this.builderCredit = Math.min(this.builderCredit + builders * share, builders * step * 4 + 30);
     if (c.totemAlive) {
-      this.work();
+      this.placeCredit = this.workerCredit * 0.5;
+      this.workerCredit -= this.placeCredit;
       this.build();
+      this.workerCredit += this.placeCredit;
+      this.work();
     }
     for (const g of c.members) this.place(g);
   }
@@ -134,7 +135,7 @@ export class OffscreenSim {
     return true;
   }
 
-  // Workers: some wood if it's wanted, project digs, then more wood, then the quarry.
+  // Workers: wood when needed, then project digs and plot maintenance.
   work() {
     const c = this.controller;
     const world = c.world;
@@ -163,55 +164,34 @@ export class OffscreenSim {
       }
       const chopped = this.chop('workerCredit');
       if (chopped === true) continue;
-      // Saving up for a tree rather than quarrying.
+      // Save credit for a tree.
       if (chopped === 'short') return;
-      const stone = this.quarryStone();
-      if (!stone) {
-        this.workerCredit = Math.min(this.workerCredit, 0);
-        return;
-      }
-      const cost = seconds(goblinBreakTicks(BLOCK.STONE)) + this.roundTrip(stone) / carry + GOBLINS.offscreen.quarryWalk;
-      if (this.workerCredit < cost) return;
-      this.workerCredit -= cost;
-      c.setBlock(stone.x, stone.y, stone.z, BLOCK.AIR);
-      c.store('stone', 1);
-      c.stats.quarried++;
+      return;
     }
   }
 
-  quarryStone() {
-    const q = this.controller.quarry;
-    const world = this.controller.world;
-    if (!q || world.getBlock(q.x, q.y, q.z) !== BLOCK.QUARRY_STONE) return null;
-    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
-      if (world.getBlock(q.x + dx, q.y + dy, q.z + dz) === BLOCK.STONE) return { x: q.x + dx, y: q.y + dy, z: q.z + dz };
-    }
-    return null;
-  }
 
-  // Builders: placements in order, as materials allow.
+  // Placement share of worker labor, in task order as materials allow.
   build() {
     const c = this.controller;
     const world = c.world;
-    const carry = GOBLINS.builder.carryLimit;
+    const carry = GOBLINS.worker.carryLimit;
     this.starved = false;
-    for (let guard = 0; guard < 2000 && this.builderCredit > 0; guard++) {
+    for (let guard = 0; guard < 2000 && this.placeCredit > 0; guard++) {
       const task = this.nextTask('place');
       if (!task) {
-        this.builderCredit = Math.min(this.builderCredit, 0);
         return;
       }
       if (task.material && c.available(task.material) < 1) {
         this.starved = true;
-        this.builderCredit = Math.min(this.builderCredit, 0);
         return;
       }
       const current = world.getBlock(task.x, task.y, task.z);
       const replacing = isSolid(current) && !isProtected(current);
       const cost = seconds(goblinPlaceTicks()) + (replacing ? seconds(goblinBreakTicks(current)) : 0)
         + (task.material ? task.project.tripTime / carry : 0) + this.climbTime(task) + GOBLINS.offscreen.perBlock;
-      if (this.builderCredit < cost) return;
-      this.builderCredit -= cost;
+      if (this.placeCredit < cost) return;
+      this.placeCredit -= cost;
       if (task.material) c.take(task.material, 1);
       if (replacing) c.store(yieldOf(current), 1);
       c.setBlock(task.x, task.y, task.z, task.id);
@@ -230,10 +210,7 @@ export class OffscreenSim {
     const jitter = (p, r) => ({ x: p.x + Math.cos(goblin.id * 2.3) * r, y: p.y, z: p.z + Math.sin(goblin.id * 2.3) * r });
     if (goblin.stray || !t) return;
     if (goblin.type === ENTITY_TYPE.GOBLIN_WORKER) {
-      if (site && this.nextTask('dig')) spot = jitter(site, 1);
-      else if (c.quarry) spot = jitter({ x: c.quarry.x + 0.5, y: c.quarry.y, z: c.quarry.z + 0.5 }, 2);
-    } else if (goblin.type === ENTITY_TYPE.GOBLIN_BUILDER) {
-      if (site && this.nextTask('place') && !this.starved) spot = jitter(site, 1.2);
+      if (site && (this.nextTask('dig') || this.nextTask('place'))) spot = jitter(site, 1);
     } else {
       const spots = c.patrolSpots();
       const post = goblin.type === ENTITY_TYPE.GOBLIN_ARCHER && c.claimPost(goblin);
@@ -257,4 +234,3 @@ export class OffscreenSim {
     goblin.teleported = true;
   }
 }
-

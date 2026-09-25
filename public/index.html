@@ -90,7 +90,7 @@
           <button id="anvil-reroll" type="button">Reroll · 2 iron ingots</button>
         </div>
         <ul id="anvil-mods"></ul>
-        <p class="hint">Reroll replaces the item's modifiers with 1 or 2 new ones.</p>
+        <p class="hint">Reroll replaces the item's modifier with one new modifier.</p>
       </div>
       <div class="inv-grids">
         <div id="inv-chest-panel" hidden>
@@ -106,6 +106,15 @@
         <h2 id="inv-crafting-title">Crafting</h2>
         <ul id="inv-recipes"></ul>
       </div>
+      <div id="inv-creative-controls" class="inv-creative-controls" hidden>
+        <h2>Creative controls</h2>
+        <button id="creative-totem" type="button" data-creative-action="teleportTotem">Teleport to Goblin Totem</button>
+        <button type="button" data-creative-action="setDay">Set day</button>
+        <button type="button" data-creative-action="setNight">Set night</button>
+        <button id="creative-immortal" type="button" data-creative-action="toggleImmortal">Immortality: Off</button>
+        <button id="creative-flight" type="button" data-creative-action="toggleFlight">Flight: Off</button>
+        <button id="creative-max-goblins" type="button" data-creative-action="maxGoblinBase">Max Goblin Base</button>
+      </div>
     </div>
     <div id="inv-cursor" class="slot"></div>
   </div>
@@ -116,7 +125,6 @@
   <div id="toast" hidden></div>
   <div id="carry" hidden></div>
   <div id="health"></div>
-  <div id="daytime"></div>
   <div id="hotbar"></div>
   <ul id="feed"></ul>
   <pre id="debug" hidden></pre>

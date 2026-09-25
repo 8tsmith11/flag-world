@@ -60,6 +60,7 @@ export class World {
     this.lootChests = new Map();
     // Block-attached state (e.g. chest contents), keyed by "x,y,z".
     this.tileEntities = new Map();
+    this.doorTeams = new Map();
     // Natural terrain column ranges from worldgen only. Player edits never
     // touch this mask, so bridges over the void remain exposed to eels.
     this.naturalBottom = new Int16Array(sizeX * sizeZ).fill(-32768);

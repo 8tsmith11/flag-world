@@ -67,9 +67,12 @@ defineItem(ITEM.GLIDER, 'glider', { maxStack: 1, shape: 'glider', color: 0x9b5e2
 defineItem(ITEM.TREE_SEED, 'sapling', { places: 'sapling', shape: 'seed', color: 0x65a84b });
 defineItem(ITEM.LADDER, 'ladder', { places: 'ladder', color: getBlockDef(ladderBlock(0)).color });
 defineItem(ITEM.DOOR, 'door', { places: 'door', color: getBlockDef(doorBlock(0, false, false)).color });
+defineItem(ITEM.REINFORCED_DOOR, 'reinforced door', {
+  places: 'reinforcedDoor', color: getBlockDef(doorBlock(0, false, false, true)).color,
+});
 for (const [id, accessory] of Object.entries(ACCESSORIES)) {
   defineItem(Number(id), accessory.name, { maxStack: 1, shape: 'accessory', color: accessory.color,
-    accessory: true, modCategory: id === String(ITEM.FLIGHT_ORB) ? null : 'accessory' });
+    accessory: true, modCategory: 'accessory' });
 }
 for (const egg of MOB_EGGS) {
   defineItem(egg.item, `${egg.name.toLowerCase()} spawn egg`,

@@ -22,6 +22,7 @@ export class Player {
     this.color = color;
     this.team = team;
     this.state = createPlayerState(spawn.x, spawn.y, spawn.z);
+    this.state.team = team;
     // Inputs received but not yet simulated, oldest first.
     this.inputQueue = [];
     // Sequence number of the last input simulated; echoed so the client can reconcile.
@@ -47,6 +48,7 @@ export class Player {
     this.eliminated = false;
     this.inventory = new Inventory();
     this.creative = false;
+    this.immortal = false;
     // Bow: ticks the draw has been held, and the game tick it can next shoot.
     this.drawTicks = 0;
     this.nextShotTick = 0;
@@ -155,7 +157,6 @@ export class Player {
       gliding: s.gliding,
       glideBlockedTicks: s.glideBlockedTicks ?? 0,
       flying: s.flying,
-      orbActive: this.creative && s.accessory === ITEM.FLIGHT_ORB,
       hp: this.hp,
       maxHp: this.maxHp(),
       dead: this.dead,

@@ -49,13 +49,13 @@ export const GOBLINS = {
 
   // What a new match starts with. Planks: enough to ladder the planned
   // surface shaft, plus `extraPlanks`.
-  start: { workers: 1, builders: 1, extraPlanks: 10, saplings: 9 },
+  start: { workers: 1, extraPlanks: 80, saplings: 9 },
 
   // Totem storage. Stone becomes Goblin Bricks 1:1 and wood becomes
   // planksPerWood planks, both only when something needs them.
   materials: {
     planksPerWood: 4,
-    // Storage counts below which wood gathering takes over from the quarry,
+    // Storage counts below which wood gathering gets priority,
     // and below which a tree plot may be built ("wood is low", counting wood
     // as planks).
     woodWanted: 100,
@@ -66,29 +66,35 @@ export const GOBLINS = {
   // speed, except any hardness can be broken; each point of hardness above
   // `strength` adds that much again to the time (harder blocks take much
   // longer). Placing a block takes placeTime.
-  breaking: { strength: 2, speed: 1.5, hardnessScale: 1, placeTime: 0.5 },
+  breaking: { strength: 2, speed: 1, hardnessScale: 1, placeTime: 0.5 },
 
   // Project pacing: the rest between finishing one project and starting the
   // next, and how often the controller looks for work.
   projects: {
-    cooldown: 240,
-    // Chance, when choosing, of an entrance upgrade instead (if one is due).
-    upgradeChance: 0.15,
-    // A second entrance is only dug once this many brick modules stand.
-    secondEntranceModules: { small: 16, medium: 22, large: 30 },
-    maxEntrances: 2,
-    maxShaftWidth: 3,
+    cooldown: 0,
+    relocationBuildings: 6,
+    relocationModules: { small: 8, medium: 10, large: 12 },
+    relocationNearBase: 35,
+    relocationWidth: 3,
     // Dwellings are due when the population is within this of capacity.
     dwellingSlack: 1,
     // Repairs: how long after a change before goblins treat it as damage
     // (their own work settles first), and the rescan interval for sites.
     repairDelay: 2,
   },
+  invasion: { scanTicks: 5, calmSeconds: 30 },
+  navigation: { surfaceMaxNodes: 1500, chamberMaxNodes: 500, safeDrop: 1 },
+  optimization: { farPlayerRange: 40, farAITicks: 5 },
+  creativeBoost: { workSecondsPerTick: 1500, growthAheadSeconds: 600, idleStopTicks: 100,
+    materialGrant: 10000 },
+  walls: { startBuildings: 6, sectionSize: 2, sectionMargin: 4, outerMargin: 2,
+    height: 3, gateWidth: 2, clearMargin: 3, maxFlatten: 10, postHeight: 4,
+    outerLocalFlatten: 2, riverClearance: 3 },
 
   // Caps by world size.
   caps: {
     modules: { small: 25, medium: 35, large: 50 },
-    dwellings: { small: 6, medium: 10, large: 14 },
+    dwellings: { small: 18, medium: 30, large: 42 },
     plots: { small: 1, medium: 1, large: 2 },
     population: { small: 25, medium: 40, large: 60 },
     // Natural trees goblins may ever chop, before relying on their plots.
@@ -100,14 +106,9 @@ export const GOBLINS = {
     hallCapacity: 3,
     bunkCapacity: 2,
     spawnInterval: 180,
-    cost: { stone: 10, planks: 5 },
+    slots: ['goblinWorker', 'goblinSoldier', 'goblinSoldier', 'goblinSoldier', 'goblinArcher', 'goblinWorker'],
+    repeatSlots: ['goblinSoldier', 'goblinSoldier', 'goblinArcher', 'goblinSoldier', 'goblinWorker'],
     // Target shares when neither labor nor materials is the bottleneck.
-    mix: { goblinWorker: 0.35, goblinBuilder: 0.2, goblinSoldier: 0.25, goblinArcher: 0.2 },
-    // Builders are the bottleneck when placements waiting per builder exceed
-    // this; workers when builders are waiting on materials, or digs per
-    // worker exceed digBacklog.
-    placeBacklog: 120,
-    digBacklog: 150,
   },
 
   // Fortress growth (goblinProjects.js). A candidate cell is scored for
@@ -158,9 +159,14 @@ export const GOBLINS = {
   // Surface buildings: within `radius` of an entrance, on ground whose
   // height varies by at most `maxSlope` over the footprint.
   surface: {
-    radius: 30,
+    radius: 50,
+    innerRadiusFraction: 0.35,
+    clearMargin: 3,
+    treeReach: 4,
+    treeHeight: 16,
     maxSlope: 3,
-    attempts: 80,
+    plotMaxSlope: 6,
+    attempts: 300,
     // Ground under a site must be solid solidDepth blocks down in all but
     // hollowShare of its columns.
     solidDepth: 2,
@@ -168,13 +174,13 @@ export const GOBLINS = {
     // Tree plots are filled level with dirt, so they take rougher ground.
     plotHollowShare: 0.35,
     // Natural trees are chopped within this of an entrance.
-    treeRadius: 45,
+    treeRadius: 80,
     // Space kept between goblin surface buildings, and from keeps/structures/rivers.
     spacing: 3,
     clearance: 5,
   },
 
-  // Tree plots: a 3x3 grid of saplings `spacing` apart inside a fence.
+  // Tree plots: a 3x3 grid of saplings `spacing` apart inside a plank border.
   plots: {
     grid: 3,
     spacing: 4,
@@ -192,14 +198,14 @@ export const GOBLINS = {
     regenDelay: 30,
     regenRate: 4,
     // How close a goblin gets to deposit or take materials.
-    depositRange: 3,
+    depositRange: 4.5,
   },
 
   king: {
     hp: 80,
     width: 1.1,
     height: 2.6,
-    speed: 3.2,
+    speed: 4.95,
     damage: 7,
     // Multiplier on the normal punch knockback.
     knockback: 1.8,
@@ -216,8 +222,8 @@ export const GOBLINS = {
     hp: 10,
     width: 0.6,
     height: 1.2,
-    speed: 3.4,
-    fleeSpeed: 4.6,
+    speed: 4.95,
+    fleeSpeed: 6,
     // A player this close makes it flee; it goes back to work after none has
     // been within safeRange for safeTime.
     fleeRange: 8,
@@ -231,25 +237,11 @@ export const GOBLINS = {
     reach: 4.5,
   },
 
-  builder: {
-    hp: 10,
-    width: 0.6,
-    height: 1.2,
-    speed: 3.4,
-    fleeSpeed: 4.6,
-    fleeRange: 8,
-    safeRange: 12,
-    safeTime: 3,
-    // Materials taken from the totem per trip.
-    carryLimit: 24,
-    reach: 4.5,
-  },
-
   soldier: {
     hp: 16,
     width: 0.7,
     height: 1.3,
-    speed: 4.3,
+    speed: 4.95,
     damage: 4,
     cooldown: 1,
     knockback: 1,
@@ -266,7 +258,7 @@ export const GOBLINS = {
     hp: 10,
     width: 0.6,
     height: 1.25,
-    speed: 3.8,
+    speed: 4.95,
     damage: 3,
     range: 20,
     cooldown: 1.5,
@@ -293,11 +285,9 @@ export const GOBLINS = {
   // of time a goblin loses to everything else (waiting, repathing, crowding).
   // `perBlock` seconds go to getting into position for each block, a climb
   // up a shaft serves blocksPerClimb blocks, and while wood is wanted
-  // workers give woodShare of their time to chopping (as they do when digs
-  // aren't reachable yet); each quarried stone costs quarryWalk more
-  // (waiting on regrowth, moving between faces).
-  offscreen: { range: 100, checkInterval: 1, step: 2, travelFactor: 1.7, overhead: 0.3, perBlock: 0.45,
-    blocksPerClimb: 8, woodShare: 0.3, quarryWalk: 0.5 },
+  // workers give woodShare of their time to chopping when wood is wanted.
+  offscreen: { range: 100, checkInterval: 1, step: 2, travelFactor: 1.2, overhead: 0.12, perBlock: 0.15,
+    blocksPerClimb: 64, woodShare: 0.3 },
 
   // Goblins steer apart when closer than `spacing` times their half widths
   // summed; `strength` weighs that push against where they're heading.
