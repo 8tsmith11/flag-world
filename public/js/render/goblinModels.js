@@ -20,18 +20,6 @@ function box(parent, w, h, d, x, y, z, material) {
 // Gear, built in the right hand's space (the hand at the origin, the arm
 // hanging down -Y, forward -Z).
 const GEAR = {
-  pick(hand) {
-    const handle = box(hand, 0.05, 0.05, 0.5, 0, 0, -0.18, lambert(0x6b4a2b));
-    handle.rotation.x = 0.1;
-    const head = box(hand, 0.34, 0.07, 0.07, 0, 0.02, -0.42, lambert(0x8a8f96));
-    for (const side of [-1, 1]) {
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 4), lambert(0xa9aeb5));
-      tip.position.set(side * 0.21, 0.0, -0.42);
-      tip.rotation.z = -side * Math.PI / 2 - side * 0.3;
-      hand.add(tip);
-    }
-    return head;
-  },
   club(hand) {
     const wood = lambert(0x5b3b22);
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.1, 0.8, 8), wood);
@@ -50,7 +38,10 @@ const GEAR = {
   hammer(hand) {
     const handle = box(hand, 0.05, 0.05, 0.46, 0, 0, -0.18, lambert(0x6b4a2b));
     handle.rotation.x = 0.1;
-    return box(hand, 0.2, 0.13, 0.13, 0, 0.02, -0.4, lambert(0x7d8288));
+    const head = box(hand, 0.2, 0.13, 0.13, 0, 0.02, -0.4, lambert(0x7d8288));
+    // Turn the striking faces into the arm's forward/down swing plane.
+    head.rotation.z = Math.PI / 2;
+    return head;
   },
   // A crude notched blade.
   sword(hand) {
@@ -108,7 +99,7 @@ const EXTRAS = {
 // Per type: overall scale (the base is GOBLINS.worker.height tall), colors,
 // held gear and extras.
 export const GOBLIN_LOOKS = {
-  goblinWorker: { height: GOBLINS.worker.height, skin: 0x6f9b3c, tunic: 0x7a5a32, belt: 0x3d2a17, gear: 'pick' },
+  goblinWorker: { height: GOBLINS.worker.height, skin: 0x6f9b3c, tunic: 0x7a5a32, belt: 0x3d2a17, gear: 'hammer' },
   goblinSoldier: { height: GOBLINS.soldier.height, skin: 0x5f8a33, tunic: 0x5a3a2a, belt: 0x2a2a2a, gear: 'sword',
     extras: ['shield', 'helmet'] },
   goblinArcher: { height: GOBLINS.archer.height, skin: 0x6f9b3c, tunic: 0x4a6a32, belt: 0x3d2a17, gear: 'bow',
