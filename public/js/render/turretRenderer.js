@@ -10,8 +10,9 @@ function turretModel() {
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 0.4, 8), iron);
   neck.position.y = 0.2;
   root.add(neck);
+  const yawPivot = new THREE.Group();
+  yawPivot.position.y = 0.48;
   const head = new THREE.Group();
-  head.position.y = 0.48;
   const housing = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.25, 0.55), dark);
   housing.position.z = -0.1;
   head.add(housing);
@@ -24,7 +25,9 @@ function turretModel() {
     limb.rotation.y = side * 0.28;
     head.add(limb);
   }
-  root.add(head);
+  yawPivot.add(head);
+  root.add(yawPivot);
+  root.userData.yawPivot = yawPivot;
   root.userData.head = head;
   return root;
 }
@@ -47,7 +50,8 @@ export class TurretRenderer {
         this.scene.add(model);
         entry = { model, yaw: snapshot.yaw, targetYaw: snapshot.yaw,
           pitch: snapshot.pitch ?? 0, targetPitch: snapshot.pitch ?? 0 };
-        model.userData.head.rotation.y = snapshot.yaw;
+        model.userData.yawPivot.rotation.y = snapshot.yaw;
+        model.userData.head.rotation.x = snapshot.pitch ?? 0;
         this.models.set(key, entry);
       }
       entry.targetYaw = snapshot.yaw;
@@ -64,7 +68,7 @@ export class TurretRenderer {
     for (const entry of this.models.values()) {
       const difference = Math.atan2(Math.sin(entry.targetYaw - entry.yaw), Math.cos(entry.targetYaw - entry.yaw));
       entry.yaw += difference * Math.min(1, dt * 12);
-      entry.model.userData.head.rotation.y = entry.yaw;
+      entry.model.userData.yawPivot.rotation.y = entry.yaw;
       entry.pitch += (entry.targetPitch - entry.pitch) * Math.min(1, dt * 12);
       entry.model.userData.head.rotation.x = entry.pitch;
     }
