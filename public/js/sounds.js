@@ -1,7 +1,8 @@
 // Small procedural sounds, created after a user gesture. No audio files or
 // continuous loops; distant mobs and idle scenes cost no audio work.
 import { BLOCK, isWater } from '/shared/blocks.js';
-import { ENTITY_TYPE } from '/shared/protocol.js';
+import { GOBLINS } from '/shared/goblins.js';
+import { ENTITY_TYPE, GOBLIN_ANIMATION } from '/shared/protocol.js';
 
 export class Sounds {
   constructor() {
@@ -12,7 +13,7 @@ export class Sounds {
     this.mobCalls = new Map();
     this.remoteSteps = new Map();
     this.firing = new Set();
-    this.wasWet = false;
+    this.wasWet = false;this.siegeBeatUntil=0;this.nextSiegeBeat=0;this.goblinWork=new Map();
   }
 
   unlock() {
@@ -71,6 +72,20 @@ export class Sounds {
     oscillator.stop(now + duration);
   }
 
+  siegeDeclared() {
+    this.tone(110,82,GOBLINS.sounds.hornSeconds,0.12,null,null,'sawtooth');
+    this.tone(165,123,GOBLINS.sounds.hornSeconds,0.05,null,null,'triangle');
+    this.siegeBeatUntil=this.time+GOBLINS.sounds.drumSeconds;this.nextSiegeBeat=this.time;
+  }
+
+  explosion(position,listener) {
+    this.noiseBurst(0.7,850,0.3,position,listener);this.tone(80,28,0.6,0.2,position,listener,'sine');
+  }
+
+  goblinHurt(type,position,listener) {
+    this.tone(type===ENTITY_TYPE.GOBLIN_BRUTE?110:390,85,0.2,0.07,position,listener,'sawtooth');
+  }
+
   blockHit(id, position, listener) {
     const hard = id === BLOCK.STONE || id === BLOCK.IRON_ORE || id === BLOCK.KEEP;
     this.noiseBurst(0.08, hard ? 1800 : 650, 0.12, position, listener);
@@ -84,6 +99,10 @@ export class Sounds {
 
   update(dt, listener, state, world, entities, sprinting) {
     this.time += dt;
+    if(this.time<this.siegeBeatUntil && this.time>=this.nextSiegeBeat) {
+      this.tone(120,35,0.22,0.1,null,null,'sine');this.noiseBurst(0.11,450,0.035);
+      this.nextSiegeBeat=this.time+GOBLINS.sounds.drumInterval;
+    }
     const wet = isWater(world.getBlock(Math.floor(state.x), Math.floor(state.y), Math.floor(state.z)));
     if (wet && !this.wasWet) this.noiseBurst(0.3, 1700, 0.22);
     this.wasWet = wet;
@@ -125,6 +144,23 @@ export class Sounds {
         if (coiling) this.firing.add(id); else this.firing.delete(id);
         continue;
       }
+      if([ENTITY_TYPE.GOBLIN_WORKER,ENTITY_TYPE.GOBLIN_SOLDIER,ENTITY_TYPE.GOBLIN_ARCHER,ENTITY_TYPE.GOBLIN_HOUND,ENTITY_TYPE.GOBLIN_BRUTE,ENTITY_TYPE.GOBLIN_KING].includes(type)) {
+        present.add(id);const position=entity.object.position,snap=entity.snapshots.at(-1);
+        if(this.volume(position,listener)>0) {
+          const working=snap?.mining || (snap?.a & GOBLIN_ANIMATION.WORK);
+          if(working && this.time>=(this.goblinWork.get(id) ?? 0)) {
+            this.noiseBurst(0.09,1300,0.07,position,listener);this.goblinWork.set(id,this.time+GOBLINS.sounds.workInterval);
+          }
+          if(!this.mobCalls.has(id))this.mobCalls.set(id,this.time+Math.random()*GOBLINS.sounds.ambientInterval);
+          if(this.time>=this.mobCalls.get(id)) {
+            const from=type===ENTITY_TYPE.GOBLIN_HOUND?320:type===ENTITY_TYPE.GOBLIN_BRUTE?95:240;
+            this.tone(from,from*0.55,0.3,0.055,position,listener,'sawtooth');
+            this.noiseBurst(0.16,650,0.025,position,listener);
+            this.mobCalls.set(id,this.time+GOBLINS.sounds.ambientInterval+Math.random()*GOBLINS.sounds.ambientJitter);
+          }
+        }
+        continue;
+      }
       if (type !== ENTITY_TYPE.COW && type !== ENTITY_TYPE.DRAGON) continue;
       present.add(id);
       const position = entity.object.position;
@@ -145,6 +181,7 @@ export class Sounds {
       }
     }
     for (const id of this.mobCalls.keys()) if (!present.has(id)) this.mobCalls.delete(id);
+    for (const id of this.goblinWork.keys())if(!present.has(id))this.goblinWork.delete(id);
     for (const id of this.remoteSteps.keys()) if (!present.has(id)) this.remoteSteps.delete(id);
     for (const id of this.firing) if (!present.has(id)) this.firing.delete(id);
   }

@@ -44,7 +44,7 @@ for (const mode of ['offscreen', 'full']) {
       samples.push({ minute: tick / TICK_RATE / 60, modules: s.modules,
         dwellings: s.dwellings, walls: s.walls ?? 0, population: s.population,
         project: s.project?.label ?? null, progress: s.project?.progress ?? null,
-        storage: s.storage, stats: { ...game.goblins.stats },
+        stats: { ...game.goblins.stats },
         pending: game.goblins.project?.tasks.find((t) => !t.done) && {
           kind: game.goblins.project.tasks.find((t) => !t.done).kind,
           requires: game.goblins.project.tasks.find((t) => !t.done).requires.length,
@@ -52,7 +52,7 @@ for (const mode of ['offscreen', 'full']) {
           .map((t) => ({ kind: t.kind, material: t.material, id: t.id, x: t.x, y: t.y, z: t.z, requires: t.requires.length,
             claimedBy: t.claimedBy, blockedUntil: t.blockedUntil })),
         worker: [...game.goblins.members].filter((g) => g.type === 'goblinWorker').map((g) => ({
-          job: g.job?.type, material: g.job?.material, carried: g.carried(), carrying: Object.fromEntries(g.carrying),
+          job: g.job?.type,
           fleeing: g.fleeing, stray: g.stray, alive: g.hp,
           waiting: g.waitingFor, position: [g.state.x, g.state.y, g.state.z],
         })) });

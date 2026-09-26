@@ -15,16 +15,19 @@
 // followRoute turns the next action into this tick's movement.
 
 import { moduleAt, exitsOf, FACES } from '../shared/goblinModules.js';
-import { findPath } from './pathfind.js';
-import { isOnLadder } from '../shared/physics.js';
+import { findPath, canStand } from './pathfind.js';
+import { isWater } from '../shared/blocks.js';
+import { isOnLadder, playerFitsAt } from '../shared/physics.js';
 import { GOBLINS } from '../shared/goblins.js';
+import { TICK_RATE } from '../shared/config.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 
 const REACHED = 0.35;
-const NODE_REACHED = 0.4;
+const NODE_REACHED = GOBLINS.navigation.waypointReach;
 // Largest sideways nudge per tick toward a ladder's column (blocks).
 const LADDER_NUDGE = 0.12;
 const modulePathCache = new WeakMap();
+const localPathCache = new WeakMap();
 
 // Yaw that faces the direction (dx, dz); yaw 0 faces -Z.
 export function yawToward(dx, dz) {
@@ -110,7 +113,7 @@ const columnFor = (entrance, goblin) => entrance.columns[goblin.id % entrance.co
 function nearestEntrance(controller, p) {
   let best = null;
   for (const e of controller.entrances) {
-    if (!e.open) continue;
+    if (!e.open || e.sealed) continue;
     const d = Math.hypot(e.top.x - p.x, e.top.z - p.z);
     if (!best || d < best.d) best = { e, d };
   }
@@ -127,7 +130,7 @@ function climbOut(entrance, column, goblin, controller, urgent) {
   actions.push({ type: 'walk', ...bottom },
     { type: 'climbUp', x: bottom.x, z: bottom.z, y: entrance.topY + 1, wall: entrance.wall, exit: true });
   const [fx, , fz] = FACES[FACES[entrance.wall].opposite].dir;
-  actions.push({ type: 'walk', x: bottom.x + fx * 1.3, y: entrance.topY + 1, z: bottom.z + fz * 1.3 });
+  actions.push({ type: 'walk', x: bottom.x + fx * 1.3, y: entrance.topY + 1, z: bottom.z + fz * 1.3, exit: true });
   return actions;
 }
 
@@ -168,10 +171,10 @@ export function planRoute(controller, goblin, from, goal, { urgent = false, clim
   if (here.entrance) {
     const { entrance, column } = here;
     const x = column.x + 0.5, z = column.z + 0.5;
-    if (target.surface && entrance.open) {
+    if (target.surface && entrance.open && !entrance.sealed) {
       actions.push({ type: 'climbUp', x, z, y: entrance.topY + 1, wall: entrance.wall, exit: true });
       const [fx, , fz] = FACES[FACES[entrance.wall].opposite].dir;
-      actions.push({ type: 'walk', x: x + fx * 1.3, y: entrance.topY + 1, z: z + fz * 1.3 });
+      actions.push({ type: 'walk', x: x + fx * 1.3, y: entrance.topY + 1, z: z + fz * 1.3, exit: true });
       here = { surface: true };
     } else {
       actions.push({ type: 'climbDown', x, z, y: entrance.floorY, fromY: from.y, wall: entrance.wall });
@@ -195,10 +198,10 @@ export function planRoute(controller, goblin, from, goal, { urgent = false, clim
 }
 
 // Keeps a climber over the ladder's column so it fits through the hole.
-function nudgeTo(state, x, z) {
+function nudgeTo(state, x, z, world) {
   const clamp = (v) => Math.max(-LADDER_NUDGE, Math.min(LADDER_NUDGE, v));
-  state.x += clamp(x - state.x);
-  state.z += clamp(z - state.z);
+  const next = {...state, x: state.x + clamp(x - state.x), z: state.z + clamp(z - state.z)};
+  if (playerFitsAt(world, next, next.y)) {state.x = next.x;state.z = next.z;}
 }
 
 // This tick's movement along `route` for `goblin`: { dx, dz } (direction to
@@ -221,25 +224,62 @@ export function followRoute(route, goblin, world) {
         route.local = null;
         continue;
       }
+      if (action.exit) {
+        state.yaw = yawToward(dx, dz);
+        return { dx, dz };
+      }
       if (action.into) {
         // Stepping into a shaft's top: straight over the hole.
         return { dx, dz };
       }
+      if(route.blockedUntil && goblin.controller.game.tick>=route.blockedUntil) {
+        route.local=null;route.blockedUntil=null;
+      }
       if (!route.local) {
         const cell = { x: Math.floor(state.x), y: Math.floor(state.y + 0.01), z: Math.floor(state.z) };
-        route.local = findPath(world, cell, { x: Math.floor(action.x), z: Math.floor(action.z) },
-          { height: 2, maxNodes: route.surfaceWalk ? GOBLINS.navigation.surfaceMaxNodes : GOBLINS.navigation.chamberMaxNodes,
-            maxDrop: GOBLINS.navigation.safeDrop }).map((node) => ({ x: node.x + 0.5, z: node.z + 0.5 }));
+        const controller = goblin.controller;
+        let cache = localPathCache.get(controller);
+        if (!cache || cache.revision !== controller.navigationRevision) {
+          cache = { revision: controller.navigationRevision, paths: new Map() };
+          localPathCache.set(controller, cache);
+        }
+        const limit = route.surfaceWalk || locate(controller,state).surface ? GOBLINS.navigation.surfaceMaxNodes : GOBLINS.navigation.chamberMaxNodes;
+        const key = `${cell.x},${cell.y},${cell.z}:${Math.floor(action.x)},${Math.round(action.y)},${Math.floor(action.z)}:${limit}:${!!goblin.siegeManaged}`;
+        let path = cache.paths.get(key);
+        if (!path) {
+          path = findPath(world, cell, { x: Math.floor(action.x), y:Math.round(action.y), z: Math.floor(action.z) },
+            { height: 2, maxNodes: limit, maxDrop: GOBLINS.navigation.safeDrop,goalHeight:!!goblin.siegeManaged,allowWater:!!goblin.siegeManaged })
+            .map((node) => ({ x: node.x + 0.5, y:node.y, z: node.z + 0.5 }));
+          if (cache.paths.size >= GOBLINS.navigation.cachePaths) cache.paths.delete(cache.paths.keys().next().value);
+          cache.paths.set(key, path);
+        }
+        route.local = path.slice();
+        if(path.length && !isOnLadder(state,world) && canStand(world,cell.x,cell.y,cell.z,2))route.local.unshift({x:cell.x+0.5,y:cell.y,z:cell.z+0.5});
+        const end=path.at(-1);
+        route.localComplete=!!end && Math.floor(end.x)===Math.floor(action.x)
+          && Math.floor(end.z)===Math.floor(action.z) && (!goblin.siegeManaged || Math.abs(end.y-action.y)<1.5);
       }
-      while (route.local.length && Math.hypot(route.local[0].x - state.x, route.local[0].z - state.z) < NODE_REACHED) {
+      while (route.local.length && Math.hypot(route.local[0].x - state.x, route.local[0].z - state.z) < Math.min(NODE_REACHED,0.5-state.box.halfW-0.01)
+        && (!goblin.siegeManaged || Math.abs(route.local[0].y-state.y)<GOBLINS.siege.swimWaypointHeight)) {
         route.local.shift();
       }
-      // Along the A* path; its last node is within a block of the spot when
-      // the search got there, so head straight on from it then.
-      const last = route.local.at(-1);
-      const closeEnough = last && Math.hypot(last.x - action.x, last.z - action.z) < 1.5;
-      const target = route.local.length > 1 || (route.local.length === 1 && !closeEnough) ? route.local[0] : action;
-      return { dx: target.x - state.x, dz: target.z - state.z };
+      // Follow every waypoint, including the final corner. An incomplete
+      // search never turns into a blind straight walk through a wall.
+      let target=route.local[0];
+      if(!target) {
+        const length=Math.hypot(dx,dz),count=Math.max(1,Math.ceil(length/GOBLINS.navigation.directStep));
+        const direct=length<=GOBLINS.navigation.directRange && Array.from({length:count},(_,i)=>{
+          const fraction=(i+1)/count;
+          return playerFitsAt(world,{...state,x:state.x+dx*fraction,z:state.z+dz*fraction},state.y);
+        }).every(Boolean);
+        if(!route.localComplete && !direct) {
+          route.blockedUntil ??= goblin.controller.game.tick+Math.round(GOBLINS.navigation.blockedRetry*TICK_RATE);
+          return {wait:true,blocked:true};
+        }
+        target=action;
+      }
+      return { dx: target.x - state.x, dz: target.z - state.z,
+        swim:!!goblin.siegeManaged && [0,-1].some(dy=>isWater(world.getBlock(Math.floor(target.x),Math.round(target.y)+dy,Math.floor(target.z)))) };
     }
     if (action.type === 'dismount') {
       if (state.onGround || !isOnLadder(state, world)) { route.index++; continue; }
@@ -249,11 +289,11 @@ export function followRoute(route, goblin, world) {
     const faceWall = yawToward(wx, wz);
     if (action.type === 'climbUp') {
       if (state.y >= action.y + 0.02) { route.index++; continue; }
-      nudgeTo(state, action.x, action.z);
+      nudgeTo(state, action.x, action.z, world);
       return { yaw: faceWall, forward: 1 };
     }
     if (action.type === 'climbTo') {
-      nudgeTo(state, action.x, action.z);
+      nudgeTo(state, action.x, action.z, world);
       if (state.y < action.y - 0.1) return { yaw: faceWall, forward: 1 };
       if (state.y > action.y + 0.4 && !state.onGround) return { yaw: faceWall, forward: -1 };
       return { hold: faceWall };
@@ -265,10 +305,10 @@ export function followRoute(route, goblin, world) {
     if (!isOnLadder(state, world)) {
       const dx = action.x - state.x, dz = action.z - state.z;
       if (Math.hypot(dx, dz) > 0.3) return { dx, dz };
-      nudgeTo(state, action.x, action.z);
+      nudgeTo(state, action.x, action.z, world);
       return { hold: faceWall };
     }
-    nudgeTo(state, action.x, action.z);
+    nudgeTo(state, action.x, action.z, world);
     return { yaw: faceWall, forward: -1 };
   }
   return { arrived: true };

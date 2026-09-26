@@ -70,8 +70,8 @@ export function raycastPlayers(origin, dir, maxDist, players, boxOf, grow = 0) {
   for (const player of players) {
     const box = typeof boxOf === 'function' ? boxOf(player) : boxOf;
     const { x, y, z } = player.state;
-    const w = box.halfW + grow;
-    const t = rayBox(origin, dir, x - w, y - grow, z - w, x + w, y + box.height + grow, z + w);
+    const w = box.halfW + grow, offset = box.offsetY ?? 0;
+    const t = rayBox(origin, dir, x - w, y + offset - grow, z - w, x + w, y + offset + box.height + grow, z + w);
     if (t !== null && t <= maxDist && (!best || t < best.t)) best = { player, t };
     for (const extra of player.extraHitBoxes?.() ?? []) {
       const ew = extra.halfW + grow;

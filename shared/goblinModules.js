@@ -61,6 +61,8 @@ export const MODULE_TYPES = {
   ladderShaft: { label: 'Ladder shaft', shape: 'shaft', size: [1, 1, 1], faces: 'any', vertical: ['U', 'D'] },
   totemHall: { label: 'Totem Hall', shape: 'room', size: [2, 2, 2], faces: 'any', doorLevels: [0], feature: 'totem' },
   bunkRoom: { label: 'Bunk Room', shape: 'room', size: [1, 1, 1], faces: 'any', vertical: ['U'], feature: 'bunks', capacity: 2 },
+  storeRoom: { label: 'Store Room', shape: 'room', size: [1, 1, 1], faces: 'any', vertical: ['U'], feature: 'stores' },
+  armory: { label: 'Armory', shape: 'room', size: [1, 1, 1], faces: 'any', vertical: ['U'], feature: 'armory' },
   entrance: { label: 'Shaft base', shape: 'room', size: [1, 1, 1], faces: 'any', feature: 'entrance' },
 };
 
@@ -81,7 +83,6 @@ export const MATERIAL_OF = {
   [BLOCK.STONE]: 'stone',
   [BLOCK.DIRT]: 'dirt',
   [BLOCK.GRASS]: 'dirt',
-  [BLOCK.SAPLING]: 'saplings',
 };
 export function materialOf(id) {
   if (isLadder(id)) return 'planks';
@@ -204,6 +205,14 @@ export function moduleBlocks(module) {
   if (def.feature === 'bunks') {
     for (const [x, y, z, material] of BUNKS) {
       special.set(`${box.x0 + x},${box.y0 + y},${box.z0 + z}`, material === 'wood' ? BLOCK.WOOD : BLOCK.PLANKS);
+    }
+  }
+  if (def.feature === 'stores' || def.feature === 'armory') {
+    for (const [lx, lz] of [[1, 1], [5, 1], [1, 5], [5, 5]]) {
+      special.set(`${box.x0 + lx},${box.y0 + 1},${box.z0 + lz}`,
+        lx === 1 && lz === 1 ? BLOCK.CHEST : BLOCK.PLANKS);
+      if (lx !== 1 || lz !== 1) special.set(`${box.x0 + lx},${box.y0 + 2},${box.z0 + lz}`,
+        def.feature === 'armory' ? BLOCK.GOBLIN_BRICKS : BLOCK.PLANKS);
     }
   }
   const blocks = [];
@@ -446,11 +455,11 @@ export const SURFACE_TEMPLATES = {
   // ladders climb the back wall at local x 2-4, z 1 through the floor; the
   // doorway is in the front wall.
   gatehouse: {
-    label: 'Gatehouse', capacity: 0, foundationBlock: BLOCK.GOBLIN_BRICKS, shaft: { x: 3, z: 1 }, door: 3,
+    label: 'Gatehouse', capacity: 0, foundationBlock: BLOCK.GOBLIN_BRICKS, shaft: { x: 3, z: 1 }, door: 5,
     layers: [
       ['BBBBBBB', 'BBBBBBB', 'BBBBBBB', 'BBBBBBB', 'BBBBBBB'],
-      ['BBBBBBB', 'B.....B', 'B.....B', 'B.....B', 'BBB.BBB'],
-      ['BBBBBBB', 'B.....B', 'B.....B', 'B.....B', 'BBB.BBB'],
+      ['BBBBBBB', 'B.....B', 'B.....B', 'B.....B', 'BBBBB.B'],
+      ['BBBBBBB', 'B.....B', 'B.....B', 'B.....B', 'BBBBB.B'],
       ['BBBBBBB', 'B.....B', 'B.....B', 'B.....B', 'BBBBBBB'],
       ['BBBBBBB', 'BBBBBBB', 'BBBBBBB', 'BBBBBBB', 'BBBBBBB'],
       ['B_B_B_B', '_______', 'B_____B', '_______', 'B_B_B_B'],
@@ -459,7 +468,7 @@ export const SURFACE_TEMPLATES = {
 };
 
 // How far out of a doorway the way is cleared.
-export const DOOR_PATH = 3;
+export const DOOR_PATH = 6;
 
 // Surface dwellings goblins build for room, and how often each is picked.
 export const DWELLINGS = { hut: 3, longhouse: 2, lookout: 1.5 };

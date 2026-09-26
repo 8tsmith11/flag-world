@@ -46,7 +46,7 @@ import {
 } from '../shared/physics.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '../shared/raycast.js';
 import {
-  C2S, S2C, PHASE, MAX_NAME_LENGTH, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT, TEAMS,
+  C2S, S2C, PHASE, MAX_NAME_LENGTH, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT, TEAMS, GOBLIN_ANIMATION,
 } from '../shared/protocol.js';
 import { Player, GRAB_TICKS } from './player.js';
 import { Flag } from './flag.js';
@@ -58,7 +58,7 @@ import { QuarryRegrowth } from './quarry.js';
 import { GoblinController } from './goblins.js';
 import { TurretController } from './turrets.js';
 import { turretType } from '../shared/turrets.js';
-import { KING_BOX, WORKER_BOX, SOLDIER_BOX, ARCHER_BOX } from './goblin.js';
+import { KING_BOX, WORKER_BOX, SOLDIER_BOX, ARCHER_BOX, HOUND_BOX, BRUTE_BOX } from './goblin.js';
 import { GOBLINS } from '../shared/goblins.js';
 import { assignMobSteering, steerGround, resolveMobOverlaps } from './mobSteering.js';
 
@@ -145,12 +145,14 @@ export class Game {
     this.saplings = null;
     this.quarry = null;
     this.goblins = null;
+    this.goblinEntityIds = new Set();
     this.turretController = null;
     // Flags by owner id, and the last player standing once the match is decided.
     this.flags = new Map();
     this.winnerId = null;
     // Every block changed since generation, "x,y,z" -> id, sent to players on join.
     this.blockChanges = new Map();
+    this.pendingBlockChanges = new Map();
     this.players = new Map();
     // Dropped items and flying or stuck arrows by entity id. They share the
     // id space with players.
@@ -288,6 +290,8 @@ export class Game {
     if (!session.localHost || !session.creative || !player?.creative || player.dead) return;
     if (action === 'toggleImmortal') player.immortal = !player.immortal;
     else if (action === 'toggleFlight') player.state.flying = !player.state.flying;
+    else if (action === 'forceGoblinSiege') { this.goblins?.sieges.launch(true); }
+    else if (action === 'raiseGoblinTier') { this.goblins?.raiseTier(); }
     else if (action === 'maxGoblinBase') {
       if (!this.goblins?.startFastBuild()) return;
     }
@@ -394,7 +398,8 @@ export class Game {
       this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id });
       const door = isDoor(id) ? doorState(id) : isDoor(oldId) ? doorState(oldId) : null;
       const team = door?.reinforced ? this.world.doorTeams.get(`${x},${door.upper ? y - 1 : y},${z}`) ?? null : undefined;
-      this.broadcast({ type: S2C.BLOCK_CHANGE, x, y, z, id, ...(team !== undefined ? { team } : {}) });
+      this.pendingBlockChanges.set(`${x},${y},${z}`, { x, y, z, id,
+        ...(team !== undefined ? { team } : {}) });
       this.water.enqueueAround(x, y, z);
       if (oldId === BLOCK.WOOD && id !== BLOCK.WOOD) this.leafDecay.enqueueAroundLog(x, y, z);
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
@@ -488,6 +493,13 @@ export class Game {
   }
 
   sendWelcome(player) {
+    player.goblinKnown = new Set();
+    const visibleEntity = (entity) => {
+      if (!entity.goblin) return true;
+      const visible = this.goblinInRange(player, entity);
+      if (visible) player.goblinKnown.add(entity.id);
+      return visible;
+    };
     this.send(player, {
       type: S2C.WELCOME,
       id: player.id,
@@ -512,7 +524,7 @@ export class Game {
         }),
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
       entities: [...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
-        ...this.mobs.values()].map((e) => e.describe()),
+        ...this.mobs.values()].filter(visibleEntity).map((e) => e.describe()),
       inventory: player.inventory,
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
       portals: [...this.portals.values()].map(({ id, x, y, z, expiresTick }) => ({ id, x, y, z, expiresTick })),
@@ -834,7 +846,9 @@ export class Game {
     const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
     const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX,
       goblinWorker: WORKER_BOX, goblinKing: KING_BOX, goblinSoldier: SOLDIER_BOX,
-      goblinArcher: ARCHER_BOX };
+      goblinArcher: ARCHER_BOX, goblinHound: HOUND_BOX, goblinBrute: BRUTE_BOX,
+      goblinCatapult: {halfW:GOBLINS.catapult.width/2,height:GOBLINS.catapult.height},
+      goblinBalloon: {halfW:GOBLINS.balloon.width/2,height:GOBLINS.balloon.height} };
     const box = boxes[egg.type];
     if (!box || !playerFitsAt(this.world, { x, y, z, box }, y)) return;
     const island = this.world.islands?.length ? this.world.islands.reduce((best, candidate) =>
@@ -862,6 +876,12 @@ export class Game {
         this.mobs.set(mob.id, mob);
         break;
       }
+      case 'goblinCatapult':
+      case 'goblinBalloon':
+        mob = this.goblins.sieges.addMachine(egg.type, {x,y,z});
+        break;
+      case 'goblinHound':
+      case 'goblinBrute':
       case 'goblinWorker':
       case 'goblinSoldier':
       case 'goblinArcher':
@@ -1208,12 +1228,18 @@ export class Game {
       } else if (result?.hit) {
         const target = result.hit, t = target.state;
         // A small push along the arrow's flight.
+        if(!target.immovable) {
         t.kx += result.dir.x * ARROW_KNOCKBACK;
         t.kz += result.dir.z * ARROW_KNOCKBACK;
         t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
         t.onGround = false;
+        }
         this.hurt(target, arrow.damage * (result.damageScale ?? 1), arrow.shooter,
           arrow.shooter.goblin ? DEATH_CAUSE.MOB : DEATH_CAUSE.PLAYER);
+        if (arrow.poison && !target.dead && !target.immortal) {
+          target.poisonUntil = this.tick + Math.round(GOBLINS.traps.poisonSeconds*TICK_RATE);
+          target.nextPoison = this.tick + Math.round(GOBLINS.traps.poisonInterval*TICK_RATE);
+        }
         this.removeArrow(arrow);
       } else if (flying) {
         moved.push(arrow);
@@ -1244,7 +1270,6 @@ export class Game {
     arrow.gravity = g;
     this.arrows.set(arrow.id, arrow);
     this.broadcast({ type: S2C.ENTITY_SPAWN, entity: arrow.describe() });
-    this.swing(archer);
   }
 
   removeArrow(arrow) {
@@ -1458,8 +1483,21 @@ export class Game {
     const moved = [];
     for (const mob of this.mobs.values()) {
       const s = mob.state;
-      // Offscreen goblins stand still; the simulation moves them.
+      if(mob.goblin && s.y<this.world.voidY) {this.removeMob(mob);continue;}
+      if (mob.siegeManaged) { moved.push(mob); continue; }
+      if (mob.goblin && mob.respawnJourney) {
+        this.goblins.sim.progressJourney(mob);
+        mob.walking = !mob.climbing;
+        moved.push(mob);
+        continue;
+      }
+      // Sleeping goblins need no physics; their individual state stays intact.
       if (mob.goblin && (this.goblins.frozen(mob) || this.goblins.sleeping(mob))) {
+        if (mob.walking || mob.climbing) {
+          mob.walking = false;
+          mob.climbing = false;
+          moved.push(mob);
+        }
         if (mob.teleported) moved.push(mob);
         mob.teleported = false;
         continue;
@@ -1502,10 +1540,12 @@ export class Game {
     const t = target.state, s = mob.state;
     let dx = t.x - s.x, dz = t.z - s.z;
     const len = Math.hypot(dx, dz) || 1;
+    if(!target.immovable) {
     t.kx = dx / len * KNOCKBACK_SPEED * knockback;
     t.kz = dz / len * KNOCKBACK_SPEED * knockback;
     t.vy = Math.max(t.vy, KNOCKBACK_UP * Math.min(1, knockback));
     t.onGround = false;
+    }
     this.damage(target, amount, mob, DEATH_CAUSE.MOB);
     const thorns = target.thorns?.() ?? 0;
     if (thorns > 0 && !target.dead) this.hurt(mob, thorns, target);
@@ -1584,10 +1624,12 @@ export class Game {
     const len = Math.hypot(dx, dz);
     if (len > 1e-6) { dx /= len; dz /= len; } else { dx = dir.x; dz = dir.z; }
     const push = KNOCKBACK_SPEED * (weapon.knockback ?? 1);
+    if(!target.immovable) {
     t.kx = dx * push;
     t.kz = dz * push;
     t.vy = Math.max(t.vy, weapon.lift ?? KNOCKBACK_UP);
     t.onGround = false;
+    }
     if (weapon.frost && (target instanceof Player || target instanceof Cow || target instanceof Crawler)) {
       t.slowTicks = ticks(FROST.seconds);
     }
@@ -1802,6 +1844,7 @@ export class Game {
 
   takeFlag(player, flag) {
     flag.state = FLAG_STATE.CARRIED;
+    flag.held = false;
     flag.carrier = player;
     player.carrying = flag;
     player.state.carrying = true;
@@ -1860,7 +1903,7 @@ export class Game {
         continue;
       }
       const own = player.flag;
-      if (own.state === FLAG_STATE.DROPPED && this.onFlag(player, own.body)) this.returnFlag(own, player);
+      if ([FLAG_STATE.DROPPED, FLAG_STATE.HELD].includes(own.state) && this.onFlag(player, own.body)) this.returnFlag(own, player);
       // Capture on your own pedestal while your flag is home, or while you're
       // flagless (your flag already captured).
       if (player.carrying) {
@@ -1870,7 +1913,7 @@ export class Game {
       }
 
       const target = [...this.flags.values()].find((f) => f.team !== player.team
-        && (f.state === FLAG_STATE.HOME || f.state === FLAG_STATE.DROPPED) && this.onFlag(player, f.position));
+        && (f.state === FLAG_STATE.HOME || f.state === FLAG_STATE.DROPPED || f.state === FLAG_STATE.HELD) && this.onFlag(player, f.position));
       if (!target) {
         player.grab = null;
         continue;
@@ -1966,16 +2009,62 @@ export class Game {
       this.send(player, { type: S2C.INVENTORY, ...player.inventory.toJSON() });
     }
 
-    this.broadcast({
-      type: S2C.STATE,
-      tick: this.tick,
-      entities: [
-        ...[...this.players.values()].map((p) => p.snapshot()),
-        ...movedItems.map((e) => e.snapshot()),
-      ],
-      flags: [...this.flags.values()].map((f) => f.snapshot()),
-      turrets: this.turretController.snapshot(),
-    });
+    if (this.pendingBlockChanges.size) {
+      this.broadcast({ type: S2C.BLOCK_CHANGES, changes: [...this.pendingBlockChanges.values()] });
+      this.pendingBlockChanges.clear();
+    }
+
+    this.syncGoblinInterest();
+    const players = [...this.players.values()].map((p) => p.snapshot(this.tick));
+    const ordinary = movedItems.filter((e) => !e.goblin).map((e) => e.snapshot());
+    const goblins = movedItems.filter((e) => e.goblin).map((e) => ({ entity: e,
+      snapshot: this.compactGoblin(e.snapshot()) }));
+    const flags = [...this.flags.values()].map((f) => f.snapshot());
+    const turrets = this.turretController.snapshot();
+    for (const player of this.players.values()) {
+      if (player.socket?.readyState !== 1) continue;
+      this.send(player, { type: S2C.STATE, tick: this.tick,
+        entities: [...players, ...ordinary, ...goblins.filter(({ entity }) =>
+          player.goblinKnown?.has(entity.id)).map(({ snapshot }) => snapshot)], flags, turrets });
+    }
+  }
+
+  goblinInRange(player, goblin) {
+    const a = player.state, b = goblin.state;
+    return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= GOBLINS.network.range;
+  }
+
+  compactGoblin(s) {
+    const { positionStep, yawStep } = GOBLINS.network;
+    const q = (value, step) => Math.round(value / step) * step;
+    return { id: s.id, x: q(s.x, positionStep), y: q(s.y, positionStep),
+      z: q(s.z, positionStep), yaw: q(s.yaw, yawStep), hp: Math.ceil(s.hp),
+      a: (s.walking ? GOBLIN_ANIMATION.WALK : 0) | (s.climbing ? GOBLIN_ANIMATION.CLIMB : 0)
+        | (s.mining ? GOBLIN_ANIMATION.WORK : 0) | (s.aiming ? GOBLIN_ANIMATION.AIM : 0)
+        | (s.crouching ? GOBLIN_ANIMATION.CROUCH : 0) | (s.gliding ? GOBLIN_ANIMATION.GLIDE : 0),
+      aboard:!!s.aboard,
+      ...(s.phase === undefined ? {} : {phase:s.phase,cargo:s.cargo,bombs:s.bombs,firing:s.firing}) };
+  }
+
+  syncGoblinInterest() {
+    const goblins = [...this.mobs.values()].filter((mob) => mob.goblin);
+    for (const player of this.players.values()) {
+      if (player.socket?.readyState !== 1) continue;
+      const known = player.goblinKnown ??= new Set();
+      const visible = new Set();
+      for (const goblin of goblins) {
+        if (!this.goblinInRange(player, goblin)) continue;
+        visible.add(goblin.id);
+        if (!known.has(goblin.id)) {
+          known.add(goblin.id);
+          this.send(player, { type: S2C.ENTITY_SPAWN, entity: goblin.describe() });
+        }
+      }
+      for (const id of known) if (!visible.has(id)) {
+        known.delete(id);
+        this.send(player, { type: S2C.ENTITY_DESPAWN, id });
+      }
+    }
   }
 
   send(player, msg) {
@@ -1984,6 +2073,32 @@ export class Game {
 
   // To every connected match player, optionally skipping one.
   broadcast(msg, except = null) {
+    if ((msg.type === S2C.SWING || msg.type === S2C.DAMAGE)
+      && this.goblinEntityIds.has(msg.id)) {
+      for (const player of this.players.values()) if (player !== except
+        && player.goblinKnown?.has(msg.id)) this.send(player, msg);
+      return;
+    }
+    if (msg.type === S2C.ENTITY_SPAWN && msg.entity?.type?.startsWith('goblin')) {
+      this.goblinEntityIds.add(msg.entity.id);
+      for (const player of this.players.values()) {
+        if (player === except || player.socket?.readyState !== 1
+          || !this.goblinInRange(player, { state: msg.entity })) continue;
+        const known = player.goblinKnown ??= new Set();
+        if (known.has(msg.entity.id)) continue;
+        known.add(msg.entity.id);
+        this.send(player, msg);
+      }
+      return;
+    }
+    if (msg.type === S2C.ENTITY_DESPAWN && this.goblinEntityIds.has(msg.id)) {
+      this.goblinEntityIds.delete(msg.id);
+      for (const player of this.players.values()) {
+        if (player === except || !player.goblinKnown?.delete(msg.id)) continue;
+        this.send(player, msg);
+      }
+      return;
+    }
     const data = JSON.stringify(msg);
     for (const p of this.players.values()) {
       if (p !== except && p.socket?.readyState === 1) p.socket.send(data);

@@ -4,6 +4,10 @@ import { ITEM } from './itemIds.js';
 import { ENTITY_TYPE } from './protocol.js';
 
 export const MOB_EGGS = [
+  ...['HOUND', 'BRUTE', 'CATAPULT', 'BALLOON'].map((kind) => ({
+    item: ITEM[`GOBLIN_${kind}_EGG`], type: ENTITY_TYPE[`GOBLIN_${kind}`],
+    name: `Goblin ${kind[0]}${kind.slice(1).toLowerCase()}`, color: 0x5f8a33, spots: 0x6b4520,
+  })),
   { item: ITEM.COW_EGG, type: ENTITY_TYPE.COW, name: 'Cow', color: 0xe9e4d7, spots: 0x25272b },
   { item: ITEM.DRAGON_EGG, type: ENTITY_TYPE.DRAGON, name: 'Dragon', color: 0xb84f45, spots: 0x713027 },
   { item: ITEM.CRAWLER_EGG, type: ENTITY_TYPE.CRAWLER, name: 'Crawler', color: 0x59675e, spots: 0x242e29 },

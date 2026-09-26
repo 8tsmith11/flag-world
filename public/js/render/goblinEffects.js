@@ -2,6 +2,7 @@
 // glow burst out and tumble down, with a quick green flash.
 
 import * as THREE from 'three';
+import { GOBLINS } from '/shared/goblins.js';
 
 const CHUNK = new THREE.BoxGeometry(0.22, 0.22, 0.22);
 const COLORS = [0x5b4128, 0x3b2a18, 0x47442e, 0x5f8a33, 0xe6dcc0, 0x9dff5a];
@@ -36,6 +37,18 @@ export class GoblinEffects {
     this.flashes.push({ light, remaining: 0.8, life: 0.8 });
   }
 
+  explosion(x,y,z,radius) {
+    const cfg=GOBLINS.effects;
+    for(let i=0;i<cfg.bombParticles;i++) {
+      const mesh=new THREE.Mesh(CHUNK,new THREE.MeshBasicMaterial({color:i%3?0xff9b24:0x55504b,transparent:true}));
+      mesh.position.set(x,y,z);mesh.scale.setScalar(radius*(0.5+Math.random()));this.scene.add(mesh);
+      const angle=Math.random()*Math.PI*2,speed=cfg.bombParticleSpeed*(0.3+Math.random());
+      this.pieces.push({mesh,vx:Math.cos(angle)*speed,vy:Math.random()*speed,vz:Math.sin(angle)*speed,spin:Math.random()*6,life:cfg.bombSeconds,remaining:cfg.bombSeconds});
+    }
+    const light=new THREE.PointLight(0xffaa44,cfg.bombFlashIntensity,cfg.bombFlashRange);light.position.set(x,y,z);this.scene.add(light);
+    this.flashes.push({light,life:cfg.bombFlashSeconds,remaining:cfg.bombFlashSeconds,intensity:cfg.bombFlashIntensity});
+  }
+
   update(dt) {
     for (let i = this.pieces.length - 1; i >= 0; i--) {
       const p = this.pieces[i];
@@ -57,7 +70,7 @@ export class GoblinEffects {
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i];
       f.remaining -= dt;
-      f.light.intensity = 6 * Math.max(0, f.remaining / f.life);
+      f.light.intensity = (f.intensity ?? 6) * Math.max(0, f.remaining / f.life);
       if (f.remaining <= 0) {
         this.scene.remove(f.light);
         this.flashes.splice(i, 1);

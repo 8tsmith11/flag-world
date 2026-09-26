@@ -1119,3 +1119,13 @@ body.frosted::after {
 #goblin-inspector .gi-section { margin-top: 6px; color: #b7c99a; font-weight: 600; }
 #goblin-inspector .gi-row { display: flex; justify-content: space-between; gap: 16px; }
 #goblin-inspector .gi-wide { display: block; }
+
+#poison-status { position:fixed; inset:0; pointer-events:none; z-index:8; background:rgba(70,155,20,.12); box-shadow:inset 0 0 100px rgba(80,185,20,.35); }
+#poison-status[hidden] { display:none; }
+#poison-status span { position:absolute; right:20px; bottom:100px; color:#a6f064; padding:8px; background:#172510; border-radius:6px; }
+#poison-status i { position:absolute; bottom:10%; left:20%; width:7px; height:7px; background:#82cc43; border-radius:50%; animation:poison-mote 2s infinite; }
+#poison-status i:nth-child(3) { left:40%; animation-delay:.3s; }
+#poison-status i:nth-child(4) { left:60%; animation-delay:.8s; }
+#poison-status i:nth-child(5) { left:75%; animation-delay:1.3s; }
+#poison-status i:nth-child(6) { left:90%; animation-delay:1.7s; }
+@keyframes poison-mote { to { transform:translateY(-200px); opacity:0; } }

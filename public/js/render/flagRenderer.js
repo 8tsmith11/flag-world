@@ -118,7 +118,7 @@ export class FlagRenderer {
       }
       carriedModel.visible = !!carrierModel && carrierModel.visible;
 
-      model.visible = state.state === FLAG_STATE.HOME || state.state === FLAG_STATE.DROPPED;
+      model.visible = state.state === FLAG_STATE.HOME || state.state === FLAG_STATE.DROPPED || state.state === FLAG_STATE.HELD;
       if (model.visible) {
         const target = new THREE.Vector3(state.x, state.y, state.z);
         // Snap when it jumps (returned home, just dropped), ease otherwise.

@@ -1,6 +1,6 @@
 // The Goblin Fortress in a match. GoblinController spawns the Totem, the
 // King and the colony (Workers, Soldiers, Archers) from
-// world.goblinFortress and runs everything they share: the Totem's storage
+// world.goblinFortress and runs everything they share: timed projects
 // (materials by name; nobody can open it), population and spawning, the
 // active project and its tasks (goblinProjects.js), repairs to what they
 // built, entrances and surfacing groups, surface buildings, and the switch
@@ -8,37 +8,41 @@
 // handles goblin damage and deaths for the Game. Numbers are in
 // shared/goblins.js.
 
-import { TICK_RATE, ITEM_POP_SPEED, ITEM_PICKUP_DELAY } from '../shared/config.js';
+import { TICK_RATE, CHUNK_SIZE, ITEM_POP_SPEED, ITEM_PICKUP_DELAY } from '../shared/config.js';
 import { BLOCK, isSolid, isLadder, isWater, isFlowingWater } from '../shared/blocks.js';
-import { ITEM } from '../shared/itemIds.js';
 import { GOBLINS, goblinTicks, goblinCap } from '../shared/goblins.js';
-import { MODULE_TYPES, CELL_HEIGHT, moduleAt, moduleBlocks, connectionBlocks, cellOrigin } from '../shared/goblinModules.js';
+import { MODULE_TYPES, CELL_HEIGHT, moduleAt, moduleBlocks, connectionBlocks, cellOrigin,
+  SURFACE_TEMPLATES, DOOR_PATH, turnLocal, turnsBack, templateBounds } from '../shared/goblinModules.js';
 import { mulberry32 } from '../shared/structures.js';
 import { rollLoot } from '../shared/loot.js';
 import { S2C, ENTITY_TYPE } from '../shared/protocol.js';
 import {
-  GoblinTotem, GoblinKing, GoblinWorker, GoblinSoldier, GoblinArcher,
+  GoblinTotem, GoblinKing, GoblinWorker, GoblinSoldier, GoblinArcher, GoblinHound, GoblinBrute,
 } from './goblin.js';
 import {
-  Project, blockKey, addBlockTasks, taskReady, taskSatisfied, yieldOf, isProtected,
+  Project, blockKey, addBlockTasks, taskReady, taskSatisfied, isProtected,
   chooseModule, moduleProject, shaftCandidates, shaftProject, gatehouseProject,
   dwellingProject, plotProject, wallProject, entrancePoints, TREE_BLOCKS,
+  castleProject, surfaceHeight,
 } from './goblinProjects.js';
+import { canStand } from './pathfind.js';
+import { isOnLadder } from '../shared/physics.js';
+import { canSee } from './provocation.js';
 import { OffscreenSim } from './goblinOffscreen.js';
+import { GoblinSieges } from './goblinSieges.js';
+import { GoblinTraps } from './goblinTraps.js';
 
 const ticks = (seconds) => Math.round(seconds * TICK_RATE);
-export const COLONY_TYPES = [ENTITY_TYPE.GOBLIN_WORKER, ENTITY_TYPE.GOBLIN_SOLDIER, ENTITY_TYPE.GOBLIN_ARCHER];
+export const COLONY_TYPES = [ENTITY_TYPE.GOBLIN_WORKER, ENTITY_TYPE.GOBLIN_SOLDIER, ENTITY_TYPE.GOBLIN_ARCHER, ENTITY_TYPE.GOBLIN_HOUND, ENTITY_TYPE.GOBLIN_BRUTE];
 const CLASSES = {
   [ENTITY_TYPE.GOBLIN_WORKER]: GoblinWorker,
   [ENTITY_TYPE.GOBLIN_SOLDIER]: GoblinSoldier,
   [ENTITY_TYPE.GOBLIN_ARCHER]: GoblinArcher,
+  [ENTITY_TYPE.GOBLIN_HOUND]: GoblinHound,
+  [ENTITY_TYPE.GOBLIN_BRUTE]: GoblinBrute,
 };
 // Who climbs first out of a surfacing group.
 const CLIMB_ORDER = { goblinSoldier: 0, goblinArcher: 1, goblinWorker: 2 };
-const MATERIALS = ['stone', 'bricks', 'wood', 'planks', 'dirt', 'saplings'];
-// Items a killed goblin's load drops as.
-const MATERIAL_ITEMS = { stone: BLOCK.STONE, bricks: BLOCK.GOBLIN_BRICKS, wood: BLOCK.WOOD, planks: BLOCK.PLANKS,
-  dirt: BLOCK.DIRT, saplings: ITEM.TREE_SEED };
 
 export class GoblinController {
   constructor(game) {
@@ -47,7 +51,8 @@ export class GoblinController {
     this.worldSize = game.worldSize;
     this.fortress = game.world.goblinFortress ?? null;
     this.random = mulberry32(((game.seed ?? 1) ^ 0x60b1d2) >>> 0);
-    this.storage = Object.fromEntries(MATERIALS.map((m) => [m, 0]));
+    this.nextChopTick = 0;
+    this.navigationRevision = 0;
     this.totem = null;
     this.totemAlive = false;
     this.king = null;
@@ -81,9 +86,12 @@ export class GoblinController {
     this.alarmUntil = 0;
     this.alerted = false;
     this.lastIntruderPos = null;
+    this.surfaceAlarmUntil = 0;
     this.relocationStarted = false;
     this.relocationNew = null;
+    this.castleReserve = null;
     this.relocated = false;
+    this.castleBuilt = false;
     this.wallSections = [];
     this.outerWallBuilt = false;
     this.wallFootprints = new Set();
@@ -91,6 +99,7 @@ export class GoblinController {
     this.fastBuildIdle = 0;
     this.reserved = [];
     this.plotSaplings = new Set();
+    this.replantQueue = [];
     this.naturalTreesChopped = 0;
     this.treeClaims = new Set();
     this.nextSpawnTick = 0;
@@ -99,6 +108,9 @@ export class GoblinController {
     this.forceMode = null;
     this.nextModeCheck = 0;
     this.sim = new OffscreenSim(this);
+    this.wood = 0; this.tier = 1; this.minimumTier = 1;
+    this.sieges = new GoblinSieges(this);
+    this.traps = new GoblinTraps(this);
     this.events = [];
     this.samples = [];
     this.stats = { forced: 0, dug: 0, placed: 0, chopped: 0, unstuck: 0 };
@@ -144,6 +156,7 @@ export class GoblinController {
 
   add(mob) {
     this.game.mobs.set(mob.id, mob);
+    this.game.goblinEntityIds.add(mob.id);
     return mob;
   }
 
@@ -155,11 +168,11 @@ export class GoblinController {
     this.totemAlive = true;
     const home = { x: t.x, y: t.y, z: t.z + 2.5 };
     this.king = this.add(new GoblinKing(this.game.nextId++, this, home.x, home.y, home.z, this.hallArena(), home));
-    for (let i = 0; i < GOBLINS.start.workers; i++) this.spawnGoblin(ENTITY_TYPE.GOBLIN_WORKER, false, i + 1);
-    this.storage.planks = this.startPlanks;
-    this.storage.saplings = GOBLINS.start.saplings;
+    GOBLINS.start.slots.forEach((type, i) => this.spawnGoblin(type, false, i + 1));
+    this.updateAssignments();
     this.nextSpawnTick = this.game.tick + goblinTicks(GOBLINS.population.spawnInterval, TICK_RATE);
-    this.log('start', { planks: this.startPlanks, shaft: !!this.shaftPlan });
+    this.log('start', { shaft: !!this.shaftPlan });
+    this.log('tierUnlocked', { tier: 1 });
   }
 
   // The Totem Hall's floor, less a margin from its walls, as the King's arena.
@@ -175,8 +188,8 @@ export class GoblinController {
     const goblin = new CLASSES[type](this.game.nextId++, this, t.x + Math.cos(angle) * 2.5, t.y, t.z + Math.sin(angle) * 2.5);
     this.members.add(goblin);
     if (slot !== null) { goblin.slot = slot; this.slots.set(slot, goblin); }
-    this.add(goblin);
-    if (announce) this.game.broadcast({ type: S2C.ENTITY_SPAWN, entity: goblin.describe() });
+    this.game.goblinEntityIds.add(goblin.id);
+    this.nextModeCheck = 0;
     return goblin;
   }
 
@@ -231,11 +244,6 @@ export class GoblinController {
     return this.buildings.filter((b) => b.kind === 'plot').length;
   }
 
-  // Wood in storage, counted as planks.
-  woodStock() {
-    return this.storage.wood * GOBLINS.materials.planksPerWood + this.storage.planks;
-  }
-
   // Entrances, and shafts still being dug or widened (open: false), for
   // telling when a goblin is on a shaft column.
   shafts() {
@@ -251,74 +259,55 @@ export class GoblinController {
 
   // Boxes goblin surface buildings, gatehouses and shafts occupy (for site checks).
   surfaceBoxes() {
-    return this.reserved;
+    const approaches=this.buildings.filter(b=>b.kind==='wall').flatMap(w=>w.gates.map(g=>{
+      const r=GOBLINS.walls.gateApproach,nx=g.nx ?? 0,nz=g.nz ?? 1;
+      return {x0:Math.floor(g.x)-Math.abs(nx)*r,x1:Math.floor(g.x)+Math.abs(nx)*r,
+        z0:Math.floor(g.z)-Math.abs(nz)*r,z1:Math.floor(g.z)+Math.abs(nz)*r,y0:g.y-1,y1:g.y+GOBLINS.walls.height};
+    }));
+    const margin=GOBLINS.siege.launchSettlementClearance;
+    const towers=[...(this.sieges?.towerSites?.values() ?? [])].map(b=>({...b,
+      x0:b.x0-margin,x1:b.x1+margin,z0:b.z0-margin,z1:b.z1+margin}));
+    const planned=(this.sieges?.pending?.bridges ?? []).map(b=>({
+      x0:b.launch.x-margin,x1:b.launch.x+margin,z0:b.launch.z-margin,z1:b.launch.z+margin}));
+    return [...this.reserved,...approaches,...towers,...planned];
   }
 
   reserveSurface(box) {
+    // Surface reservations must not occupy the entire underground column.
+    // Otherwise a future gatehouse or Castle can block all module growth
+    // beneath it before its shaft is even started.
+    if (box.y0 === undefined) {
+      const ground = surfaceHeight(this.world, Math.floor((box.x0 + box.x1) / 2),
+        Math.floor((box.z0 + box.z1) / 2));
+      box.y0 = ground + 1;
+      box.y1 = ground + GOBLINS.projects.castle.towerHeight + 2;
+    }
     this.reserved.push(box);
+  }
+
+  gatehouseReserve(pick) {
+    const template = SURFACE_TEMPLATES.gatehouse;
+    const turns = turnsBack(pick.wall);
+    const [sx, sz] = turnLocal(template.shaft.x, template.shaft.z, turns);
+    const ox = pick.column.x - sx, oz = pick.column.z - sz;
+    const box = templateBounds(template, ox, oz, turns);
+    box.access = Array.from({ length: DOOR_PATH * 3 }, (_, index) => {
+      const d = Math.floor(index / 3) + 1, side = index % 3 - 1;
+      const [dx, dz] = turnLocal(template.door + side, template.layers[0].length - 1 + d, turns);
+      return { x: ox + dx, z: oz + dz };
+    });
+    return box;
   }
 
   releaseSurface(box) {
     this.reserved = this.reserved.filter((b) => b !== box);
   }
 
-  // ---- Storage ----
-
-  // Takes up to `count` of a material, converting stone into bricks and wood
-  // into planks as needed; foundations and ground fill make do with stone
-  // for dirt. Returns how many were taken.
-  take(material, count) {
-    const s = this.storage;
-    if (material === 'bricks' && s.bricks < count) {
-      const convert = Math.min(s.stone, count - s.bricks);
-      s.stone -= convert;
-      s.bricks += convert;
-    }
-    if (material === 'planks' && s.planks < count && s.wood > 0) {
-      const per = GOBLINS.materials.planksPerWood;
-      const logs = Math.min(s.wood, Math.ceil((count - s.planks) / per));
-      s.wood -= logs;
-      s.planks += logs * per;
-    }
-    if (material === 'dirt' && s.dirt < count) {
-      const got = s.dirt;
-      s.dirt = 0;
-      const rest = Math.min(s.stone, count - got);
-      s.stone -= rest;
-      return got + rest;
-    }
-    const got = Math.min(s[material] ?? 0, count);
-    s[material] -= got;
-    return got;
-  }
-
-  // How much of a material could be taken (with conversions).
-  available(material) {
-    const s = this.storage;
-    if (material === 'bricks') return s.bricks + s.stone;
-    if (material === 'planks') return s.planks + s.wood * GOBLINS.materials.planksPerWood;
-    if (material === 'dirt') return s.dirt + s.stone;
-    return s[material] ?? 0;
-  }
-
-  store(material, count) {
-    if (!material || count <= 0) return;
-    this.storage[material] = (this.storage[material] ?? 0) + count;
-  }
-
-  deposit(goblin) {
-    for (const [material, count] of goblin.carrying) this.store(material, count);
-    goblin.carrying.clear();
-  }
-
-  storageContents() {
-    return { ...this.storage };
-  }
-
   // ---- Blocks ----
 
   // A block change made by goblins (not treated as damage).
   setBlock(x, y, z, id) {
+    if (this.world.getBlock(x, y, z) !== id) this.navigationRevision++;
     this.selfChange++;
     try {
       this.world.setBlock(x, y, z, id);
@@ -340,6 +329,14 @@ export class GoblinController {
 
   // Called by the Game for every block change.
   blockChanged(x, y, z, id) {
+    if (!this.selfChange) this.navigationRevision++;
+    if (this.cachedTrees && id === BLOCK.WOOD
+      && [BLOCK.GRASS, BLOCK.DIRT].includes(this.world.getBlock(x, y - 1, z))
+      && this.entrances.some((entrance) => entrance.open
+        && Math.hypot(x - entrance.top.x, z - entrance.top.z) <= GOBLINS.surface.treeRadius)
+      && !this.cachedTrees.trees.some((tree) => tree.x === x && tree.y === y && tree.z === z)) {
+      this.cachedTrees.trees.push({ x, y, z, plot: null, d: 0 });
+    }
     if (this.selfChange) return;
     const key = blockKey(x, y, z);
     const building = this.buildingByBlock.get(key);
@@ -416,20 +413,16 @@ export class GoblinController {
   }
 
   // Applies a task's change directly (a stuck task, or offscreen work).
-  // Returns the material the dug block yields, or null.
   forceTask(task) {
     const current = this.world.getBlock(task.x, task.y, task.z);
-    let got = null;
     if (!isProtected(current)) {
       if (task.kind === 'dig') {
-        got = yieldOf(current);
         this.setBlock(task.x, task.y, task.z, BLOCK.AIR);
       } else {
         this.setBlock(task.x, task.y, task.z, task.id);
       }
     }
     this.finishTask(task, null);
-    return got;
   }
 
   // Marks a task done (the block is already changed).
@@ -469,12 +462,22 @@ export class GoblinController {
     project.startTick = this.game.tick;
     project.tripTime = this.sim.tripTime(project);
     this.project = project;
+    if (project.kind === 'dwelling' && !this.fastBuild) this.wood -= GOBLINS.gathering.dwellingWood;
     this.log('startProject', { kind: project.kind, label: project.label, tasks: project.total });
+    if (project.surface && !this.fastBuild) for (const goblin of this.members) {
+      if (goblin.type !== ENTITY_TYPE.GOBLIN_WORKER || goblin.surfaceWanderer()
+        || this.game.mobs.has(goblin.id)) continue;
+      this.sim.startJourney(goblin, project.site);
+    }
     return true;
   }
 
   // Picks the next project by priority (see GOBLINS.projects).
   chooseProject() {
+    if (this.relocated && this.castleBuilt && this.outerWallBuilt
+      && this.brickModules() >= goblinCap(GOBLINS.caps.modules, this.worldSize)
+      && this.dwellings() >= goblinCap(GOBLINS.caps.dwellings, this.worldSize)
+      && this.plots() >= goblinCap(GOBLINS.caps.plots, this.worldSize)) return null;
     const world = this.world;
     const random = this.random;
     // The first shaft, then a gatehouse for any entrance without one.
@@ -487,8 +490,26 @@ export class GoblinController {
     const bare = this.entrances.find((e) => !e.gatehouse && !e.sealed);
     if (bare) return this.gatehouseFor(bare);
     if (this.relocationNew?.gatehouse && !this.relocated) return this.plugOldEntrance();
-    // Low on wood: a tree plot, if there's room for another.
-    if ((this.fastBuild || this.woodStock() < GOBLINS.materials.woodLow)
+    if (this.relocated && !this.castleBuilt) {
+      if (this.castleReserve) this.releaseSurface(this.castleReserve);
+      const castle = castleProject(world, this, this.entrances[0]);
+      this.surfaceBuilding(castle);
+      const built = castle.onComplete;
+      castle.onComplete = () => { built(); this.castleBuilt = true; this.log('castleBuilt'); };
+      return castle;
+    }
+    // Secure the later entrance's upper-floor route before village sites
+    // surround it. The surface shaft itself still waits for relocation's
+    // configured module and dwelling thresholds.
+    const upperReady = this.relocationReserve?.spec.parent.floorY >= this.hall.floorY
+      + GOBLINS.projects.relocationMinLevels * CELL_HEIGHT;
+    if (!upperReady && this.brickModules() >= GOBLINS.expansion.upperRouteStartModules
+      && this.brickModules() < goblinCap(GOBLINS.caps.modules, this.worldSize)) {
+      const upper = this.moduleNext();
+      if (upper) return upper;
+    }
+    // A tree plot, if the village has grown enough and there is room.
+    if ((this.fastBuild || this.sieges.pending || this.dwellings() >= GOBLINS.gathering.plotStartBuildings)
       && this.plots() < goblinCap(GOBLINS.caps.plots, this.worldSize)) {
       const plot = plotProject(world, this, random);
       if (plot) return this.surfaceBuilding(plot);
@@ -500,9 +521,8 @@ export class GoblinController {
     // Alternate fortress modules and surface dwellings; either one alone
     // when the other is capped or has nowhere to go.
     const moduleDue = this.brickModules() < goblinCap(GOBLINS.caps.modules, this.worldSize);
-    const hardCap = goblinCap(GOBLINS.caps.population, this.worldSize);
     const dwellingDue = this.dwellings() < goblinCap(GOBLINS.caps.dwellings, this.worldSize)
-      && (this.fastBuild || (this.population() >= this.capacity() - GOBLINS.projects.dwellingSlack && this.capacity() < hardCap));
+      && (this.fastBuild || this.wood >= this.sieges.reserve() + GOBLINS.gathering.dwellingWood);
     const tracks = [];
     if (moduleDue) tracks.push('module');
     if (dwellingDue) tracks.push('dwelling');
@@ -518,28 +538,21 @@ export class GoblinController {
   }
 
   moduleNext() {
-    const spec = chooseModule(this.world, this, this.random, { ladders: this.woodStock() >= CELL_HEIGHT + 2 });
+    const spec = chooseModule(this.world, this, this.random);
     return spec ? moduleProject(this.world, this, spec) : null;
   }
 
-  // A dwelling, if the wood it needs is in storage or can still be had
-  // (plot trees, or natural trees left to chop).
   dwellingNext() {
     const project = dwellingProject(this.world, this, this.random);
-    if (!project) return null;
-    const wood = project.tasks.filter((t) => t.material === 'planks' || t.material === 'wood').length;
-    const canGet = this.plots() > 0 || this.woodSources().length > 0;
-    if (wood > this.woodStock() && !canGet) {
-      this.releaseSurface(project.building.box);
-      return null;
-    }
-    return this.surfaceBuilding(project);
+    return project ? this.surfaceBuilding(project) : null;
   }
 
   surfaceBuilding(project) {
     const building = project.building;
     if (building.kind === 'plot') for (const sp of building.saplings) this.plotSaplings.add(blockKey(sp.x, sp.y, sp.z));
+    const completed=project.onComplete;
     project.onComplete = () => {
+      completed?.();
       building.intact = true;
       building.solid = [...project.intended.values()].filter((b) => isSolid(b.id) && !b.foundation && !b.ground);
       for (const b of project.intended.values()) {
@@ -556,31 +569,52 @@ export class GoblinController {
     const dwellings = this.buildings.filter((b) => b.kind === 'dwelling' && b.intact);
     const settings = GOBLINS.walls;
     if (dwellings.length < settings.startBuildings) return null;
-    const outer = !this.outerWallBuilt && dwellings.length >= goblinCap(GOBLINS.caps.dwellings, this.worldSize);
+    const secondGatehouse = this.relocationNew?.gatehouse && this.buildings.find((b) =>
+      b.kind === 'gatehouse' && b.origin.x === this.relocationNew.gatehouse.origin.x
+      && b.origin.z === this.relocationNew.gatehouse.origin.z && !b.walled);
+    const outer = !this.outerWallBuilt
+      && dwellings.length >= goblinCap(GOBLINS.caps.dwellings, this.worldSize);
     const open = dwellings.filter((b) => !b.walled);
-    if (!outer && open.length < settings.sectionSize) return null;
+    if (!outer && !secondGatehouse && (open.length < settings.sectionMin
+      || this.wallSections.length >= goblinCap(settings.maxSections, this.worldSize) - 1)) return null;
+    const entranceGroups = secondGatehouse
+      ? [settings.sectionSize, settings.sectionMin].map((count) => [secondGatehouse,
+        ...[...dwellings].sort((a, b) =>
+          Math.hypot(a.front.x - secondGatehouse.front.x, a.front.z - secondGatehouse.front.z)
+          - Math.hypot(b.front.x - secondGatehouse.front.x, b.front.z - secondGatehouse.front.z)).slice(0, count)])
+        .filter((group) => group.length >= settings.sectionMin + 1)
+      : [];
     const groups = outer
-      ? [this.buildings.filter((b) => ['dwelling', 'plot', 'gatehouse'].includes(b.kind) && b.intact)]
-      : open.map((first) => [...open].sort((a, b) =>
-        Math.hypot(a.front.x - first.front.x, a.front.z - first.front.z)
-        - Math.hypot(b.front.x - first.front.x, b.front.z - first.front.z)).slice(0, settings.sectionSize));
+      ? [...entranceGroups, this.buildings.filter((b) => ['dwelling', 'plot', 'gatehouse'].includes(b.kind) && b.intact)]
+      : entranceGroups.concat(Array.from({ length: settings.sectionSize - settings.sectionMin + 1 },
+        (_, i) => settings.sectionSize - i).filter((count) => count <= open.length)
+        .flatMap((count) => open.map((first) => [...open].sort((a, b) =>
+          Math.hypot(a.front.x - first.front.x, a.front.z - first.front.z)
+          - Math.hypot(b.front.x - first.front.x, b.front.z - first.front.z)).slice(0, count))));
     for (const group of groups) {
-      const project = wallProject(this.world, this, group, outer);
+      const isOuter = outer && group === groups.at(-1);
+      const project = wallProject(this.world, this, group, isOuter,process.env.GOBLIN_WALL_TRACE?{}:null);
       if (!project) continue;
+      project.building.dwellingsEnclosed = group.filter((b) => b.kind === 'dwelling').length;
       this.surfaceBuilding(project);
       const built = project.onComplete;
       project.onComplete = () => {
         built();
         for (const key of project.building.footprint) this.wallFootprints.add(key);
+        for (const block of project.intended.values()) if (block.id === BLOCK.GOBLIN_BRICKS || isLadder(block.id))
+          this.wallFootprints.add(`${block.x},${block.z}`);
         for (const post of project.building.posts) {
           const x = Math.floor(post.post.x), y = Math.floor(post.post.y), z = Math.floor(post.post.z);
           this.buildings.push({ kind: 'wallPost', ...post, intact: true,
             box: { x0: x - 1, x1: x + 1, y0: y - 1, y1: y, z0: z - 1, z1: z + 1 } });
         }
-        if (outer) this.outerWallBuilt = true;
+        if (isOuter) {
+          this.outerWallBuilt = true;
+          for (const b of group) b.walled = true;
+        }
         else {
           this.wallSections.push(project.building);
-          for (const b of group) b.walled = true;
+          for (const b of group) { b.walled = true; b.innerWalled = true; }
         }
       };
       return project;
@@ -599,6 +633,15 @@ export class GoblinController {
       Object.assign(entrance, entrancePoints(entrance));
       this.entrances.push(entrance);
       if (plan.width === GOBLINS.projects.relocationWidth) this.relocationNew = entrance;
+      else if (!this.relocationReserve) {
+        const candidates = shaftCandidates(this.world, this, { allowRough: true });
+        const pick = candidates.sort((a, b) => b.level - a.level || a.rough - b.rough)[0];
+        if (pick) {
+          const box = this.gatehouseReserve(pick);
+          this.relocationReserve = { ...pick, box };
+          this.reserveSurface(box);
+        }
+      }
     };
     return project;
   }
@@ -607,13 +650,43 @@ export class GoblinController {
     const project = gatehouseProject(this.world, this, entrance);
     project.onComplete = () => {
       entrance.gatehouse = project.building;
+      Object.assign(entrance, entrancePoints(entrance));
       this.buildings.push({ ...project.building, kind: 'gatehouse', intact: true });
+      if (entrance.id === 0 && !this.castleReserve) {
+        const cfg = GOBLINS.projects.castle;
+        const cx = Math.floor(entrance.top.x), cz = Math.floor(entrance.top.z);
+        const x = Math.floor(cfg.width / 2) + cfg.maxOffset;
+        const z = Math.floor(cfg.depth / 2) + cfg.maxOffset;
+        this.castleReserve = { x0: cx - x, x1: cx + x, z0: cz - z, z1: cz + z };
+        this.reserveSurface(this.castleReserve);
+      }
     };
     return project;
   }
 
-  // Once established, pick the farthest reachable ground-floor parent whose
-  // shaft emerges close to the existing surface base.
+  reserveUpperEntrance() {
+    if (this.relocationStarted || !this.entrances.length) return;
+    const current = this.relocationReserve;
+    if (current) this.releaseSurface(current.box);
+    const first = this.entrances[0].columns[0];
+    const settings = GOBLINS.projects;
+    const pick = shaftCandidates(this.world, this, { allowRough: true, allLevels: true, allowExisting: true })
+      .filter((candidate) => candidate.spec.parent.floorY >= this.hall.floorY
+        + settings.relocationMinLevels * CELL_HEIGHT
+        && Math.hypot(candidate.column.x - first.x, candidate.column.z - first.z)
+          >= settings.relocationMinEntranceDistance)
+      .sort((a, b) => b.level - a.level || a.rough - b.rough)[0];
+    if (!pick && this.brickModules() <= 20) this.log('upperCandidateMissing', { modules: this.brickModules() });
+    if (!pick || current && current.level >= pick.level) {
+      if (current) this.reserveSurface(current.box);
+      return;
+    }
+    const box = this.gatehouseReserve(pick);
+    this.relocationReserve = { ...pick, box };
+    this.reserveSurface(box);
+  }
+
+  // The later entrance must join an upper floor reached through the fortress.
   relocationNext() {
     const settings = GOBLINS.projects;
     if (this.relocationStarted || this.dwellings() < settings.relocationBuildings
@@ -627,17 +700,36 @@ export class GoblinController {
       queue.push(next);
     }
     const base = this.buildings.filter((b) => b.intact && b.kind === 'dwelling');
-    const candidates = shaftCandidates(this.world, this).filter((candidate) => {
+    const first = this.entrances[0]?.columns[0];
+    const nearBase = (candidate) => {
       const p = candidate.spec.parent;
-      return p && (distances.get(p.id) ?? 0) >= 2
+      return p && p.floorY >= this.hall.floorY + settings.relocationMinLevels * CELL_HEIGHT
+        && (distances.get(p.id) ?? 0) >= settings.relocationMinHops
+        && (!first || Math.hypot(candidate.column.x - first.x, candidate.column.z - first.z)
+          >= settings.relocationMinEntranceDistance)
         && base.some((building) => Math.hypot(candidate.column.x - building.front.x,
           candidate.column.z - building.front.z) <= settings.relocationNearBase);
-    });
-    candidates.sort((a, b) => (distances.get(b.spec.parent.id) ?? 0) - (distances.get(a.spec.parent.id) ?? 0));
-    const pick = candidates[0];
-    if (!pick || pick.top - pick.spec.parent.floorY + 10 > this.woodStock()) return null;
+    };
+    if (this.relocationReserve) this.releaseSurface(this.relocationReserve.box);
+    let candidates = shaftCandidates(this.world, this, { allLevels: true, allowExisting: true }).filter(nearBase);
+    if (!candidates.length) candidates = shaftCandidates(this.world, this,
+      { allowRough: true, allLevels: true, allowExisting: true }).filter(nearBase);
+    candidates.sort((a, b) => b.level - a.level
+      || (distances.get(b.spec.parent.id) ?? 0) - (distances.get(a.spec.parent.id) ?? 0));
+    const pick = this.relocationReserve?.spec.parent.floorY >= this.hall.floorY
+      + settings.relocationMinLevels * CELL_HEIGHT ? this.relocationReserve : candidates[0];
+    if (!pick) {
+      if (this.relocationReserve) this.reserveSurface(this.relocationReserve.box);
+      return null;
+    }
     const project = this.shaftFrom({ ...pick, width: settings.relocationWidth }, 'Relocated entrance');
     if (project) this.relocationStarted = true;
+    else if (this.relocationReserve) {
+      this.reserveSurface(this.relocationReserve.box);
+      if (this.game.tick % ticks(30) === 0) this.log('relocationBlocked', {
+        cell: pick.spec.cell, existing: this.fortress.cells[pick.spec.cell.join(',')],
+      });
+    }
     return project;
   }
 
@@ -650,6 +742,8 @@ export class GoblinController {
     const gatehouse = this.buildings.find((b) => b.kind === 'gatehouse' && b.box === old.gatehouse?.box);
     for (const b of gatehouse?.blocks ?? []) {
       if (b.ground || b.foundation) continue;
+      if (b.x < gatehouse.box.x0 || b.x > gatehouse.box.x1
+        || b.z < gatehouse.box.z0 || b.z > gatehouse.box.z1) continue;
       put({ x: b.x, y: b.y, z: b.z, id: BLOCK.AIR });
       const key = blockKey(b.x, b.y, b.z);
       this.intended.delete(key);
@@ -664,7 +758,10 @@ export class GoblinController {
     project.onComplete = () => {
       old.open = false;
       old.sealed = true;
-      if (gatehouse) this.buildings = this.buildings.filter((b) => b !== gatehouse);
+      if (gatehouse) {
+        this.buildings = this.buildings.filter((b) => b !== gatehouse);
+        this.releaseSurface(gatehouse.box);
+      }
       old.gatehouse = null;
       for (const b of project.intended.values()) this.intend(b);
       this.relocated = true;
@@ -692,6 +789,7 @@ export class GoblinController {
       return;
     }
     project.onComplete?.();
+    if (project.kind === 'module') this.reserveUpperEntrance();
     if (['module', 'shaft', 'gatehouse', 'relocationPlug'].includes(project.kind)) {
       for (const b of project.intended.values()) this.intend(b);
     }
@@ -705,7 +803,6 @@ export class GoblinController {
 
   updateProjects(tick) {
     if (!this.totemAlive) return;
-    if (tick % ticks(30) === 0) this.checkWoodStarved();
     if (this.project && this.project.remaining === 0) this.finishProject();
     if (!this.project && tick >= this.nextProjectTick) {
       if (!this.startProject(this.chooseProject())) this.nextProjectTick = tick + ticks(20);
@@ -740,45 +837,6 @@ export class GoblinController {
     }
   }
 
-  // Placements that need wood when there's none and no way left to get any
-  // (no plot, natural trees used up) would stall the project for good:
-  // they're dropped instead.
-  checkWoodStarved() {
-    // Saplings only come back from plot harvests: plant what there is, and
-    // the plot's empty spots get replanted later.
-    const carriedSaplings = [...this.members].some((g) => g.carrying?.get('saplings') > 0);
-    if (this.storage.saplings === 0 && !carriedSaplings) {
-      for (const project of this.activeProjects()) {
-        for (const t of project.tasks) {
-          if (t.done || t.material !== 'saplings') continue;
-          project.intended.delete(t.key);
-          this.finishTask(t, null);
-        }
-      }
-    }
-    if (this.available('planks') > 0 || this.woodSources().length || this.emptyPlotSpots().length) return;
-    if (this.buildings.some((b) => b.kind === 'plot')) return;
-    for (const project of this.activeProjects()) {
-      // Ladders are never skipped (a shaft without them is useless).
-      const starved = project.tasks.filter((t) => !t.done && (t.material === 'planks' || t.material === 'wood')
-        && !isLadder(t.id));
-      if (!starved.length) continue;
-      // A dwelling of wood can't be built at all: give it up.
-      if (project.kind === 'dwelling') {
-        this.releaseSurface(project.building.box);
-        this.log('cancelProject', { label: project.label, reason: 'wood' });
-        this.project = null;
-        this.nextProjectTick = this.game.tick + goblinTicks(GOBLINS.projects.cooldown, TICK_RATE);
-        continue;
-      }
-      for (const t of starved) {
-        project.intended.delete(t.key);
-        this.finishTask(t, null);
-      }
-      this.log('woodSkipped', { project: project.label, blocks: starved.length });
-    }
-  }
-
   // ---- Population ----
 
   groupTarget() {
@@ -790,7 +848,10 @@ export class GoblinController {
   neededType() {
     const slot = this.nextOpenSlot();
     const { slots, repeatSlots } = GOBLINS.population;
-    return slot <= slots.length ? slots[slot - 1] : repeatSlots[(slot - slots.length - 1) % repeatSlots.length];
+    const type = slot % GOBLINS.population.bruteEvery === 0 ? 'goblinBrute'
+      : slot <= slots.length ? slots[slot - 1] : repeatSlots[(slot - slots.length - 1) % repeatSlots.length];
+    if ((type === 'goblinHound' && this.tier < 2) || (type === 'goblinBrute' && this.tier < 3)) return 'goblinSoldier';
+    return type;
   }
 
   nextOpenSlot() {
@@ -804,22 +865,11 @@ export class GoblinController {
     const slot = this.nextOpenSlot();
     if (slot === null) return;
     const goblin = this.spawnGoblin(this.neededType(), true, slot);
+    this.updateAssignments();
+    this.sim.startJourney(goblin);
     if (this.offscreen) this.sim.place(goblin);
     this.log('spawn', { type: goblin.type });
     this.nextSpawnTick = tick + goblinTicks(GOBLINS.population.spawnInterval, TICK_RATE);
-  }
-
-  // Materials pending placements still need (stone counting as bricks).
-  reservedFor(material) {
-    let n = 0;
-    for (const project of this.activeProjects()) {
-      for (const t of project.tasks) {
-        if (t.done) continue;
-        if (t.material === material || (material === 'stone' && t.material === 'bricks')) n++;
-      }
-    }
-    if (material === 'stone') n = Math.max(0, n - this.storage.bricks);
-    return n;
   }
 
   // ---- Surfacing ----
@@ -865,6 +915,30 @@ export class GoblinController {
     }
   }
 
+  updateVisibleGathering() {
+    if (!this.surfaceOpen() || this.fastBuild) return;
+    const replants = this.pendingReplants();
+    const source = replants.length ? replants[0]
+      : this.game.tick >= this.nextChopTick ? this.woodSources()[0] : this.emptyPlotSpots()[0];
+    if (!source || !this.sim.watched(source)) return;
+    const worker = [...this.members].find((goblin) => goblin.type === ENTITY_TYPE.GOBLIN_WORKER
+      && !goblin.respawnJourney && !goblin.fleeing
+      && (!goblin.job || ['idle', 'hold'].includes(goblin.job.type)));
+    if (!worker) return;
+    let stand = null;
+    for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
+      if (canStand(this.world, source.x + dx, source.y, source.z + dz, 2)) {
+        stand = { x: source.x + dx + 0.5, y: source.y, z: source.z + dz + 0.5 };
+        break;
+      }
+    }
+    if (!stand) return;
+    this.claimTree(source);
+    worker.job = { type: this.world.getBlock(source.x, source.y, source.z) === BLOCK.WOOD
+      ? 'chop' : 'plant', tree: source };
+    this.sim.startJourney(worker, stand);
+  }
+
   // ---- Guards ----
 
   // Spots soldiers and archers patrol: modules, entrances and dwellings.
@@ -877,11 +951,40 @@ export class GoblinController {
     return spots;
   }
 
+  updateAssignments() {
+    const soldiers = [...this.members].filter((g) => g.type === ENTITY_TYPE.GOBLIN_SOLDIER)
+      .sort((a, b) => a.slot - b.slot);
+    const patrollers = this.surfaceOpen()
+      ? Math.max(1, Math.ceil(soldiers.length * GOBLINS.soldier.patrolShare)) : 0;
+    soldiers.forEach((g, i) => {
+      const gate=this.buildings.find((b)=>b.mainGate && b.intact)?.mainGate;
+      const gateDuty=gate && i<Math.min(GOBLINS.walls.gateGuards,patrollers);
+      g.gateSpot=gateDuty?gate.guards[i%gate.guards.length]:null;
+      const assignment = gateDuty ? 'gate' : i < patrollers ? 'patrol' : 'reserve';
+      if (g.assignment === assignment) return;
+      g.assignment = assignment;
+      g.spot = null;
+      g.route = null;
+      if (!this.fastBuild && this.surfaceOpen()) this.sim.startJourney(g,g.gateSpot);
+    });
+    for (const g of this.members) if (g.type === ENTITY_TYPE.GOBLIN_ARCHER) {
+      if (!g.post && !g.respawnJourney && this.buildings.some((building) => building.post
+        && building.intact && (building.postSlot === undefined || building.postSlot === g.slot)
+        && (!building.postHolder || building.postHolder.dead))) this.sim.startJourney(g);
+      g.assignment = g.post ? 'post' : 'patrol';
+    }
+    else if (g.type === ENTITY_TYPE.GOBLIN_WORKER) g.assignment = 'project';
+  }
+
   // A lookout post for an archer, claimed, or null.
   claimPost(archer) {
     for (const b of this.buildings) {
       if (!b.post || !b.intact) continue;
+      // A station belongs to one population slot. Killing its archer leaves
+      // it empty until that slot respawns and walks back to the post.
+      if (b.postSlot !== undefined && b.postSlot !== archer.slot) continue;
       if (b.postHolder && !b.postHolder.dead && b.postHolder !== archer) continue;
+      b.postSlot ??= archer.slot;
       b.postHolder = archer;
       return b.post;
     }
@@ -890,17 +993,17 @@ export class GoblinController {
 
   // ---- Wood ----
 
-  // Grown trees in plots, and natural trees near an entrance (while the
-  // natural allowance lasts): [{ x, y, z, plot, spot }] (the lowest log).
+  // Alternate plot and natural trees, so both visibly get harvested.
   woodSources() {
-    const out = [];
+    const plots = [];
     for (const b of this.buildings) {
       if (b.kind !== 'plot') continue;
       for (const s of b.saplings) {
-        if (this.world.getBlock(s.x, s.y, s.z) === BLOCK.WOOD) out.push({ x: s.x, y: s.y, z: s.z, plot: b, spot: s });
+        if (this.world.getBlock(s.x, s.y, s.z) === BLOCK.WOOD) plots.push({ x: s.x, y: s.y, z: s.z, plot: b, spot: s });
       }
     }
-    if (!out.length && this.naturalTreesChopped + this.treeClaims.size < GOBLINS.caps.naturalTrees) out.push(...this.naturalTrees());
+    const natural = this.naturalTrees();
+    const out = this.stats.chopped % 2 ? [...natural, ...plots] : [...plots, ...natural];
     return out.filter((t) => !this.treeClaims.has(blockKey(t.x, t.y, t.z)));
   }
 
@@ -912,22 +1015,31 @@ export class GoblinController {
       for (const s of b.saplings) {
         const soil = this.world.getBlock(s.x, s.y - 1, s.z);
         if (this.world.getBlock(s.x, s.y, s.z) === BLOCK.AIR && (soil === BLOCK.GRASS || soil === BLOCK.DIRT)
-          && !this.treeClaims.has(blockKey(s.x, s.y, s.z))) out.push({ ...s, plot: b, spot: s, replant: true });
+          && !this.treeClaims.has(blockKey(s.x, s.y, s.z))
+          && !this.replantQueue.some((tree) => tree.x === s.x && tree.y === s.y && tree.z === s.z))
+          out.push({ ...s, plot: b, spot: s, replant: true });
       }
     }
     return out;
   }
 
   naturalTrees() {
-    if (this.cachedTrees && this.game.tick - this.cachedTrees.tick < ticks(10)) return this.cachedTrees.trees;
+    const signature = this.entrances.filter((entrance) => entrance.open).map((entrance) => entrance.id).join(',') + ':' + this.buildings.length;
+    if (this.cachedTrees?.signature === signature) return this.cachedTrees.trees.filter((tree) =>
+      this.world.getBlock(tree.x, tree.y, tree.z) === BLOCK.WOOD && this.clearOfOthers(tree.x, tree.z)
+      && !this.reserved.some((box) => tree.x >= box.x0 - 2 && tree.x <= box.x1 + 2
+        && tree.z >= box.z0 - 2 && tree.z <= box.z1 + 2));
     const trees = [];
     const radius = GOBLINS.surface.treeRadius;
     const world = this.world;
-    for (const e of this.entrances) {
-      if (!e.open) continue;
-      const cx = Math.floor(e.top.x), cz = Math.floor(e.top.z);
-      for (let z = cz - radius; z <= cz + radius; z++) for (let x = cx - radius; x <= cx + radius; x++) {
-        if (Math.hypot(x - cx, z - cz) > radius || x < 0 || z < 0 || x >= world.sizeX || z >= world.sizeZ) continue;
+    const areas = this.entrances.filter((e) => e.open).map((e) => ({ x0:e.top.x,x1:e.top.x,z0:e.top.z,z1:e.top.z }))
+      .concat(this.buildings.filter((b) => b.box).map((b) => b.box));
+    const found = new Set();
+    for (const area of areas) {
+      const cx = Math.floor((area.x0+area.x1)/2), cz = Math.floor((area.z0+area.z1)/2);
+      const reach = radius + Math.ceil(Math.max(area.x1-area.x0,area.z1-area.z0)/2);
+      for (let z = cz - reach; z <= cz + reach; z++) for (let x = cx - reach; x <= cx + reach; x++) {
+        if (Math.hypot(Math.max(area.x0-x,0,x-area.x1),Math.max(area.z0-z,0,z-area.z1)) > radius || x < 0 || z < 0 || x >= world.sizeX || z >= world.sizeZ) continue;
         const top = world.naturalTop[x + world.sizeX * z];
         if (top < -30000) continue;
         for (let y = top - 2; y <= top + 3; y++) {
@@ -937,12 +1049,13 @@ export class GoblinController {
           // Not on goblin building sites (a plot's own young trees included).
           if (this.reserved.some((b) => x >= b.x0 - 2 && x <= b.x1 + 2 && z >= b.z0 - 2 && z <= b.z1 + 2)) continue;
           if (!this.clearOfOthers(x, z)) continue;
+          const key = blockKey(x,y,z); if (found.has(key)) continue; found.add(key);
           trees.push({ x, y, z, plot: null, d: Math.hypot(x - cx, z - cz) });
         }
       }
     }
     trees.sort((a, b) => a.d - b.d);
-    this.cachedTrees = { tick: this.game.tick, trees };
+    this.cachedTrees = { signature, trees };
     return trees;
   }
 
@@ -968,12 +1081,24 @@ export class GoblinController {
     this.releaseTree(tree);
     if (!tree.plot) this.naturalTreesChopped++;
     this.stats.chopped++;
-    this.cachedTrees = null;
+    this.wood += GOBLINS.gathering.planksPerTree;
+    this.nextChopTick = this.game.tick + goblinTicks(GOBLINS.gathering.chopInterval, TICK_RATE);
+    if (tree.plot && !this.replantQueue.some((spot) => spot.x === tree.x && spot.y === tree.y && spot.z === tree.z))
+      this.replantQueue.push({ x: tree.x, y: tree.y, z: tree.z, plot: tree.plot ?? null });
   }
 
-  // Wood is wanted when storage is short of it.
-  woodWanted() {
-    return this.woodStock() < GOBLINS.materials.woodWanted;
+  pendingReplants() {
+    this.replantQueue = this.replantQueue.filter((tree) => this.world.getBlock(tree.x, tree.y, tree.z) === BLOCK.AIR
+      && (tree.plot || !this.buildings.some((building) => building.box
+        && tree.x >= building.box.x0 && tree.x <= building.box.x1
+        && tree.z >= building.box.z0 && tree.z <= building.box.z1)));
+    return this.replantQueue.filter((tree) => !this.treeClaims.has(blockKey(tree.x, tree.y, tree.z)));
+  }
+
+  replanted(tree) {
+    this.releaseTree(tree);
+    this.replantQueue = this.replantQueue.filter((spot) =>
+      spot.x !== tree.x || spot.y !== tree.y || spot.z !== tree.z);
   }
 
   // Plot saplings grow on the goblin clock.
@@ -1002,24 +1127,54 @@ export class GoblinController {
     return points;
   }
 
+  watchedChunk(point,build=false) {
+    const radius=build?GOBLINS.detail.buildChunkRadius:GOBLINS.detail.chunkRadius;
+    const x=Math.floor(point.x/CHUNK_SIZE),y=Math.floor(point.y/CHUNK_SIZE),z=Math.floor(point.z/CHUNK_SIZE);
+    return (this.viewerChunks ?? [...this.game.players.values()].filter((p)=>p.connected)
+      .map((p)=>({x:Math.floor(p.state.x/CHUNK_SIZE),y:Math.floor(p.state.y/CHUNK_SIZE),z:Math.floor(p.state.z/CHUNK_SIZE)})))
+      .some((p)=>Math.abs(x-p.x)<=radius && Math.abs(y-p.y)<=radius && Math.abs(z-p.z)<=radius);
+  }
+
   playerNear() {
-    const range = GOBLINS.offscreen.range;
-    const players = [...this.game.players.values()].filter((p) => !p.dead && p.connected);
-    if (!players.length) return false;
-    const points = this.watchPoints();
-    return players.some((p) => points.some((q) => Math.abs(q.x - p.state.x) <= range && Math.abs(q.z - p.state.z) <= range
-      && Math.hypot(q.x - p.state.x, q.y - p.state.y, q.z - p.state.z) <= range));
+    return this.watchPoints().some((point)=>this.watchedChunk(point));
   }
 
   updateMode(tick) {
     if (tick < this.nextModeCheck) return;
     this.nextModeCheck = tick + ticks(GOBLINS.offscreen.checkInterval);
-    const offscreen = this.forceMode ? this.forceMode === 'offscreen' : !this.playerNear();
-    if (offscreen === this.offscreen) return;
-    this.offscreen = offscreen;
-    if (offscreen) this.sim.enter();
-    else this.sim.leave();
-    this.log(offscreen ? 'offscreen' : 'onscreen');
+    const viewers = [...this.game.players.values()].filter((player) => player.connected);
+    const inside = viewers.some((player) => moduleAt(this.fortress,
+      player.state.x, player.state.y + 0.1, player.state.z));
+    if (inside) this.lastFortressViewer = tick;
+    const fortressVisible = inside || (this.lastFortressViewer !== undefined
+      && tick - this.lastFortressViewer < ticks(GOBLINS.detail.fortressLinger));
+    let bodies = 0;
+    for (const goblin of [this.king, ...this.members]) {
+      if (!goblin || goblin.dead) continue;
+      this.sim.progressJourney(goblin);
+      const s = goblin.state;
+      const underground = !!moduleAt(this.fortress, s.x, s.y + 0.1, s.z);
+      let wanted=underground?fortressVisible:this.watchedChunk(s);
+      if(goblin.type===ENTITY_TYPE.GOBLIN_WORKER && this.project?.surface
+        && goblin.job?.task && this.watchedChunk(s,true))wanted=true;
+      if (goblin.target?.connected && !goblin.target.dead) wanted = true;
+      if (this.forceMode) wanted = this.forceMode === 'full';
+      const exists = this.game.mobs.has(goblin.id);
+      if (wanted) {
+        goblin.simPositioned=true;
+        bodies++;
+        if (!exists) {
+          goblin.stuckTicks = 0;
+          this.add(goblin);
+          this.game.broadcast({ type: S2C.ENTITY_SPAWN, entity: goblin.describe() });
+        }
+      } else if (exists) {
+        goblin.releaseWork?.();
+        this.game.mobs.delete(goblin.id);
+        this.game.broadcast({ type: S2C.ENTITY_DESPAWN, id: goblin.id });
+      }
+    }
+    this.offscreen = bodies === 0;
   }
 
   // Colony goblins stand still offscreen (the simulation places them).
@@ -1039,25 +1194,95 @@ export class GoblinController {
     return !!mob.arrived && !!mob.spot && s.onGround;
   }
 
+  updatePlayerGrid(tick) {
+    if (this.playerGrid && tick < this.nextPlayerGridTick) return;
+    this.nextPlayerGridTick = tick + ticks(GOBLINS.optimization.targetInterval);
+    this.playerGrid = new Map();
+    this.playerQueries = new Map();
+    const cell = GOBLINS.optimization.playerCell;
+    for (const player of this.game.players.values()) {
+      if (!player.connected || player.dead || player.eliminated) continue;
+      const s = player.state;
+      const key = `${Math.floor(s.x / cell)},${Math.floor(s.y / cell)},${Math.floor(s.z / cell)}`;
+      if (!this.playerGrid.has(key)) this.playerGrid.set(key, []);
+      this.playerGrid.get(key).push(player);
+    }
+  }
+
+  nearbyPlayers(point, range) {
+    if (!this.playerGrid) return [...this.game.players.values()];
+    if (!this.playerGrid.size) return [];
+    const cell = GOBLINS.optimization.playerCell, result = [];
+    const key = `${Math.floor(point.x / cell)},${Math.floor(point.y / cell)},${Math.floor(point.z / cell)}:${range}`;
+    if (this.playerQueries.has(key)) return this.playerQueries.get(key);
+    // Include a cell of margin for player movement between hash updates.
+    for (let y = Math.floor((point.y - range) / cell) - 1; y <= Math.floor((point.y + range) / cell) + 1; y++)
+      for (let z = Math.floor((point.z - range) / cell) - 1; z <= Math.floor((point.z + range) / cell) + 1; z++)
+        for (let x = Math.floor((point.x - range) / cell) - 1; x <= Math.floor((point.x + range) / cell) + 1; x++) {
+          const players = this.playerGrid.get(`${x},${y},${z}`);
+          if (players) result.push(...players);
+        }
+    this.playerQueries.set(key, result);
+    return result;
+  }
+
   // ---- Tick ----
 
   // Once per tick, before mobs move.
   update(tick) {
+    this.viewerChunks=[...this.game.players.values()].filter((p)=>p.connected)
+      .map((p)=>({x:Math.floor(p.state.x/CHUNK_SIZE),y:Math.floor(p.state.y/CHUNK_SIZE),z:Math.floor(p.state.z/CHUNK_SIZE)}));
+    for(const goblin of [this.king,...this.members])if(goblin && !goblin.dead) {
+      if(goblin.state.y<this.world.voidY) {this.game.removeMob(goblin);continue;}
+      // Falling is persistent physics, independent of observer chunks. Bodies
+      // outside the entity map must still land or die and release their slot.
+      if(!this.game.mobs.has(goblin.id) && !goblin.state.onGround
+        && !isOnLadder(goblin.state,this.world) && !goblin.climbing) {
+        goblin.move(this.world,null,goblin.settings?.speed ?? GOBLINS.worker.speed);
+        if(goblin.state.y<this.world.voidY) {this.game.removeMob(goblin);continue;}
+      }
+      this.sim.progressJourney(goblin);
+    }
     if (!this.hall) return;
+    this.updatePlayerGrid(tick);
     this.updateInvasion(tick);
     this.updateMode(tick);
     this.updateProjects(tick);
     this.updateSpawning(tick);
+    if (tick % ticks(1) === 0) {
+      this.updateAssignments();
+      this.updateVisibleGathering();
+    }
+    if (tick === this.surfaceAlarmUntil) for (const guard of this.members) {
+      if (guard.assignment !== 'reserve') continue;
+      guard.spot = null;
+      guard.route = null;
+      guard.target = null;
+      this.sim.startJourney(guard);
+    }
     this.updateSurfacing(tick);
-    if (this.offscreen) this.sim.tick(tick);
+    this.sim.tick(tick);
+    this.updateTier();
+    this.sieges.tick(tick);
+    this.traps.tick(tick);
+    if (this.offscreen && this.totemAlive) this.totem.step(this.world, [], tick);
     if (this.fastBuild) {
       this.game.saplings?.fastForward(tick + ticks(GOBLINS.creativeBoost.growthAheadSeconds));
       this.fastBuildIdle = this.project || this.repairs.remaining || this.sim.starved ? 0 : this.fastBuildIdle + 1;
       const atCaps = this.brickModules() >= goblinCap(GOBLINS.caps.modules, this.worldSize)
         && this.dwellings() >= goblinCap(GOBLINS.caps.dwellings, this.worldSize)
         && this.plots() >= goblinCap(GOBLINS.caps.plots, this.worldSize)
-        && this.relocated && this.outerWallBuilt;
+        && this.relocated && this.castleBuilt && this.outerWallBuilt
+        && this.buildings.some((b) => b.kind === 'gatehouse' && b.walled
+          && b.origin.x === this.relocationNew?.gatehouse.origin.x
+          && b.origin.z === this.relocationNew?.gatehouse.origin.z);
       if (atCaps || this.fastBuildIdle >= GOBLINS.creativeBoost.idleStopTicks) {
+        if (atCaps) for (const goblin of this.members) {
+          goblin.respawnJourney = null;
+          goblin.respawnArrived = false;
+          goblin.simPositioned = false;
+          this.sim.place(goblin);
+        }
         this.fastBuild = false;
         this.forceMode = null;
         this.nextModeCheck = 0;
@@ -1069,12 +1294,20 @@ export class GoblinController {
     if (tick % ticks(10) === 0) this.sample(tick);
   }
 
+  updateTier() {
+    const natural = this.outerWallBuilt ? (this.sieges.completedTier3 >= 2 ? 4 : 3)
+      : this.relocated && this.castleBuilt ? 2 : 1;
+    const tier = Math.max(this.minimumTier, this.tier, natural);
+    if (tier !== this.tier) { this.tier = tier; this.log('tierUnlocked', { tier }); }
+  }
+
+  raiseTier() { this.minimumTier = Math.min(4, this.tier + 1); this.updateTier(); }
+
   startFastBuild() {
     if (!this.totemAlive) return false;
-    for (const material of MATERIALS) this.store(material, GOBLINS.creativeBoost.materialGrant);
     this.fastBuild = true;
     this.fastBuildIdle = 0;
-    this.forceMode = 'offscreen';
+    // Fast build advances the economy directly without hiding goblins in view.
     this.nextModeCheck = 0;
     this.log('fastBuildStarted');
     return true;
@@ -1082,8 +1315,9 @@ export class GoblinController {
 
   updateInvasion(tick) {
     if (tick % GOBLINS.invasion.scanTicks !== 0) return;
-    const modules = this.fortress.modules.filter((m) => !m.building && !m.removed);
-    this.intruders = [...this.game.players.values()].filter((player) => !player.dead && player.connected
+    const viewers = [...this.game.players.values()].filter((player) => player.connected && !player.dead);
+    const modules = viewers.length ? this.fortress.modules.filter((m) => !m.building && !m.removed) : [];
+    this.intruders = viewers.filter((player) => !player.dead && player.connected
       && modules.some((m) => player.state.x >= m.box.x0 && player.state.x <= m.box.x1 + 1
         && player.state.y >= m.box.y0 && player.state.y <= m.box.y1 + 1
         && player.state.z >= m.box.z0 && player.state.z <= m.box.z1 + 1));
@@ -1093,17 +1327,7 @@ export class GoblinController {
       this.lastIntruderPos = { x: s.x, y: s.y, z: s.z };
     }
     const alerted = this.intruders.length > 0 || tick < this.alarmUntil;
-    if (alerted === this.alerted) return;
     this.alerted = alerted;
-    for (const member of this.members) {
-      if (member.type !== ENTITY_TYPE.GOBLIN_ARCHER && member.type !== ENTITY_TYPE.GOBLIN_SOLDIER) continue;
-      member.spot = null;
-      member.route = null;
-      if (member.post) {
-        for (const building of this.buildings) if (building.postHolder === member) building.postHolder = null;
-        member.post = null;
-      }
-    }
   }
 
   // Dwellings that lost too many blocks stop counting (goblins may build
@@ -1129,12 +1353,21 @@ export class GoblinController {
       type: S2C.GOBLIN_STATUS,
       totemId: this.totem?.id ?? null,
       totemAlive: this.totemAlive,
-      storage: this.storageContents(),
       project: project ? { kind: project.kind, label: project.label, progress: project.progress(),
-        done: project.done, total: project.total,
-        waiting: [...this.members].some((g) => g.waitingFor) || this.sim.starved } : null,
+        done: project.done, total: project.total } : null,
       nextProjectIn: Math.round(cooldown),
       population: Object.fromEntries(COLONY_TYPES.map((t) => [t, this.countOf(t)])),
+      slots: [...this.slots].sort((a, b) => a[0] - b[0]).map(([slot, g]) => ({
+        slot, id: g.id, role: g.type, assignment: g.assignment ?? 'reserve',
+        hp: Math.ceil(g.hp), activity: g.climbing ? 'climbing' : g.target ? 'combat'
+          : g.respawnJourney ? 'traveling'
+          : g.job?.type ?? g.spot?.kind ?? 'idle',
+        x: Math.round(g.state.x), y: Math.round(g.state.y), z: Math.round(g.state.z),
+        spawned: this.game.mobs.has(g.id),
+      })),
+      spawnedEntities: [...this.members].filter((g) => this.game.mobs.has(g.id)).length,
+      tier: this.tier,
+      siege: this.sieges.status(),
       total: this.population(),
       capacity: this.capacity(),
       hardCap: goblinCap(GOBLINS.caps.population, this.worldSize),
@@ -1144,6 +1377,7 @@ export class GoblinController {
       dwellingCap: goblinCap(GOBLINS.caps.dwellings, this.worldSize),
       plots: this.plots(),
       walls: this.wallSections.length + Number(this.outerWallBuilt),
+      castle: this.castleBuilt,
       outerWall: this.outerWallBuilt,
       entrances: this.entrances.map((e) => ({ width: e.width ?? 1, gatehouse: !!e.gatehouse, sealed: !!e.sealed })),
       relocation: this.relocated ? 'complete' : this.relocationNew ? 'new entrance' : this.relocationStarted ? 'digging' : 'pending',
@@ -1167,7 +1401,7 @@ export class GoblinController {
   }
 
   sample(tick) {
-    this.samples.push({ tick, storage: this.storageContents(), population: this.population(),
+    this.samples.push({ tick, population: this.population(),
       byType: Object.fromEntries(COLONY_TYPES.map((t) => [t, this.countOf(t)])),
       modules: this.brickModules(), dwellings: this.dwellings(), plots: this.plots(), offscreen: this.offscreen,
       project: this.project?.label ?? null, progress: this.project?.progress() ?? null });
@@ -1187,7 +1421,18 @@ export class GoblinController {
     }
     mob.hp = Math.max(0, mob.hp - amount);
     game.broadcast({ type: S2C.DAMAGE, id: mob.id, attackerId: attacker?.id ?? null, hp: Math.ceil(mob.hp) });
-    if (isPlayer && mob.provocation) mob.provocation.provoke(attacker, game.tick);
+    if (isPlayer && mob.provocation) {
+      mob.provocation.provoke(attacker, game.tick);
+      mob.nextTargetTick = game.tick;
+      mob.respawnJourney = null;
+    }
+    if (isPlayer && this.members.has(mob) && !moduleAt(this.fortress, mob.state.x, mob.state.y + 0.1, mob.state.z)) {
+      this.surfaceAlarmUntil = game.tick + goblinTicks(GOBLINS.soldier.reserveResponseSeconds, TICK_RATE);
+      for (const guard of this.members) if (guard.assignment === 'reserve') {
+        guard.spot = null; guard.route = null;
+        if (!guard.respawnJourney) this.sim.startJourney(guard, { x: mob.state.x, y: mob.state.y, z: mob.state.z });
+      }
+    }
     if (isPlayer && mob instanceof GoblinWorker) {
       mob.attackedBy = attacker;
       mob.lastThreatTick = game.tick;
@@ -1196,19 +1441,16 @@ export class GoblinController {
       mob.releaseWork();
     }
     if (mob.hp > 0) return;
+    if (mob.type === ENTITY_TYPE.GOBLIN_BALLOON) {
+      mob.phase = 'crashing'; return;
+    }
     const s = mob.state;
+    if (mob.type === ENTITY_TYPE.GOBLIN_CATAPULT) this.spill([{item:BLOCK.PLANKS,count:GOBLINS.catapult.drops}],s,1);
+    if (mob.siegeId !== undefined && !mob.machine && this.random() < GOBLINS.siege.lootChance)
+      this.spill(rollLoot('siegeGoblin', this.random()*0xffffffff>>>0,0,0,0),s,1);
     if (mob instanceof GoblinTotem) this.destroyTotem(mob, attacker);
     else if (mob instanceof GoblinKing) this.spill(rollLoot('goblinKing', Math.random() * 0xffffffff >>> 0, 0, 0, 0), s, 1);
-    else if (mob.carrying) this.spillCarried(mob);
     game.removeMob(mob);
-  }
-
-  // What a goblin carries, as items.
-  spillCarried(goblin) {
-    for (const [material, count] of goblin.carrying) {
-      if (count > 0 && MATERIAL_ITEMS[material] !== undefined) this.spill([{ item: MATERIAL_ITEMS[material], count }], goblin.state, 1);
-    }
-    goblin.carrying.clear();
   }
 
   // Items popping out around a point, `spread` blocks/s sideways.
@@ -1225,6 +1467,8 @@ export class GoblinController {
     const game = this.game;
     const s = totem.state;
     this.totemAlive = false;
+    this.sieges.end('totem destroyed');
+    for (const flag of game.flags.values()) if (flag.state === 'held') game.returnFlag(flag);
     this.project = null;
     this.spill(rollLoot('goblinTotem', Math.random() * 0xffffffff >>> 0, 0, 0, 0, 40), { ...s, y: s.y + 1.5 }, 2.2);
     game.broadcast({ type: S2C.GOBLIN_TOTEM_DESTROYED, x: s.x, y: s.y, z: s.z });
@@ -1237,6 +1481,7 @@ export class GoblinController {
   // A goblin left the world (killed, or fell into the void). Dead goblins
   // aren't respawned; the population refills by spawning.
   removed(mob) {
+    this.sieges.removed(mob);
     if (mob.slot !== undefined) this.slots.delete(mob.slot);
     mob.releaseWork?.();
     this.members.delete(mob);

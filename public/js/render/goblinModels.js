@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { GOBLINS } from '/shared/goblins.js';
+import { addSiegeGlider } from './siegeModels.js';
 
 const lambert = (color) => new THREE.MeshLambertMaterial({ color });
 const glow = (color) => new THREE.MeshBasicMaterial({ color });
@@ -99,6 +100,7 @@ const EXTRAS = {
 // Per type: overall scale (the base is GOBLINS.worker.height tall), colors,
 // held gear and extras.
 export const GOBLIN_LOOKS = {
+  goblinBrute: { height:GOBLINS.brute.height, skin:0x52772b, tunic:0x573b2a, belt:0x28251e, gear:'club' },
   goblinWorker: { height: GOBLINS.worker.height, skin: 0x6f9b3c, tunic: 0x7a5a32, belt: 0x3d2a17, gear: 'hammer' },
   goblinSoldier: { height: GOBLINS.soldier.height, skin: 0x5f8a33, tunic: 0x5a3a2a, belt: 0x2a2a2a, gear: 'sword',
     extras: ['shield', 'helmet'] },
@@ -181,7 +183,9 @@ export function createGoblinModel({ type }) {
   }
   const gear = look.gear && GEAR[look.gear](arms[1].hand);
   for (const extra of look.extras ?? []) EXTRAS[extra](body, arms, head);
-  group.userData.goblin = { body, legs, arms, head, gear, phase: 0, swingStart: -Infinity, work: 0 };
+  group.userData.goblin = { body, legs, arms, head, gear, phase: 0, swingStart: -Infinity,
+    work: 0, archer: type === 'goblinArcher' };
+  addSiegeGlider(group);
   return group;
 }
 
@@ -194,7 +198,7 @@ const SWING_MS = 450;
 // Per frame: legs and arms swing with walking, the right arm chops while
 // mining (or hammering), an archer holds its bow out while aiming, a swing (King's club) is a big overhead strike, and climbing
 // reaches both arms up.
-export function animateGoblin(model, dt, speed, { mining = false, climbing = false, aiming = false } = {}) {
+export function animateGoblin(model, dt, speed, { mining = false, climbing = false, aiming = false, crouching = false } = {}) {
   const g = model.userData.goblin;
   const walk = Math.min(1, speed / 2.5);
   if (walk > 0.05 || climbing) g.phase += dt * (climbing ? 9 : 4 + speed * 2);
@@ -207,7 +211,10 @@ export function animateGoblin(model, dt, speed, { mining = false, climbing = fal
   const swing = (performance.now() - g.swingStart) / SWING_MS;
   // Positive rotation raises an arm forward. A strike winds up overhead,
   // then slams down in front.
-  if (swing >= 0 && swing < 1) right.shoulder.rotation.x = swing < 0.55 ? 2.8 * swing / 0.55 : 2.8 - (swing - 0.55) / 0.45 * 1.9;
+  if (g.archer) {
+    right.shoulder.rotation.x = 1.5;
+    left.shoulder.rotation.x = 1.4;
+  } else if (swing >= 0 && swing < 1) right.shoulder.rotation.x = swing < 0.55 ? 2.8 * swing / 0.55 : 2.8 - (swing - 0.55) / 0.45 * 1.9;
   else if (aiming) {
     // Bow held out in front, the other arm drawing.
     right.shoulder.rotation.x = 1.5;
@@ -215,7 +222,8 @@ export function animateGoblin(model, dt, speed, { mining = false, climbing = fal
   } else if (climbing) right.shoulder.rotation.x = 2.6 - stride;
   else if (mining) right.shoulder.rotation.x = 1.1 + Math.abs(Math.sin(g.work)) * 1.3;
   else right.shoulder.rotation.x = 0.35 + stride * 0.8;
-  g.body.position.y = Math.abs(Math.sin(g.phase)) * 0.03 * walk;
+  g.body.position.y = Math.abs(Math.sin(g.phase)) * 0.03 * walk - (crouching ? 0.25 : 0);
+  g.body.rotation.x = crouching ? -0.25 : 0;
 }
 
 // The Goblin Totem: a tall carved post of stacked faces on a brick plinth,

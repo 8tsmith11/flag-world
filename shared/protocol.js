@@ -24,8 +24,10 @@ export const S2C = {
   MATCH_IN_PROGRESS: 'matchInProgress',
   ERROR: 'error',
   WELCOME: 'welcome',
+  // Player-specific; goblins use quantized {id,x,y,z,yaw,hp,a} updates.
   STATE: 'state',
   BLOCK_CHANGE: 'blockChange',
+  BLOCK_CHANGES: 'blockChanges',
   ENTITY_SPAWN: 'entitySpawn',
   ENTITY_DESPAWN: 'entityDespawn',
   INVENTORY: 'inventory',
@@ -46,15 +48,21 @@ export const S2C = {
   // A line for everyone's chat/event feed (e.g. the Goblin Totem falling).
   CHAT: 'chat',
   GOBLIN_TOTEM_DESTROYED: 'goblinTotemDestroyed',
+  GOBLIN_SIEGE_DECLARED: 'goblinSiegeDeclared',
+  SIEGE_EXPLOSION: 'siegeExplosion',
   // Creative players only: the Goblin Fortress's state, for the totem inspector.
   GOBLIN_STATUS: 'goblinStatus',
 };
+
+// Compact goblin STATE animation flags. Full spawn descriptions keep booleans.
+export const GOBLIN_ANIMATION = { WALK: 1, CLIMB: 2, WORK: 4, AIM: 8, CROUCH: 16, GLIDE: 32 };
 
 // Where a flag is, in FlagState.
 export const FLAG_STATE = {
   HOME: 'home',
   CARRIED: 'carried',
   DROPPED: 'dropped',
+  HELD: 'held', // Goblin pedestal: no timer; owner returns by touching.
   // Captured by another player; gone for good and its owner is flagless.
   CAPTURED: 'captured',
 };
@@ -105,4 +113,9 @@ export const ENTITY_TYPE = {
   GOBLIN_TOTEM: 'goblinTotem',
   GOBLIN_SOLDIER: 'goblinSoldier',
   GOBLIN_ARCHER: 'goblinArcher',
+  GOBLIN_HOUND: 'goblinHound',
+  GOBLIN_BRUTE: 'goblinBrute',
+  GOBLIN_CATAPULT: 'goblinCatapult',
+  GOBLIN_BALLOON: 'goblinBalloon',
+  SIEGE_SHOT: 'siegeShot',
 };

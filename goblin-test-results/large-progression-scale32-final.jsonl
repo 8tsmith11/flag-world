@@ -1,0 +1,29 @@
+The goblins have broken through to the surface!
+{"trace":true,"tick":2000,"tier":1,"wood":0,"project":"Shaft gatehouse","worker":[],"journeys":[]}
+{"trace":true,"tick":4000,"tier":1,"wood":0,"project":"Tree plot","worker":[],"journeys":[]}
+{"trace":true,"tick":6000,"tier":1,"wood":0,"project":"Tree plot","worker":[],"journeys":[]}
+{"trace":true,"tick":8000,"tier":1,"wood":24,"project":"T junction","worker":[],"journeys":[]}
+{"trace":true,"tick":10000,"tier":1,"wood":96,"project":"Ladder shaft","worker":[],"journeys":[]}
+{"trace":true,"tick":12000,"tier":1,"wood":168,"project":"Bunk Room","worker":[],"journeys":[]}
+{"trace":true,"tick":14000,"tier":1,"wood":9,"project":"Hallway","worker":[{"id":16,"phase":"emerging","activity":"leaving shaft","x":449.7,"y":0.9,"z":525.5,"distanceToWork":112.7},{"id":17,"phase":"emerging","activity":"leaving shaft","x":449.7,"y":0.9,"z":525.5,"distanceToWork":112.7}],"journeys":[{"id":16,"goal":{"x":444.5,"y":87,"z":527.5,"tick":14598,"type":"walk"},"action":{"type":"climbUp","x":449.5,"z":525.5,"y":87,"wall":"E","exit":true},"stuck":0},{"id":17,"goal":{"x":444.5,"y":87,"z":527.5,"tick":14598,"type":"walk"},"action":{"type":"climbUp","x":449.5,"z":525.5,"y":87,"wall":"E","exit":true},"stuck":0}],"phase":"approach","cursor":0,"total":245}
+{"trace":true,"tick":16000,"tier":1,"wood":93,"project":"Hallway","worker":[],"journeys":[]}
+{"trace":true,"tick":18000,"tier":1,"wood":213,"project":"Hallway","worker":[],"journeys":[]}
+{"trace":true,"tick":20000,"tier":1,"wood":333,"project":"Corner","worker":[],"journeys":[]}
+{"trace":true,"tick":22000,"tier":1,"wood":453,"project":"Ladder shaft","worker":[],"journeys":[]}
+{"trace":true,"tick":24000,"tier":1,"wood":137,"project":"Cross junction","worker":[],"journeys":[]}
+{"trace":true,"tick":26000,"tier":1,"wood":21,"project":"Corner","worker":[{"id":39,"phase":"emerging","activity":"leaving shaft","x":449.7,"y":6.9,"z":525.5,"distanceToWork":288.4},{"id":40,"phase":"emerging","activity":"leaving shaft","x":449.7,"y":6.9,"z":525.5,"distanceToWork":288.4}],"journeys":[{"id":39,"goal":{"x":444.5,"y":87,"z":527.5,"tick":26558,"type":"walk"},"action":{"type":"climbUp","x":449.5,"z":525.5,"y":87,"wall":"E","exit":true},"stuck":0},{"id":40,"goal":{"x":444.5,"y":87,"z":527.5,"tick":26558,"type":"walk"},"action":{"type":"climbUp","x":449.5,"z":525.5,"y":87,"wall":"E","exit":true},"stuck":0}],"phase":"approach","cursor":0,"total":258}
+{"trace":true,"tick":28000,"tier":1,"wood":189,"project":"T junction","worker":[],"journeys":[]}
+{"trace":true,"tick":30000,"tier":1,"wood":429,"project":"Armory","worker":[],"journeys":[]}
+{"trace":true,"tick":32000,"tier":1,"wood":645,"project":"Bunk Room","worker":[],"journeys":[]}
+{"trace":true,"tick":34000,"tier":1,"wood":909,"worker":[],"journeys":[]}
+{"trace":true,"tick":36000,"tier":1,"wood":243,"project":"Shaft gatehouse","worker":[],"journeys":[]}
+{"trace":true,"tick":38000,"tier":2,"wood":531,"worker":[],"journeys":[]}
+{"trace":true,"tick":40000,"tier":2,"wood":249,"project":"Base section wall","worker":[],"journeys":[]}
+{"trace":true,"tick":42000,"tier":2,"wood":537,"project":"Base section wall","worker":[],"journeys":[]}
+{"trace":true,"tick":44000,"tier":2,"wood":300,"worker":[],"journeys":[]}
+{"trace":true,"tick":46000,"tier":2,"wood":588,"worker":[],"journeys":[]}
+{"trace":true,"tick":48000,"tier":2,"wood":876,"worker":[],"journeys":[]}
+{"trace":true,"tick":50000,"tier":2,"wood":174,"worker":[],"journeys":[]}
+{"trace":true,"tick":52000,"tier":2,"wood":510,"worker":[],"journeys":[]}
+{"trace":true,"tick":54000,"tier":2,"wood":268,"worker":[],"journeys":[]}
+{"trace":true,"tick":56000,"tier":2,"wood":676,"worker":[],"journeys":[]}

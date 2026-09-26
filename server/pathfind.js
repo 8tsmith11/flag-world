@@ -7,7 +7,7 @@
 // The search stops after maxNodes. If the goal wasn't reached it returns the
 // path to the closest spot found, which is what a fleeing mob wants anyway.
 
-import { BLOCK, isSolid } from '../shared/blocks.js';
+import { BLOCK, isSolid, isWater } from '../shared/blocks.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
@@ -66,10 +66,19 @@ const key = (x, y, z) => (y * 2048 + z) * 2048 + x;
 // Path of standing spots from `start` (integer {x, y, z}, where the mob
 // stands) toward the column (goal.x, goal.z): [{x, y, z}, ...] not including
 // the start, or [] if it can't move at all.
-export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDrop = 1 } = {}) {
+export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDrop = 1, allowed = null, goalHeight = false, canBreak = null, breakCost = 4, allowWater = false, canSupport = null, supportCost = 4, diagonal = true } = {}) {
+  const standable=(x,y,z,h=height)=> {
+    if(canStand(world,x,y,z,h))return true;
+    if((!canBreak && !allowWater && !canSupport) || !(isSolid(world.getBlock(x,y-1,z)) || allowWater && isWater(world.getBlock(x,y-1,z)) || canSupport?.(x,y,z)))return false;
+    for(let dy=0;dy<h;dy++) {const id=world.getBlock(x,y+dy,z);
+      if(isWater(id) && !allowWater || isSolid(id) && (!canBreak || !canBreak(x,y+dy,z,id)))return false;
+    }
+    return true;
+  };
   const steps = [0, 1];
   for (let d = 1; d <= maxDrop; d++) steps.push(-d);
-  const h = (x, z) => Math.hypot(goal.x - x, goal.z - z);
+  const h = (x, z, y = start.y) => Math.hypot(goal.x - x, goal.z - z)
+    + (goalHeight && Number.isFinite(goal.y) ? Math.abs(goal.y-y) : 0);
   const nodes = new Map();
   const heap = new Heap();
   const startKey = key(start.x, start.y, start.z);
@@ -84,32 +93,39 @@ export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDr
     if (node.closed) continue;
     node.closed = true;
     expanded++;
-    const nh = h(node.x, node.z);
+    const nh = h(node.x, node.z, node.y);
     if (nh < bestH) {
       best = node;
       bestH = nh;
     }
     if (nh < 1) break;
     for (const [dx, dz] of DIRS) {
+      if(!diagonal && dx && dz)continue;
       const nx = node.x + dx, nz = node.z + dz;
       // Same level, one up (with headroom to jump), or one down.
-      let ny = null;
+      const levels=[];
       for (const dy of steps) {
-        if (dy === 1 && !canStand(world, node.x, node.y, node.z, height + 1)) continue;
-        if (canStand(world, nx, node.y + dy, nz, height)) {
-          ny = node.y + dy;
-          break;
+        if (dy === 1 && !standable(node.x, node.y, node.z, height + 1)) continue;
+        if (standable(nx, node.y + dy, nz, height)
+          && (!allowed || allowed(nx,node.y+dy,nz))) {
+          levels.push(node.y+dy);
+          if(!canSupport)break;
         }
       }
-      if (ny === null) continue;
+      for(const ny of levels) {
       // No corner cutting on diagonals.
-      if (dx && dz && (!canStand(world, node.x + dx, ny, node.z, height) || !canStand(world, node.x, ny, node.z + dz, height))) continue;
-      const g = node.g + (dx && dz ? Math.SQRT2 : 1) + (ny !== node.y ? 0.5 : 0);
+      if (dx && dz && (!standable(node.x + dx, ny, node.z, height) || !standable(node.x, ny, node.z + dz, height)
+        || Array.from({length:height},(_,dy)=>ny+dy).some(y=>isSolid(world.getBlock(node.x+dx,y,node.z))
+          || isSolid(world.getBlock(node.x,y,node.z+dz))))) continue;
+      const digging=canBreak?Array.from({length:height},(_,dy)=>world.getBlock(nx,ny+dy,nz)).filter(isSolid).length:0;
+      const filling=canSupport && !isSolid(world.getBlock(nx,ny-1,nz))?supportCost:0;
+      const g = node.g + (dx && dz ? Math.SQRT2 : 1) + (ny !== node.y ? 0.5 : 0) + digging*breakCost+filling;
       const k = key(nx, ny, nz);
       const known = nodes.get(k);
       if (known && (known.closed || known.g <= g)) continue;
       nodes.set(k, { x: nx, y: ny, z: nz, g, parent: node, closed: false });
-      heap.push(g + h(nx, nz), k);
+      heap.push(g + h(nx, nz, ny), k);
+      }
     }
   }
 

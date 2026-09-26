@@ -92,7 +92,7 @@ function goblinBrickTexture() {
   return texture;
 }
 
-function stoneBrickTexture() {
+function stoneBrickTexture(variant = 'plain') {
   const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -105,6 +105,66 @@ function stoneBrickTexture() {
     ctx.fillRect(0, y, size, 2);
     for (let x = (row % 2) * 16; x < size + 32; x += 32) {
       ctx.fillRect(x, y, 2, 16);
+    }
+  }
+  if (variant === 'mossy') {
+    ctx.fillStyle = '#62745a';
+    for (let i = 0; i < 28; i++) ctx.fillRect((i * 37) % size,
+      (i * 23 + 7) % size, 2 + i % 5, 1 + i % 3);
+  } else if (variant === 'cracked') {
+    ctx.strokeStyle = '#444847';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 12; i++) {
+      const x = (i * 31 + 9) % size, y = (i * 17 + 5) % size;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 3, y + 4); ctx.lineTo(x + 1, y + 9); ctx.stroke();
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+function patternedTexture(kind) {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (kind === 'planks') {
+    ctx.fillStyle = '#75502d'; ctx.fillRect(0, 0, size, size);
+    for (let row = 0; row < 4; row++) {
+      const y = row * 16;
+      ctx.fillStyle = row % 2 ? '#ae8350' : '#a67a47';
+      ctx.fillRect(0, y + 1, size, 14);
+      ctx.fillStyle = '#d1a269'; ctx.fillRect(0, y + 2, size, 1);
+      ctx.fillStyle = '#684525'; ctx.fillRect((row % 2 ? 22 : 43), y + 1, 2, 14);
+    }
+  } else if (kind === 'woodSides') {
+    ctx.fillStyle = '#76502d'; ctx.fillRect(0, 0, size, size);
+    for (let stripe = 0; stripe < 15; stripe++) {
+      ctx.fillStyle = stripe % 3 ? '#8e6338' : '#593a21';
+      ctx.fillRect(stripe * 5, 0, 2 + stripe % 3, size);
+    }
+  } else if (kind === 'woodEnds') {
+    ctx.fillStyle = '#a47a49'; ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = '#654522'; ctx.lineWidth = 2;
+    for (let radius = 5; radius <= 29; radius += 5) {
+      ctx.beginPath(); ctx.ellipse(32, 32, radius, radius * 0.88, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+  } else {
+    ctx.fillStyle = '#303840'; ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 36; i++) {
+      const x = (i * 37 + 11) % size, y = (i * 29 + 7) % size;
+      ctx.fillStyle = i % 3 ? '#252e36' : '#49515a';
+      ctx.fillRect(x, y, 2 + i % 4, 1 + i % 3);
+    }
+    ctx.strokeStyle = '#6da8b0'; ctx.lineWidth = 1;
+    for (let i = 0; i < 6; i++) {
+      const x = (i * 41 + 7) % size, y = (i * 19 + 9) % size;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 5, y + 2); ctx.lineTo(x + 3, y + 7); ctx.stroke();
     }
   }
   const texture = new THREE.CanvasTexture(canvas);
@@ -132,6 +192,12 @@ export class ChunkRenderer {
     this.oreMaterial = new THREE.MeshLambertMaterial({ map: ironTexture() });
     this.goblinMaterial = new THREE.MeshLambertMaterial({ map: goblinBrickTexture(), vertexColors: true });
     this.brickMaterial = new THREE.MeshLambertMaterial({ map: stoneBrickTexture(), vertexColors: true });
+    this.mossyBrickMaterial = new THREE.MeshLambertMaterial({ map: stoneBrickTexture('mossy'), vertexColors: true });
+    this.crackedBrickMaterial = new THREE.MeshLambertMaterial({ map: stoneBrickTexture('cracked'), vertexColors: true });
+    this.plankMaterial = new THREE.MeshLambertMaterial({ map: patternedTexture('planks'), vertexColors: true });
+    this.woodSideMaterial = new THREE.MeshLambertMaterial({ map: patternedTexture('woodSides'), vertexColors: true });
+    this.woodEndMaterial = new THREE.MeshLambertMaterial({ map: patternedTexture('woodEnds'), vertexColors: true });
+    this.quarryMaterial = new THREE.MeshLambertMaterial({ map: patternedTexture('quarry'), vertexColors: true });
     this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
       opacity: 0.75, depthWrite: false });
     this.transparentMaterial = new THREE.MeshLambertMaterial({
@@ -218,6 +284,12 @@ export class ChunkRenderer {
       ore: geo.ore && new THREE.Mesh(geo.ore, this.oreMaterial),
       goblin: geo.goblin && new THREE.Mesh(geo.goblin, this.goblinMaterial),
       bricks: geo.bricks && new THREE.Mesh(geo.bricks, this.brickMaterial),
+      mossyBricks: geo.mossyBricks && new THREE.Mesh(geo.mossyBricks, this.mossyBrickMaterial),
+      crackedBricks: geo.crackedBricks && new THREE.Mesh(geo.crackedBricks, this.crackedBrickMaterial),
+      planks: geo.planks && new THREE.Mesh(geo.planks, this.plankMaterial),
+      woodSides: geo.woodSides && new THREE.Mesh(geo.woodSides, this.woodSideMaterial),
+      woodEnds: geo.woodEnds && new THREE.Mesh(geo.woodEnds, this.woodEndMaterial),
+      quarry: geo.quarry && new THREE.Mesh(geo.quarry, this.quarryMaterial),
       glow: geo.glow && new THREE.Mesh(geo.glow, this.glowMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
     };
@@ -225,6 +297,9 @@ export class ChunkRenderer {
     if (entry.ore) this.scene.add(entry.ore);
     if (entry.goblin) this.scene.add(entry.goblin);
     if (entry.bricks) this.scene.add(entry.bricks);
+    for (const name of ['mossyBricks', 'crackedBricks', 'planks', 'woodSides', 'woodEnds', 'quarry']) {
+      if (entry[name]) this.scene.add(entry[name]);
+    }
     if (entry.glow) { entry.glow.renderOrder = 2; this.scene.add(entry.glow); }
     if (entry.transparent) {
       entry.transparent.renderOrder = 1;
@@ -236,7 +311,9 @@ export class ChunkRenderer {
   unload(key) {
     const entry = this.meshes.get(key);
     if (!entry) return;
-    for (const mesh of [entry.opaque, entry.ore, entry.goblin, entry.bricks, entry.glow, entry.transparent]) {
+    for (const mesh of [entry.opaque, entry.ore, entry.goblin, entry.bricks,
+      entry.mossyBricks, entry.crackedBricks, entry.planks, entry.woodSides, entry.woodEnds,
+      entry.quarry, entry.glow, entry.transparent]) {
       if (!mesh) continue;
       this.scene.remove(mesh);
       mesh.geometry.dispose();

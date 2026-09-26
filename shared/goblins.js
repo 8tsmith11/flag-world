@@ -8,6 +8,8 @@
 // chopping, plot tree growth, waits) for testing. Walking speeds are physics
 // and stay as they are. GOBLIN_TIME_SCALE in the server's environment
 // overrides it.
+import { WALK_SPEED, CARRY_SPEED_SCALE } from './config.js';
+
 const envScale = Number(globalThis.process?.env?.GOBLIN_TIME_SCALE);
 export const goblinTimeScale = envScale > 0 ? envScale : 1;
 
@@ -47,35 +49,31 @@ export const GOBLINS = {
     straightChance: 0.55,
   },
 
-  // What a new match starts with. Planks: enough to ladder the planned
-  // surface shaft, plus `extraPlanks`.
-  start: { workers: 1, extraPlanks: 80, saplings: 9 },
+  // What a new match starts with.
+  start: { slots: ['goblinWorker', 'goblinSoldier', 'goblinSoldier'] },
 
-  // Totem storage. Stone becomes Goblin Bricks 1:1 and wood becomes
-  // planksPerWood planks, both only when something needs them.
-  materials: {
-    planksPerWood: 4,
-    // Storage counts below which wood gathering gets priority,
-    // and below which a tree plot may be built ("wood is low", counting wood
-    // as planks).
-    woodWanted: 100,
-    woodLow: 100,
-  },
+  // Gathering is timed activity. Construction never consumes an inventory.
+  gathering: { chopInterval: 35, plotStartBuildings: 5, planksPerTree: 24, dwellingWood: 12 },
 
   // How goblins break blocks: like a player's hammer of this strength and
   // speed, except any hardness can be broken; each point of hardness above
   // `strength` adds that much again to the time (harder blocks take much
   // longer). Placing a block takes placeTime.
-  breaking: { strength: 2, speed: 1, hardnessScale: 1, placeTime: 0.5 },
+  breaking: { strength: 4, speed: 4, hardnessScale: 0.25, obstacleDelay: 0.4, placeTime: 0.5 },
 
   // Project pacing: the rest between finishing one project and starting the
   // next, and how often the controller looks for work.
   projects: {
     cooldown: 0,
     relocationBuildings: 6,
-    relocationModules: { small: 8, medium: 10, large: 12 },
-    relocationNearBase: 35,
+    relocationModules: { small: 14, medium: 20, large: 28 },
+    relocationMinHops: 2,
+    relocationMinLevels: 1,
+    relocationMinEntranceDistance: 14,
+    relocationNearBase: 60,
     relocationWidth: 3,
+    castle: { width: 11, depth: 11, wallHeight: 5, towerHeight: 9, capacity: 6,
+      entranceClearance: 2, approachWidth: 3, maxOffset: 4 },
     // Dwellings are due when the population is within this of capacity.
     dwellingSlack: 1,
     // Repairs: how long after a change before goblins treat it as damage
@@ -83,32 +81,35 @@ export const GOBLINS = {
     repairDelay: 2,
   },
   invasion: { scanTicks: 5, calmSeconds: 30 },
-  navigation: { surfaceMaxNodes: 1500, chamberMaxNodes: 500, safeDrop: 1 },
-  optimization: { farPlayerRange: 40, farAITicks: 5 },
-  creativeBoost: { workSecondsPerTick: 1500, growthAheadSeconds: 600, idleStopTicks: 100,
-    materialGrant: 10000 },
-  walls: { startBuildings: 6, sectionSize: 2, sectionMargin: 4, outerMargin: 2,
+  navigation: { surfaceMaxNodes: 6000, chamberMaxNodes: 500, safeDrop: 1, cachePaths: 512, jumpProbe: 0.4, waypointReach: 0.15, edgeProbeDepth: 3, swimJumpSpeed: 8.4, blockedRetry: 0.75, blockedPatrol: 3, directRange: 1.5, directStep: 0.25 },
+  optimization: { targetInterval: 0.5, playerCell: 16, farPlayerRange: 40, farAITicks: 5, turnRate: 10,
+    noTeleportRange: 150 },
+  network: { range: 336, positionStep: 1 / 16, yawStep: 1 / 256 },
+  creativeBoost: { workSecondsPerTick: 1500, growthAheadSeconds: 600, idleStopTicks: 100 },
+  walls: { startBuildings: 8, sectionSize: 6, sectionMin: 4,
+    maxSections: { small: 2, medium: 3, large: 4 }, sectionMargin: 8, outerMargin: 4,
     height: 3, gateWidth: 2, clearMargin: 3, maxFlatten: 10, postHeight: 4,
-    outerLocalFlatten: 2, riverClearance: 3 },
+    outerLocalFlatten: 2, riverClearance: 3, shoreSearch: 32, shorePathNodes: 60000,
+    terrainRise: 10, gateApproach: 3, gateRampLength: 12, gatePathCutDepth: 3, gatePathFillDepth: 3, gateAccessPasses: 4, gateFillCost: 2, gateMaxStep: 1, perimeterSeparation: 2, routeNodes: 24000, gateRouteNodes: 96000, mainGateWidth: 4, gateFrameHeight: 5, gateGuards: 2, guardInset: 2, gatePlanAttempts: 16, foundationDepth: 36 },
 
   // Caps by world size.
   caps: {
-    modules: { small: 25, medium: 35, large: 50 },
-    dwellings: { small: 18, medium: 30, large: 42 },
+    modules: { small: 40, medium: 48, large: 100 },
+    dwellings: { small: 18, medium: 22, large: 36 },
     plots: { small: 1, medium: 1, large: 2 },
     population: { small: 25, medium: 40, large: 60 },
-    // Natural trees goblins may ever chop, before relying on their plots.
-    naturalTrees: 4,
   },
 
   population: {
     // Capacity from the Totem Hall, and from each Bunk Room.
     hallCapacity: 3,
     bunkCapacity: 2,
-    spawnInterval: 180,
+    spawnInterval: 45,
+    travel: { minSegment: 0.05, pathThreshold: 5, pathArrival: 2, yawThreshold: 0.1 },
     slots: ['goblinWorker', 'goblinSoldier', 'goblinSoldier', 'goblinSoldier', 'goblinArcher', 'goblinWorker'],
-    repeatSlots: ['goblinSoldier', 'goblinSoldier', 'goblinArcher', 'goblinSoldier', 'goblinWorker'],
-    // Target shares when neither labor nor materials is the bottleneck.
+    repeatSlots: ['goblinSoldier', 'goblinHound', 'goblinArcher', 'goblinSoldier', 'goblinWorker', 'goblinHound'],
+    bruteEvery: 8,
+    // Target role shares as the colony grows.
   },
 
   // Fortress growth (goblinProjects.js). A candidate cell is scored for
@@ -116,27 +117,41 @@ export const GOBLINS = {
   // fortress's own), for wrapping around it (angle away from the start), and
   // a random jitter; the best one wins.
   expansion: {
-    radialWeight: 1.2,
-    wrapWeight: 3,
+    radialWeight: 0.6,
+    outwardWeight: 4,
+    wrapWeight: 2,
     jitter: 2.5,
     // Chance of growing a ladder shaft, and then of the next module going
     // up or down from one.
     shaftWeight: 0.8,
-    verticalChance: 0.35,
+    verticalChance: 0.9,
+    verticalBonus: 4,
+    verticalAfterEntranceBonus: 2,
+    upperRouteStartModules: 3,
+    upperShaftWeight: 60,
+    upperVerticalBonus: 100,
     // Levels (cell y) the fortress may use, relative to the Totem Hall.
     minLevel: -1,
-    maxLevel: 3,
+    maxLevel: 6,
     // Stone kept under a module's floor (never digging out the underside).
     underside: 2,
+    // Near the edge, a sealed brick spur may be carried beyond shallow stone.
+    cliffSupportStartFraction: 0.8,
     // A module can rise out of the ground only if its floor is at most this
     // far above the lowest surface under it.
     emergeFloor: 1,
     // Chance a cell that pokes out of the island's side is allowed (a sealed
     // room at the end of a hallway; nothing grows past it).
-    cliffChance: 0.5,
+    cliffChance: 1,
+    cliffRoomGoal: { small: 3, medium: 4, large: 4 },
+    cliffBonus: 30,
+    cliffSeekStartShare: 0.25,
+    cliffSeekBonus: 60,
+    cliffFinishBonus: 80,
     // Module types for horizontal growth and their weights; bunkWeight
     // replaces bunkRoom's weight when the population is near capacity.
-    types: { room: 2.5, hallway: 3, corner: 2, junctionT: 1.5, junctionCross: 0.5, bunkRoom: 1, ladderShaft: 0.8 },
+    types: { room: 2.5, hallway: 3, corner: 2, junctionT: 1.5, junctionCross: 0.5,
+      bunkRoom: 1, storeRoom: 0.8, armory: 0.8, ladderShaft: 0.8 },
     bunkWeight: 5,
     // Blocks kept clear of structures, keeps and rivers.
     clearance: 2,
@@ -159,14 +174,15 @@ export const GOBLINS = {
   // Surface buildings: within `radius` of an entrance, on ground whose
   // height varies by at most `maxSlope` over the footprint.
   surface: {
-    radius: 50,
+    radius: 60,
     innerRadiusFraction: 0.35,
     clearMargin: 3,
     treeReach: 4,
     treeHeight: 16,
     maxSlope: 3,
     plotMaxSlope: 6,
-    attempts: 300,
+    attempts: 600, expansionRadius: 80, expansionAttempts: 600,
+    distanceBias: 2,
     // Ground under a site must be solid solidDepth blocks down in all but
     // hollowShare of its columns.
     solidDepth: 2,
@@ -174,9 +190,9 @@ export const GOBLINS = {
     // Tree plots are filled level with dirt, so they take rougher ground.
     plotHollowShare: 0.35,
     // Natural trees are chopped within this of an entrance.
-    treeRadius: 80,
+    treeRadius: 15,
     // Space kept between goblin surface buildings, and from keeps/structures/rivers.
-    spacing: 3,
+    spacing: 2,
     clearance: 5,
   },
 
@@ -186,7 +202,7 @@ export const GOBLINS = {
     spacing: 4,
     margin: 1,
     // Growth time of plot saplings (seconds, before goblinTimeScale).
-    growTime: [180, 300],
+    growTime: [60, 100],
   },
 
   totem: {
@@ -206,6 +222,8 @@ export const GOBLINS = {
     width: 1.1,
     height: 2.6,
     speed: 4.95,
+    aggroRange: 9,
+    chaseRange: 18,
     damage: 7,
     // Multiplier on the normal punch knockback.
     knockback: 1.8,
@@ -235,6 +253,10 @@ export const GOBLINS = {
     idleDeposit: 15,
     // How far it reaches to dig (a room's ceiling from its floor).
     reach: 4.5,
+    surfaceWanderShare: 0.35,
+    surfaceWanderSlotPeriod: 10,
+    surfaceWanderSlotFactor: 3,
+    idleTime: [8, 16],
   },
 
   soldier: {
@@ -252,6 +274,8 @@ export const GOBLINS = {
     chaseRange: 25,
     // Seconds at each patrol spot.
     patrolWait: [6, 14],
+    patrolShare: 0.3,
+    reserveResponseSeconds: 60,
   },
 
   archer: {
@@ -270,6 +294,8 @@ export const GOBLINS = {
     aggroRange: 20,
     chaseRange: 25,
     patrolWait: [8, 16],
+    platformIdleStep: [3, 6],
+    platformCombatStep: 0.5,
   },
 
   // Goblins going up a shaft wait at its bottom for a group of groupSize
@@ -284,10 +310,47 @@ export const GOBLINS = {
   // trip (routes wind more than straight lines) and `overhead` is the share
   // of time a goblin loses to everything else (waiting, repathing, crowding).
   // `perBlock` seconds go to getting into position for each block, a climb
-  // up a shaft serves blocksPerClimb blocks, and while wood is wanted
-  // workers give woodShare of their time to chopping when wood is wanted.
-  offscreen: { range: 100, checkInterval: 1, step: 2, travelFactor: 1.2, overhead: 0.12, perBlock: 0.15,
-    blocksPerClimb: 64, woodShare: 0.3 },
+  // up a shaft serves blocksPerClimb blocks. Chopping has its own action
+  // timer and never supplies or consumes construction materials.
+  detail: { chunkRadius: 5, buildChunkRadius: 9, surfaceRange: 80, nearRange: 30, buildRange: 150, fortressLinger: 30 },
+  economy: { visibleStep: 0.05, moduleClearance: 16, chopLabor: 1 },
+  offscreen: { range: 180, checkInterval: 1, step: 2,
+    workScale: { small: 15.9, medium: 12.5, large: 13.8 }, travelFactor: 1.2, overhead: 0.12, perBlock: 0.15,
+    blocksPerClimb: 64, woodCreditLimit: 6000 },
+
+  hound: { hp: 8, width: 0.6, height: 0.8, speed: WALK_SPEED * 1.6, damage: 3, cooldown: 0.8,
+    knockback: 0.6, reach: 0.8, aggroRange: 24, chaseRange: 60, patrolWait: [2, 5], packRadius: 2 },
+  brute: { hp: 50, width: 0.95, height: 1.95, speed: WALK_SPEED * 0.8, damage: 8, cooldown: 1.6,
+    knockback: 2.5, reach: 1.4, aggroRange: 16, chaseRange: 40, patrolWait: [6, 14],
+    breakSpeed: 5, climbScale: 0.45 },
+  traps: { range: 4, cooldown: 3, damage: 2, poisonSeconds: 5, poisonDamage: 1,
+    poisonInterval: 1, arrowSpeed: 22, perModule: 2, maxPerLevel: 6, hallExtra: 2, scanSeconds: 1 },
+  siege: {
+    margin: 1.2, groupSize: [2, 3], spawnInterval: 20, mainArmyProgress: 0.65,
+    afterLandingSeconds: 900, hardCapSeconds: 1500, repairAbandonShare: 0.3,
+    extraBridgeAfter: 3, extraBridgeChance: 0.5, alternateOffset: 14, keepClearance: 2, launchSettlementClearance: 6, launchSearchOffsets: 8,
+    placeSeconds: 0.5, breakSeconds: 1, workAnimationSeconds: 0.25, towerWorkReach: 1.5, towerClearance: 2, repairSeconds: 2, planScanSeconds: 2,
+    grabSeconds: 2, carrierSpeed: WALK_SPEED * CARRY_SPEED_SCALE, homeRange: 3, lootChance: 0.12,
+    routeNodes: 12000, pathBreakCost: 4, swimSpeedScale: 1, swimWaypointHeight: 2, routeRefresh: 2, localRange: 12, defenseRange: 3, clearRange: 1.5, stagingSpacing: 3, workerHandoffSeconds: 10, bridgeDetourNodes: 8, surfaceTolerance: 1,
+    budgets: {
+      1: { goblinWorker: 2, goblinSoldier: 5, goblinArcher: 2 },
+      2: { goblinWorker: 2, goblinSoldier: 5, goblinArcher: 3, goblinHound: 3, crew: 1 },
+      3: { goblinWorker: 2, goblinSoldier: 6, goblinArcher: 4, goblinHound: 4, goblinBrute: 2,
+        crew: 1, pilot: 1, riders: 4 },
+      4: { goblinWorker: 2, goblinSoldier: 8, goblinArcher: 5, goblinHound: 5, goblinBrute: 3,
+        crew: 2, pilot: 1, riders: 4 },
+    },
+  },
+  catapult: { hp: 60, width: 3.2, height: 3.3, wood: 50, range: 60,
+    cooldown: 8, platformSize: 5, projectileSeconds: 4, arcHeight: 28, drops: 16, platformRangeShare: 0.94, setback: 6, placementSearch: 12, boulderSize: 0.65, bombSize: 0.38, targetRadius: 26, targetHeight: 8, scanStride: 2, maxDefenseTargets: 64, clusterRadius: 6, targetCycle: ['path','turret','defense','players'],
+    boulder: { radius: 1.5, damage: 6, hardness: 4 },
+    bomb: { radius: 2.5, damage: 10, hardness: 4 } },
+  balloon: { hp: 40, width: 4, height: 7, envelopeOffset: 2.2, wood: 40, speed: 6, hoverHeight: 20,
+    cargo: 4, riderTypes: ['goblinSoldier', 'goblinArcher'], dropInterval: 4, bombInterval: 6, bombs: 12, crashGravity: 12,
+    glideSpeed: 5, glideFallSpeed: 2.5, launchDelay: 12, launchPadSize: 5, launchRadius: 64, launchRise: 3, launchDepth: 15, launchMaxSlope: 1, clearance: 2, detourDistance: 8, detourHistory: 8, blockedSeconds: 8, bomb: { radius: 1.5, damage: 6, hardness: 4 } },
+
+  effects: { bombParticles: 42, bombSeconds: 0.8, bombFlashSeconds: 0.22, bombFlashIntensity: 8, bombFlashRange: 20, bombParticleSpeed: 7 },
+  sounds: { hornSeconds: 2.5, drumSeconds: 12, drumInterval: 0.55, ambientInterval: 8, ambientJitter: 10, workInterval: 0.75 },
 
   // Goblins steer apart when closer than `spacing` times their half widths
   // summed; `strength` weighs that push against where they're heading.

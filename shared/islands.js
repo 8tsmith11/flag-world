@@ -486,6 +486,9 @@ export function generateIslandWorld(seed, teamCount, config) {
   const nearKeep = (x, z) => keeps.some((site) =>
     Math.abs(x - site.cx) <= KEEP_CLEARANCE && Math.abs(z - site.cz) <= KEEP_CLEARANCE);
   const terrains = islands.map((island, index) => terrainFor(world, { ...island, index }, noise, detail));
+  world.mainTerrains=terrains.filter(terrain=>terrain.kind!=='tiny').map(({index,x0,z0,width,top})=>({index,x0,z0,width,top}));
+  const central=terrains.find(terrain=>terrain.kind==='center');
+  if(central)world.centralTerrain={x0:central.x0,z0:central.z0,width:central.width,top:central.top};
   for (const terrain of terrains) {
     let actualTop = -Infinity, actualBottom = Infinity;
     for (let i = 0; i < terrain.top.length; i++) {

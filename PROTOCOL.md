@@ -62,6 +62,7 @@ unique within the lobby (ignoring case).
 | `glideBlockedTicks` | int | Ticks left before a Void Eel bite permits gliding again; part of predicted movement state |
 | `flying` | bool | Creative flight active; part of predicted movement state |
 | `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back. With a crossbow in hand: how far it's loaded, 1 while loaded (the bolt shows on it) |
+| `poisonTicks` | int | Remaining poison duration in server ticks. A poison dart does 2 damage and applies 1 damage per second for 5 seconds. The local HUD shows a skull, green tint and motes. Repeated poison refreshes duration rather than stacking damage. |
 | `slowTicks` | int    | Ticks of Ice Sword frost slow left (40 on a hit); movement is 40% slower while above 0 and frost flakes are drawn around them. Part of predicted movement state |
 | `grapple`  | object \| null | While a grappling hook pulls: `{ hx, hy, hz }` where the hook caught and `{ x, y, z }` where their feet are headed; drawn as a rope to the hook. Part of predicted movement state |
 | `hookCooldown` | int | Ticks until their grappling hook can fire again (60 after each shot). Part of predicted movement state |
@@ -182,22 +183,23 @@ then in `state` only on ticks it moved.
 | `yaw` | number | Facing (0 looks toward -Z) |
 | `climbing` | bool | Climbing a wall (drawn tipped up it) |
 
-**GoblinSnapshot** — a Goblin Worker, Soldier, Archer or the Goblin
-King. Sent in `entitySpawn` / `welcome` (with `maxHp`), then in `state` on
-ticks it moved or its `climbing`, `mining`, `carrying` or `aiming` changed
-(and on ticks offscreen mode moved it).
+**GoblinSnapshot** — a Goblin Worker, Soldier, Archer, Hound, Brute or King. Full snapshots are sent in `entitySpawn` / `welcome` (with `maxHp`).
+Compact snapshots in `state` contain only `id`, `x`, `y`, `z`, `yaw`, `hp`
+and `a`. Positions are rounded to 1/16 block, yaw to 1/256 radian, and
+clients interpolate between snapshots. `a` is an animation bitfield:
+1 walking, 2 climbing, 4 working, 8 aiming, 16 crouching and 32 gliding.
+`aboard` hides balloon cargo while it is in the basket; the pilot remains visible.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | int | Entity id |
-| `type` | string | `"goblinWorker"`, `"goblinSoldier"`, `"goblinArcher"` or `"goblinKing"` |
+| `type` | string | `"goblinWorker"`, `"goblinSoldier"`, `"goblinArcher"`, `"goblinHound"`, `"goblinBrute"` or `"goblinKing"` |
 | `name` | string | `"Goblin Worker"` etc., used in the event feed |
 | `x`,`y`,`z` | number | Feet position (boxes: worker 0.6 × 1.2, soldier 0.7 × 1.3, archer 0.6 × 1.25, King 1.1 × 2.6) |
 | `yaw` | number | Facing (0 looks toward -Z) |
 | `hp` | number | Health (`maxHp` in `entitySpawn` / `welcome`) |
 | `walking`, `climbing` | bool | Walking; on a ladder |
 | `mining` | bool | Swinging its tool at a block (digging, chopping, building, clearing its way) |
-| `carrying` | int | Worker: items or materials carried |
 | `aiming` | bool | Archer only: bow up at a target |
 
 **GoblinTotemSnapshot** — the Goblin Totem. Sent in `welcome` / `entitySpawn`
@@ -267,8 +269,8 @@ promptly for every player.
 | Field       | Type        | Notes |
 |-------------|-------------|-------|
 | `id`        | int         | Team flag id |
-| `state`     | string      | `"home"`, `"carried"`, `"dropped"` or `"captured"` (`FLAG_STATE`) |
-| `carrierId` | int \| null | Player carrying it |
+| `state`     | string      | `"home"`, `"carried"`, `"dropped"`, `"held"` or `"captured"` (`FLAG_STATE`) |
+| `carrierId` | int \| null | Player or goblin carrying it |
 | `x`,`y`,`z` | number      | Base of the pole: the pedestal when home, the carrier's feet when carried |
 
 **FlagInfo** — FlagState plus:
@@ -396,11 +398,15 @@ The server responds only to that connection with `creative`.
 `{action}` from the local creative host during a match. Accepted actions are
 `"teleportTotem"` (to an open spot in the Totem Hall while the totem exists),
 `"setDay"` (noon), `"setNight"` (midnight), `"toggleImmortal"`, and
-`"toggleFlight"`, and `"maxGoblinBase"`. The last action grants 10,000 each
-of stone, Goblin Bricks, wood, planks, dirt and saplings to the totem, then
-forces accelerated offscreen construction even with players nearby until
-the module, dwelling and tree-plot caps, entrance relocation and outer wall
-are built.
+`"toggleFlight"`, `"forceGoblinSiege"`, `"raiseGoblinTier"`, and `"maxGoblinBase"`.
+Force siege (G) ignores wood, but still requires a live Totem, open entrance,
+home flag target, and no active siege. Raise tier (T) increments the permanent
+minimum tier, capped at 4; existing home units keep their type until death.
+The last action accelerates the timed
+economy and applies its plans even with players nearby until the module,
+dwelling and tree-plot caps, both shafts, relocation, Castle, interior sections,
+and outer wall are built. The creative boost bypasses dwelling wood costs. Block batches
+reach connected clients immediately; reloading is unnecessary.
 The server replies with `creative`; time changes also broadcast `dayTime`.
 Immortality prevents damage and returns a player who falls into the void to
 their keep.
@@ -682,12 +688,13 @@ reclaim.
 | `winnerId`| int \| null   | Set if the match is already over |
 | `winnerTeam` | int \| null | Winning team index, if over |
 | `winnerMembers` | string[] | Names on the winning team, if over |
-| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | Dropped items, projectiles, mobs and goblins currently in the world |
+| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | Dropped items, projectiles and mobs currently in the world; goblins are included only within their configured network range of this player |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
 
-Broadcast every server tick (20/s).
+Sent to each connected player every server tick (20/s). Goblin updates are
+included only for bodies within their configured network range.
 
 | Field      | Type             | Notes |
 |------------|------------------|-------|
@@ -714,6 +721,14 @@ player who caused it.
 | `id`      | int  | New block id |
 | `team`    | int \| null | Reinforced door owner, or null when ownership is removed; omitted for other blocks |
 
+### `blockChanges`
+
+The server batches all changes from a tick into one message before `state`:
+`{ type: "blockChanges", changes: [{x,y,z,id,team?}, ...] }`. Each entry has
+the same fields and meaning as `blockChange`. Repeated changes to a block in
+the same tick are coalesced to its final state. Clients still accept the
+single-change form.
+
 ### `creative`
 
 Sent only to the localhost player after an accepted `creativeToggle` or
@@ -735,7 +750,9 @@ cells are skipped, while dropped items are moved to nearby air.
 
 ### `entitySpawn`
 
-A non-player entity appeared: a block drop, a thrown item, or an arrow.
+A non-player entity appeared: a block drop, a thrown item, an arrow, or a mob.
+Goblin spawns are sent only to players within range. Crossing out of range
+sends `entityDespawn`; crossing back sends `entitySpawn` with current HP and state.
 
 | Field    | Type     |
 |----------|----------|
@@ -780,10 +797,8 @@ player who swung; their own first-person arm animates locally.
 
 ### `chat`
 
-A line for everyone's event feed. So far only two world events, both goblin:
-the first surface shaft breaking through ("The goblins have broken through to
-the surface!") and the Goblin Totem being destroyed ("NAME destroyed the
-Goblin Totem!"). No other goblin event is announced.
+A line for everyone's event feed: shaft breakthrough, Totem destruction,
+and siege launch ("A goblin siege is underway").
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -799,10 +814,9 @@ state, which their client shows while they look at the Goblin Totem.
 |-------|------|-------|
 | `totemId` | int \| null | The Totem's entity id |
 | `totemAlive` | bool | |
-| `storage` | object | Totem storage by material: `stone`, `bricks`, `wood`, `planks`, `dirt`, `saplings` |
-| `project` | object \| null | The work in hand (repairs first): `{ kind, label, progress (0..1), done, total, waiting }`; `kind` includes `repairs`, `shaft`, `gatehouse`, `module`, `dwelling`, `plot`, `wall` and `relocationPlug`; `waiting` when materials are short |
+| `project` | object \| null | The work in hand (repairs first): `{ kind, label, progress (0..1), done, total }`; `kind` includes `repairs`, `shaft`, `gatehouse`, `module`, `dwelling`, `plot`, `wall`, `castle` and `relocationPlug` |
 | `nextProjectIn` | int | Always 0; projects start back to back |
-| `population` | object | Colony goblins alive by type (`goblinWorker`, `goblinSoldier`, `goblinArcher`) |
+| `population` | object | Colony goblins alive by type (`goblinWorker`, `goblinSoldier`, `goblinArcher`, `goblinHound`, `goblinBrute`); excludes siege armies |
 | `total`, `capacity`, `hardCap` | int | Colony size, current capacity, and the world size's hard cap |
 | `modules`, `moduleCap` | int | Brick modules and their cap |
 | `dwellings`, `dwellingCap` | int | Standing surface dwellings and their cap |
@@ -810,6 +824,11 @@ state, which their client shows while they look at the Goblin Totem.
 | `walls`, `outerWall` | int, bool | Number of finished wall projects and whether the final outer wall is built |
 | `entrances` | `{ width, gatehouse, sealed }[]` | Surface entrance width, gatehouse state and whether its shaft is plugged |
 | `relocation` | string | `pending`, `digging`, `new entrance` or `complete` |
+| `castle` | bool | Whether the castle over the plugged entrance is complete |
+| `slots` | object[] | Per goblin `{slot,id,role,assignment,hp,activity,x,y,z,spawned}` |
+| `spawnedEntities` | int | Colony goblin bodies currently present in the entity map |
+| `tier` | int | Current progression tier, 1–4 |
+| `siege` | object | `{phase,target,bridgePlan,reserved,needed,wood,budget,remaining,spawned,progress,secondsRemaining,machines}`. `phase`: `idle`, `reserving wood`, `approach`, `assault`; target is a team or null. Bridge plan: `new`, `reuse`, `abandoned` or null. Wood is measured in plank equivalents; needed includes the 20% margin. Budget maps roles/types to total counts; remaining is the unspawned queue. Machines: `{id,type,hp,phase,cargo,bombs,crew}`. |
 | `offscreen` | bool | Goblins are in offscreen (estimated) mode |
 
 ### `goblinTotemDestroyed`
@@ -1137,7 +1156,7 @@ walking speed, and flight has no gravity or fall damage. Acquired items remain
 when creative is turned off.
 
 Spawn eggs exist for Cow, Dragon, Crawler, Void Eel, Goblin Worker,
-Soldier, Archer and Goblin King. Right-clicking a solid block with one spawns
+Soldier, Archer, Hound, Brute, Goblin King, Catapult and Balloon. Right-clicking a solid block with one spawns
 its normal mob on top and consumes the egg. Cow, Dragon and Crawler use the
 spawn position as home or leash center; a Void Eel uses the nearest island. A
 Goblin Worker, Soldier or Archer hatched inside the Goblin Fortress
@@ -1171,8 +1190,7 @@ blocks arrive as `blockChange`.
 
 The Goblin Totem stands in the middle of the Totem Hall: 400 HP, hurt only by
 players' melee and arrows/bolts, back to full at 4 HP/s after 30 s without
-damage. It holds the goblins' shared storage of materials (stone, Goblin
-Bricks, wood, planks, dirt, saplings; nobody can open it). Destroyed, it
+damage. Goblin construction uses timed plans. A wood counter gates siege launches and surface dwellings. Destroyed, it
 bursts (`goblinTotemDestroyed`), drops a `goblinTotem` loot pile, is announced
 (`chat`), and goblins stop spawning and stop starting or working on projects
 for the rest of the match; the goblins alive carry on otherwise.
@@ -1189,16 +1207,12 @@ waits, plot tree growth), though not walking.
 
 ### The colony
 
-A match starts with 1 Worker, the King and the Totem. The totem holds 9
-saplings and enough planks to ladder the planned surface shaft, plus 80.
+A match starts with a Worker in slot 1, Soldiers in slots 2 and 3, the King,
+and the Totem. Construction and replanting are timed actions. Chopping supplies a configurable yield of plank equivalents to the siege wood counter.
 
 - **Workers** (10 HP) dig and build every project, repair damaged structures,
-  carry materials to and from the totem, and chop wood when needed. Stone
-  comes only from digging the fortress, shafts and other construction sites;
-  no goblin quarry exists. Stone becomes Goblin Bricks 1:1 and wood becomes
-  four planks when needed. Workers ignore nearby players while working and
-  flee only after being attacked; they return to work when safe. Killed,
-  they drop what they carry.
+  chop trees within 15 blocks of settlement entrances/buildings/walls and replant only in tree plots. Workers ignore nearby players while working and
+  flee only after being attacked; they return to work when safe.
 - Workers break obstacles, including player blocks, at the configured break
   speed (about 1.5 times slower than before). They never break keeps or the
   totem. They remove all blocks from a new module cell before placing its
@@ -1209,7 +1223,10 @@ saplings and enough planks to ladder the planned surface shaft, plus 80.
   damage, range 20, every 1.5 s) and back away from players within 5 blocks.
   Archers hold Lookouts or wall posts when available and move to the post edge
   nearest a target before shooting; otherwise they patrol with soldiers.
-  Both patrol between the fortress, the entrances and the dwellings, attack players within
+  A configurable share of Soldiers patrol the surface once it opens; the
+  rest stay in the fortress until an invasion or a surface goblin is attacked.
+  They respond through the shaft and return after 60 seconds without an
+  attack. Both guard types attack players within
   12 (Soldiers) / 20 (Archers) blocks that they can see, give up a chase 25
   blocks from their patrol spot, and are provoked like other mobs (ignoring
   that limit). When a player enters any fortress module, all soldiers and
@@ -1246,22 +1263,23 @@ by priority:
 3. **Shaft gatehouse**, right after: a Goblin Brick house around the shaft's
    top (ladders on its back wall, a doorway in front, a path cleared out of
    the door).
-4. **Tree plot** (at most 1 / 1 / 2) when wood storage is low: a 13 × 13
+4. **Tree plot** (at most 1 / 1 / 2) after the fifth dwelling: a 13 × 13
    flattened, plank-bordered plot near an entrance with a 3 × 3 grid of saplings 4
-   apart. Workers harvest grown trees and replant at once (the harvest gives
-   the sapling back). Before any plot, Workers chop at most 4 natural trees
-   near an entrance; after that only plot trees.
+   apart. Workers chop whole trees for wood and replant only plot saplings. Natural
+   trees have no harvest-count limit. A siege reservation can bring plot
+   construction forward so exhausted nearby trees cannot deadlock the economy.
 5. **Entrance relocation**, once the surface base has several buildings and
    the fortress has expanded: a distant module connects to a new 3 × 3 lined
    shaft, ladders and gatehouse. After it is complete, workers fill the
-   entire old shaft with Goblin Bricks and remove its gatehouse. This does
+   entire old shaft with Goblin Bricks and remove its gatehouse. An all-brick
+   Goblin Castle (+6 capacity, with an archer battlement) then rises over the
+   plugged entrance. The new shaft has three ladder columns. This does
    not send a chat announcement.
-6. **Wall sections** begin after at least six surface dwellings. Three-block
-   Goblin Brick walls enclose groups of buildings, with two-wide gates and
+6. **Wall sections** begin after at least eight surface dwellings. Three-block
+   Goblin Brick walls enclose groups of at least four dwellings, with gates and
    ladder-accessible archer posts. At the dwelling cap, a final outer wall
    encloses the base.
-7. Alternating **fortress modules** and **surface dwellings** (dwellings only
-   when the population is within 1 of capacity); when one is capped or has
+7. Alternating **fortress modules** and **surface dwellings**; when one is capped or has
    nowhere to go, the other.
 
 A new **module** goes on a free cell next to an existing one, chosen for
@@ -1276,34 +1294,35 @@ the ground (then it stands as a brick building on the surface), or, at the
 island's edge, a sealed room at the end of a hallway may poke out of the cliff
 (nothing grows past it). Its whole shell is Goblin Bricks: where it passes
 through caves or open air, Workers brick up every open cell of its walls,
-floor and ceiling. Brick modules are capped at 25 / 35 / 50.
+floor and ceiling. Brick modules are capped at 40 / 48 / 100.
 
 **Surface dwellings** stand near an entrance, outside the inner 35% of the
 central island's radius, on level, solid
 ground (flattened and filled underneath), doors facing the entrance: Hut (+2
 capacity), Longhouse (+4) and Lookout (+1; a raised platform with a ladder,
-where an Archer stands guard). Capped at 18 / 30 / 42 independently from the
+where an Archer stands guard). Capped at 18 / 22 / 36 independently from the
 brick module cap. Before construction, workers clear and flatten the full
-footprint plus a three-block margin, removing whole trees for wood without
-counting them toward the four natural trees they may chop for supplies.
+footprint plus a three-block margin, removing whole trees where needed.
 Players can break them;
 one that loses 30% of its blocks stops counting and may be rebuilt later as a
-normal project. When wood is gone for good, a waiting dwelling is given up.
+normal project. Nearby doorway routes are reserved so later buildings do not block them.
 
 ### Offscreen mode
 
-When no player is within 100 blocks of the fortress, the entrances, the
+When no player is within 180 blocks of the fortress, the entrances, the
 surface buildings, the active site and every colony goblin, goblins stop
 moving and their work advances at estimated rates instead: every 2 s, each
 Worker gets an estimated work budget, spent on the same dig and place tasks (cost: the
 block's break or place time, plus its share of the trips between the totem
 and the site). Changes are applied to the world directly in batches (as
-ordinary `blockChange`s), spawning continues as usual, and goblins are placed
-at plausible spots for their work (appearing in `state`). When a player comes
+`blockChanges`), spawning continues as usual, and colony goblins are placed
+at plausible spots for their work in the simulation. Their bodies and the
+King leave the entity map with `entityDespawn`; on return they materialize
+with `entitySpawn`. The Totem remains an entity. When a player comes
 within range, full simulation resumes from there. Idle goblins inside the
 fortress are skipped until a player enters; moving and working goblins keep
 simulating. AI work is staggered and distant goblins update less often. The
-creative max-base action grants resources and forces accelerated offscreen
+creative max-base action forces accelerated offscreen
 construction even while players are nearby.
 
 ## Day and night
@@ -1316,3 +1335,185 @@ sends it as `dayTime` in `welcome`; clients count on from the ticks in
 color move through dawn, day, dusk and night, stars come out, lights dim to a
 blue moonlight (never pitch black) and fog draws in to 75% of the view
 distance at night. The creative inventory can switch directly to noon or midnight.
+
+Goblin construction uses the same timed economy with or without bodies. Surface
+plans apply progressively while watched, in batches otherwise. Underground
+modules and shafts finish their timers independently, then wait until no connected
+player is inside the fortress or within 16 blocks of their planned changes.
+Fortress bodies linger for 30 seconds after the last interior viewer leaves.
+Surface bodies normally exist within 80 blocks; visible silhouettes are retained
+out to the networking radius to avoid disappearing during distant combat.
+
+
+### Goblin siege entities and flags
+
+`entitySpawn` / `welcome` recognize `goblinHound`, `goblinBrute`,
+`goblinCatapult`, `goblinBalloon` and `siegeShot`. Hounds have 8 HP,
+1.6× walking speed and a 3-damage bite every 0.8 s. Brutes have 50 HP,
+0.8× walking speed, 8-damage club strikes every 1.6 s, strong knockback,
+faster obstacle breaking and slower shaft climbs. Both have spawn eggs.
+
+Machines use the normal compact goblin position/HP snapshot, plus `phase`,
+`cargo`, `bombs`, `firing` and `aboard`. Catapults have 60 HP, Balloons 40 HP.
+The balloon's hitbox covers its envelope; its pilot is a separate attackable
+siege goblin. `siegeShot` uses `{id,type,x,y,z,yaw,bomb}`: a visible ballistic
+boulder or bomb, removed with `entityDespawn` when the economy resolves impact.
+Impacts spare keep/pedestal blocks, blocks above hardness 4, and all recorded
+siege bridge/platform coordinates. Unobserved impacts resolve in batches.
+
+Facing poison traps use block ids 79–82 (N/E/S/W). A completed fortress
+module gets wall traps; the starting modules get them too. Only players
+trigger them along their facing line, up to 4 blocks away. They use ordinary
+`arrow` entities and a 3 s cooldown. Poison uses `PlayerSnapshot.poisonTicks`;
+there is no client-authoritative status message or physics change.
+
+Tier 1 is initial; Tier 2 requires relocated entrance plus Castle; Tier 3
+requires the outer wall; Tier 4 requires two completed Tier 3+ sieges.
+Home slots repeat Soldier, Hound, Archer, Soldier, Worker, Hound, with a
+Brute every eighth slot. Locked Hound/Brute slots spawn Soldiers. The same
+slot's next respawn uses its newly unlocked type, at a 45 s population interval.
+
+Wood is the launch gate, with no siege interval. The target selector chooses
+randomly among teams whose flags are home. The precomputed bridge and machine
+plan reserves its cost plus 20%; dwellings spend only above that reservation.
+Each siege owns a finite, tier-specific budget, separate from home slots.
+Small groups emerge out of sight inside the fortress, walk through the shaft,
+and stage workers/escorts before the main force. No siege unit respawns.
+
+Workers progressively build a supported ladder tower and connected plank
+bridge. The first bridge is one wide; an intact known bridge is repaired and
+widened. More than 30% damage/obstruction abandons it and selects different
+launch/landing points for a new two-wide bridge. Later sieges may add a second
+route. Workers repair gaps and clear obstructions throughout the active siege.
+Long marches share sparse navigation fields and retain their route until
+traversal fails. Near flags/keeps and the base, units use ordinary goblin voxel
+pathfinding and physics, adapting to player block changes.
+
+Tier 2 catapults use a platform on the bridge if the keep is out of range.
+They need a living siege operator; another surviving soldier/archer can fill
+an empty crew position. Intact catapults persist for reuse, destroyed ones drop
+planks. Tier 3 balloons have a pilot and four budgeted soldier/archer riders;
+they fly and drop gliders in waves, including while unobserved. Tier 4 catapults
+throw bombs and balloons have finite bomb cargo. Destroyed envelopes or dead
+pilots crash, killing everyone still aboard. Empty balloons return to base.
+
+Goblin flag grabs take the normal 2 seconds. `carrierId` may be a goblin id;
+`flagEvent` retains its normal owning-team notifications for grabs, drops and
+returns. A dead carrier drops its flag with the existing return timer/physics.
+A successful return to the Goblin Totem puts the flag on a pedestal with state
+`held`. Held flags are visible and never auto-return; the owning team returns
+one instantly by touching it, other teams can grab it in 2 seconds. Its owner
+cannot capture while it is held. Totem destruction returns every held flag.
+Goblins never capture a flag or eliminate a team.
+
+Siege state ends after the queue is empty and all its units are dead/returned,
+or 15 minutes after landing / 25 minutes after launch, or immediately when the
+Totem dies. Spawn/construction stop; surviving fighters keep fighting, flag
+carriers still return home, crew returns and balloons return. Siege kills have
+a configurable small chance to use the `siegeGoblin` loot table. Individual
+HP, position, journey, assignment, army membership, machine state and flight
+live in the economy, independent of network interest or rendering.
+
+Balloon pilot/riders are allocated directly aboard from the finite army budget.
+The machine is created on a clear level plank launch pad after the first bridge
+lands and the configured launch delay expires; it ascends before crossing.
+No loading actor walks into the basket. Launch pad wood is included in the reserve.
+Main exterior gates have timber frames, brick caps and two home soldier guard
+positions. Wall plans preserve walking routes between the active entrance and
+dwelling doors. Inner and outer perimeters remain separate; only planned gates open the walls. Gates require level, clear approaches on both sides.
+
+Goblin bodies and watched construction use player chunk neighborhoods (`detail.chunkRadius`
+and `detail.buildChunkRadius`), rather than a body-distance cutoff. Falling
+goblins keep authoritative physics outside watched chunks and die normally in
+the void. Siege workers must finish shaft travel and reach a supported surface
+launch before building; staging routes exclude underground shortcuts. One lead
+worker builds the current plan, with a spaced backup. Higher tiers currently
+use two workers while bridge construction is sequential. Goblins retain the
+ability to dig through obstructions; ordinary breaking uses the configured
+strength, speed, hardness scale and obstruction delay.
+
+Ordinary goblin walking dismounts ladders sideways, so forward input cannot
+accidentally keep a flag carrier climbing at the tower base. Goblins jump only
+onto a clear one-block step with headroom. Incomplete local paths retain their
+last reachable waypoint and retry; they never become a straight walk into a
+wall. Bridge repair covers all established structural blocks, including those
+that were intact at launch. An already landed bridge releases the main army
+even when its construction task list is empty.
+
+`goblinStatus.siege` also includes `workers: [{id,phase,activity,x,y,z,distanceToWork}]`
+and `nextBlock: {x,y,z} | null` for creative troubleshooting. Worker hammer
+animation runs only for reachable clearing/placement actions, with a short
+configured animation pulse; staging, climbing and blocked travel show idle or
+walking animation.
+
+Surface gate records retain their actual facing and terrain-following approaches;
+wall generation checks both sides of the gate and preserves clear headroom.
+Above-ground siege routes may swim across rivers using ordinary collision and
+water physics. Goblin walking follows waypoint directions directly rather than
+walking an arc while turning; blocked journeys retry and emerging armies update
+their destination when an entrance is relocated. Flag carrier speed applies the
+normal carrying penalty once. Catapult crews finish their machine route before
+receiving any assault movement, and replacements are selected only after the
+assigned crew is lost. A balloon already returned to its pad stays there when
+the siege ends.
+
+Surface rendezvous heights follow contiguous terrain at the entrance after
+terraforming, so the army does not wait for an obsolete feet height. Separated
+islands overhead do not affect that height. Digging routes must approach and
+clear solid corners before turning diagonally past them. Close movement slows
+at waypoints, with tighter alignment for wide goblins; switching to local
+pathfinding remains attached to that goal until the assignment changes.
+
+Wall plans verify walking access to the dwellings against the final proposed
+blocks. Access work includes shallow, open terrain cuts and plank footbridges
+at water surfaces. Castle doorways have a supported approach and steps to the
+yard. These are ordinary progressive construction tasks, including their wood.
+
+### `goblinSiegeDeclared` — server → everyone
+
+`{ type, x, y, z, target }` announces a successful siege launch at the goblin
+surface base. `target` is the team index. Chat still announces
+“A goblin siege is underway”. Clients play a procedural war horn and a short
+sequence of drums after audio has been unlocked by a user gesture.
+
+### `siegeExplosion` — server → everyone
+
+`{ type, x, y, z, radius }` is emitted when the authoritative simulation resolves
+a bomb impact, including batched impacts. Clients render fire/smoke debris and
+a brief orange flash, and play a distance-attenuated explosion sound. Boulders
+never emit this message. Both catapult ammunition types follow a high arc;
+balloon bombs fall. Larger catapult/projectile models and all combat tuning
+come from `shared/goblins.js`.
+
+Catapults resist melee/arrow knockback and remain stationary. New machines prefer
+a supported position behind the launch; long-range platforms are placed near the
+back of their usable firing range. Artillery cycles between route obstructions,
+turrets, breakable defenses, and player groups. Every impact still protects keeps
+and goblin bridges. Nearby goblins have procedural idle calls, hound barks,
+brute growls, hurt cries and work sounds.
+
+Builders advance directly to the next ladder work height. Repair work chooses
+nearby damage and a supported work position on the worker's side, so consecutive
+holes can be filled without first crossing them. Crowd separation is disabled
+in narrow lanes, and goblins check support before deliberately walking off an
+edge, including during jumps. Ground-level ladders advance their route normally.
+
+Settlement terrain heights come from each original island's height map; detached
+islands overhead do not raise walls, buildings or launch sites. Gates preserve
+existing door/stair lanes, avoid future buildings, and reserve their approaches
+against later construction. At cliff edges, connected outer-wall ledges preserve
+a full perimeter around existing buildings and their access lanes.
+Sealed or damaged gatehouses remain part of those bounds while their structures
+remain. Siege tower sites leave clearance around settlement buildings, doorway
+lanes and walls, and search alternate launch positions when necessary.
+Swimming marchers finish a bounded bank-exit jump before resuming ground routing;
+briefly leaving the water does not restart their route.
+Balloon obstacle avoidance uses persistent, collision-checked detours at flight
+speed, rather than alternating small moves beside a wall. Launch pads require
+clear, nearly level ground outside buildings. Returning flag carriers and crew
+stay on the surface until the entrance, then use normal shaft travel home.
+Construction first
+searches the compact village area, then a configured expansion ring when sites
+there are occupied. Estimated economy travel/climbing/positioning delays obey
+`goblinTimeScale`; physical entity movement does not. Chopping labor can save
+enough credit for distant trees instead of stalling below their estimated cost.

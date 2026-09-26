@@ -287,7 +287,9 @@ const ROPE = [
 // in dark iron with a worn, lighter face (the same boxes as its item model).
 const ANVIL = ANVIL_PARTS.map(({ box, light }, i) => ({ box, color: light ? 0x5c5f66 : i % 2 ? 0x34363b : 0x3b3d42 }));
 
-const SHAPES = { workbench: WORKBENCH, furnace: FURNACE, chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL };
+const POISON_TRAP = [{box:[0,0,0,1,1,1]},
+  ...[0.25,0.5,0.75].map((x)=>({box:[x-0.045,0.45,-0.005,x+0.045,0.55,0.01],color:0x10130d}))];
+const SHAPES = { poisonTrap:POISON_TRAP, workbench: WORKBENCH, furnace: FURNACE, chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL };
 
 // [{ box, color }] for a shaped block, turned to its facing.
 function shapeBoxes(id, def) {
@@ -324,6 +326,12 @@ export function meshChunk(world, chunk) {
   // Goblin Bricks: textured (chunkRenderer's goblinBrickTexture), tinted by light only.
   const goblin = createBuffers();
   const bricks = createBuffers();
+  const mossyBricks = createBuffers();
+  const crackedBricks = createBuffers();
+  const planks = createBuffers();
+  const woodSides = createBuffers();
+  const woodEnds = createBuffers();
+  const quarry = createBuffers();
   const ox = chunk.cx * CHUNK_SIZE, oy = chunk.cy * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
 
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
@@ -370,10 +378,12 @@ export function meshChunk(world, chunk) {
         }
 
         if (id === BLOCK.STONE_BRICKS || id === BLOCK.MOSSY_STONE_BRICKS || id === BLOCK.CRACKED_STONE_BRICKS) {
+          const textureBuffer = id === BLOCK.MOSSY_STONE_BRICKS ? mossyBricks
+            : id === BLOCK.CRACKED_STONE_BRICKS ? crackedBricks : bricks;
           for (const face of FACES) {
             const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
             if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
-            pushFace(bricks, face, x, y, z, color, face.shade * j);
+            pushFace(textureBuffer, face, x, y, z, WHITE, face.shade * j);
           }
           continue;
         }
@@ -382,7 +392,7 @@ export function meshChunk(world, chunk) {
           for (const face of FACES) {
             const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
             if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
-            pushQuarryFace(opaque, glow, face, x, y, z, face.shade * j);
+            pushFace(quarry, face, x, y, z, WHITE, face.shade * j);
           }
           continue;
         }
@@ -391,7 +401,8 @@ export function meshChunk(world, chunk) {
           for (const face of FACES) {
             const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
             if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
-            pushPatternedFace(buf, face, x, y, z, id, face.shade * j);
+            pushFace(id === BLOCK.PLANKS ? planks : face.dir[1] ? woodEnds : woodSides,
+              face, x, y, z, WHITE, face.shade * j);
           }
           continue;
         }
@@ -406,5 +417,8 @@ export function meshChunk(world, chunk) {
   }
 
   return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), ore: toGeometry(ore),
-    glow: toGeometry(glow), goblin: toGeometry(goblin), bricks: toGeometry(bricks) };
+    glow: toGeometry(glow), goblin: toGeometry(goblin), bricks: toGeometry(bricks),
+    mossyBricks: toGeometry(mossyBricks), crackedBricks: toGeometry(crackedBricks),
+    planks: toGeometry(planks), woodSides: toGeometry(woodSides), woodEnds: toGeometry(woodEnds),
+    quarry: toGeometry(quarry) };
 }

@@ -52,6 +52,7 @@ const rareWeapons = (weight) => [ITEM.WIND_AXE, ITEM.ICE_SWORD].map((item) => ({
 const lootGear = (rareWeight) => [ropeBundles, ...uncommonGear, ...rareWeapons(rareWeight)];
 
 export const LOOT_TABLES = {
+  siegeGoblin: { rolls: [1, 2], entries: [...supplies, ...simpleGear, ...lootGear(1)] },
   looseChest: { rolls: [2, 3], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
   looseChestCentral: { rolls: [4, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
   tinyIsland: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(4), riftOrb, ...lootGear(1)] },

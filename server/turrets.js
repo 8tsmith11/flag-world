@@ -65,7 +65,7 @@ export class TurretController {
     const from = { x: turret.x + 0.5, y: turret.y + 1.6, z: turret.z + 0.5 };
     const s = target.state;
     const box = playerBoxOf(s);
-    const aim = { x: s.x, y: s.y + box.height * 0.6, z: s.z };
+    const aim = { x: s.x, y: s.y + (box.offsetY ?? 0) + box.height * 0.6, z: s.z };
     const dx = aim.x - from.x, dz = aim.z - from.z, dy = aim.y - from.y;
     const d = Math.hypot(dx, dz);
     if (d < 0.1) return null;

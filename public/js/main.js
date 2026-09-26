@@ -56,6 +56,10 @@ const SHAKE_AMOUNT = 0.12;
 const MODE = { PLAY: 'play', DEAD: 'dead', SPECTATE: 'spectate', ENDED: 'ended' };
 
 const overlay = document.getElementById('overlay');
+const poisonOverlay = document.createElement('div');
+poisonOverlay.id = 'poison-status'; poisonOverlay.hidden = true;
+poisonOverlay.innerHTML = '<span>☠ Poison</span><i></i><i></i><i></i><i></i><i></i>';
+document.body.appendChild(poisonOverlay);
 const status = document.getElementById('status');
 const deathScreen = document.getElementById('death');
 const deathCause = document.getElementById('death-cause');
@@ -230,6 +234,8 @@ input.onLockChange = (locked) => {
 // but browsers don't let Esc recapture the mouse, so it waits for a click.
 input.onKey = (code) => {
   if (code === 'KeyE' && mode === MODE.PLAY) openInventory('inventory', null);
+  if (mode === MODE.PLAY && player?.state.creative && ['KeyG','KeyT'].includes(code))
+    conn.send({type:C2S.CREATIVE_ACTION,action:code === 'KeyG' ? 'forceGoblinSiege' : 'raiseGoblinTier'});
 };
 
 // View distance slider on the click-to-play overlay.
@@ -470,6 +476,8 @@ conn.on(S2C.DAMAGE, (msg) => {
     shakeUntil = performance.now() + SHAKE_MS;
     health.set(msg.hp, self?.maxHp);
   } else {
+    const entity=entities.entities.get(msg.id);
+    if(entity?.info.type.startsWith('goblin'))sounds.goblinHurt(entity.info.type,entity.object.position,camera.position);
     entities.flash(msg.id);
     entities.setHp(msg.id, msg.hp);
   }
@@ -477,6 +485,8 @@ conn.on(S2C.DAMAGE, (msg) => {
 
 conn.on(S2C.CHAT, (msg) => feed.add(msg.text, msg.kind === 'event' ? 'event' : ''));
 conn.on(S2C.GOBLIN_STATUS, (msg) => goblinInspector.setStatus(msg));
+conn.on(S2C.GOBLIN_SIEGE_DECLARED, () => sounds.siegeDeclared());
+conn.on(S2C.SIEGE_EXPLOSION, (msg) => {goblinEffects.explosion(msg.x,msg.y,msg.z,msg.radius);sounds.explosion(msg,camera.position);});
 conn.on(S2C.GOBLIN_TOTEM_DESTROYED, (msg) => goblinEffects.totemBurst(msg.x, msg.y, msg.z));
 
 conn.on(S2C.DEATH, (msg) => {
@@ -493,6 +503,9 @@ conn.on(S2C.FLAG_EVENT, (msg) => {
   switch (msg.kind) {
     case FLAG_EVENT.TAKEN:
       if (mine) toast.show('Your flag has been taken!');
+      break;
+    case FLAG_EVENT.DROPPED:
+      if (mine) toast.show('Your flag has been dropped!');
       break;
     case FLAG_EVENT.RETURNED:
       flags.puff(msg.flag);
@@ -540,7 +553,7 @@ conn.on(S2C.CONTAINER_CLOSE, () => {
 });
 conn.on(S2C.FURNACE_LIT, (msg) => furnaceEffects?.setLit(msg.x, msg.y, msg.z, msg.lit));
 
-conn.on(S2C.BLOCK_CHANGE, (msg) => {
+function applyBlockChange(msg) {
   if (!world) return;
   if (msg.team !== undefined) {
     const door = isDoor(msg.id) ? doorState(msg.id) : doorState(world.getBlock(msg.x, msg.y, msg.z));
@@ -558,6 +571,10 @@ conn.on(S2C.BLOCK_CHANGE, (msg) => {
   if (oldId === BLOCK.QUARRY_STONE || msg.id === BLOCK.QUARRY_STONE) {
     quarryEffects?.changed(msg.x, msg.y, msg.z, msg.id);
   }
+}
+conn.on(S2C.BLOCK_CHANGE, applyBlockChange);
+conn.on(S2C.BLOCK_CHANGES, (msg) => {
+  for (const change of msg.changes) applyBlockChange(change);
 });
 
 conn.on(S2C.STATE, (msg) => {
@@ -572,6 +589,7 @@ conn.on(S2C.STATE, (msg) => {
       continue;
     }
     self = e;
+    poisonOverlay.hidden = !(e.poisonTicks > 0) || e.dead;
     health.set(e.hp, e.maxHp);
     inventoryScreen.setCreativeState({ flying: !!e.flying });
     if (mode === MODE.DEAD && !e.dead) leaveDeath(e);
