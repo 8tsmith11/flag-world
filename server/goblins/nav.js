@@ -9,14 +9,26 @@ export function straighten(path) {
     if (!i || i === path.length - 1) return true;
     const a = path[i - 1], b = path[i + 1];
     // Keep vertical, step-up/down, and ladder entry/exit points explicit.
-    return a.y !== p.y || b.y !== p.y || (p.x - a.x) * (b.z - p.z) !== (p.z - a.z) * (b.x - p.x);
-  }).map(p => ({ x: p.x, y: p.y, z: p.z }));
+    return p.ladder || a.ladder || b.ladder || a.y !== p.y || b.y !== p.y || (p.x - a.x) * (b.z - p.z) !== (p.z - a.z) * (b.x - p.x);
+  }).map((p, i, points) => {
+    const next = points[i + 1];
+    const previous = points[i - 1];
+    const landing = p.grounded && previous?.ladder && !previous.grounded
+      && p.y >= previous.y && (p.x !== previous.x || p.z !== previous.z);
+    const exitHeight = p.ladder && !p.grounded && next?.grounded && next.y >= p.y ? next.y : undefined;
+    return { x: p.x, y: p.y, z: p.z, ladder: p.ladder, grounded: p.grounded,
+      exitHeight: landing ? p.y : exitHeight };
+  });
 }
 export class GoblinNav {
   constructor(world) {
     this.world = world; this.plan = world.goblinPlan; this.caches = new Map();
     this.budget = C.nodeBudget; this.version = this.plan.outskirtsVersion;
     this.waypoints = new Map(); this.dirty = new Set();
+    this.reportLadders(this.plan.ladderProblems ?? []);
+  }
+  reportLadders(problems) {
+    for (const p of problems) console.warn(`Ladder has no valid top landing at ${nodeKey(p)}`);
   }
   beginTick() {
     this.budget = C.nodeBudget;
@@ -45,6 +57,7 @@ export class GoblinNav {
     // Coalesce edits until the next physics tick. Only this region and its
     // doorway cells refresh; edits outside all volumes invalidate nothing.
     const graph = makeGraph(this.world, a.volumes, this.plan.wallCells, this.plan.platformCells);
+    this.reportLadders(graph.ladderProblems);
     for (const k of a.nodes) {
       const old = this.plan.graph.get(k), n = graph.get(k);
       if (!n) { this.plan.graph.delete(k); continue; }
@@ -56,10 +69,10 @@ export class GoblinNav {
   fits(n, role) {
     return playerFitsAt(this.world, { x: n.x + 0.5, y: n.y, z: n.z + 0.5, box: boxOf(role) }, n.y);
   }
-  nearest(area, point, role = 'worker') {
+  nearest(area, point, role = 'worker', standing = true) {
     let best = null, d = Infinity;
     for (const k of area?.nodes ?? []) {
-      const n = this.plan.graph.get(k); if (!n || !this.fits(n, role)) continue;
+      const n = this.plan.graph.get(k); if (!n || standing && !n.grounded || !this.fits(n, role)) continue;
       const score = distance(n, point);
       if (score < d) { best = n; d = score; }
     }
@@ -116,6 +129,10 @@ export class GoblinNav {
     }
     const shaft = this.plan.fortress.shaft;
     for (let y = shaft.box.y0; y <= shaft.box.y1 + 1; y++) keys.add(nodeKey({ x: shaft.position.x, y, z: shaft.position.z }));
+    for (const k of [...keys]) {
+      const n = this.plan.graph.get(k);
+      if (n?.ladder) for (const e of n.edges) if (e.ladder) keys.add(e.to);
+    }
     const graph = new Map();
     for (const k of keys) {
       const n = this.plan.graph.get(k);
@@ -157,7 +174,7 @@ export class GoblinNav {
   route(start, destination, home, { ladders = true, role = 'worker', unlimited = false } = {}) {
     const goal = this.nearest(home, destination, role); if (!goal) return [];
     const origin = positionRegion(this.plan, start) ?? home;
-    const first = this.nearest(origin, { x: Math.floor(start.x), y: Math.round(start.y), z: Math.floor(start.z) }, role);
+    const first = this.nearest(origin, { x: Math.floor(start.x), y: Math.round(start.y), z: Math.floor(start.z) }, role, false);
     if (!first) return [];
     if (home.nodes.has(first.key)) {
       let start = first, end = goal, prefix = [], suffix = [];
@@ -172,7 +189,7 @@ export class GoblinNav {
       const path = [...prefix]; let k = start.key;
       while (k !== end.key) { k = field.next.get(k); if (!k) return []; path.push(this.plan.graph.get(k)); }
       path.push(...suffix);
-      return straighten(path);
+      return straighten([first, ...path]).slice(1);
     }
     const chain = this.chain(origin.id, home.id); if (!chain) return [];
     const allowed = new Set(chain.flatMap(id => [...this.area(id).nodes]));
@@ -184,7 +201,7 @@ export class GoblinNav {
       closed.add(k); if (!unlimited) this.budget--;
       if (k === goal.key) {
         const path = []; for (let n = k; n !== first.key; n = parent.get(n)) path.push(this.plan.graph.get(n));
-        return straighten(path.reverse());
+        return straighten([first, ...path.reverse()]).slice(1);
       }
       for (const e of this.plan.graph.get(k)?.edges ?? []) {
         const n = this.plan.graph.get(e.to);

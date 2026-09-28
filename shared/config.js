@@ -184,7 +184,7 @@ export const GORGE_SETTINGS = {
   caveMinHeight: 6, caveWalkWidth: 3, caveRoofMargin: 4, caveRockMargin: 5,
   caveFloorRise: 1, caveWallCurve: 0.5,
 };
-export const MOB_SEPARATION = { rangeScale: 1.5, strength: 2.8, minGap: 0.05,
+export const MOB_SEPARATION = { strength: 0.2,
   approachRadius: 2.5, gridSize: 6 };
 // A void or fall death is credited to whoever hit the player within this long before.
 export const KILL_CREDIT_TIME = 5;
@@ -254,7 +254,6 @@ export const COW_FLEE_SPEED = 0.85;
 export const COW_HERD_AREA = 20000;
 export const COW_HERD_SIZE = [3, 6];
 export const COW_PANIC_TIME = 5;
-export const COW_NAVIGATION = { clearance: 0.12, avoidAhead: 0.35, yieldTicks: 12 };
 export const COW_DROPS = { leather: [0, 2], beef: [1, 3] };
 
 // Dragons patrol above the island and dive to breathe fire at nearby players.
@@ -370,8 +369,7 @@ export const GOBLIN_GEN = {
 export const FORTRESS_TRAP = { cooldown: 2, speed: 24, damage: 2,
   poisonSeconds: 6, poisonInterval: 1, poisonDamage: 1, triggerHeight: 2 };
 export const MOB_NAVIGATION = { repathTicks: 20, maxNodes: 600, maxDrop: 3,
-  waypointReach: 0.3, targetVerticalRange: 64, collisionPasses: 3,
-  pushPerTick: 0.25 };
+  waypointReach: 0.3, targetVerticalRange: 64 };
 export const BLOCK_TEXTURE = { tileSize: 64, tileStride: 128, atlasColumns: 4 };
 
 // Baked voxel illumination. Runtime edits are bounded by maxLevel.

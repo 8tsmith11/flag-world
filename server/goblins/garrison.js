@@ -21,7 +21,7 @@ export class Garrison {
     area.slots.push(slot); this.slots.set(slot.id, slot); return slot;
   }
   loop(area) {
-    const nodes = [...area.nodes].map(k => this.plan.graph.get(k)).filter(Boolean);
+    const nodes = [...area.nodes].map(k => this.plan.graph.get(k)).filter(n => n?.grounded);
     if (!nodes.length) return [];
     const flat = nodes.filter(n => n.y === nodes[0].y), points = flat.length ? flat : nodes;
     const chosen = [points[0]];
@@ -52,6 +52,8 @@ export class Garrison {
     const s = this.plan.surface, f = this.plan.fortress;
     for (const area of areas) {
       area.slots = [];
+      area.interests = area.interests.map(p => this.nav.nearest(area, p)).filter(Boolean)
+        .map(n => ({ x: n.x, y: n.y, z: n.z }));
       const loop = this.loop(area), point = loop[0]; if (!point) continue;
       if (area.kind === 'outskirts') {
         for (let i = 0; i < C.patrolSoldiers; i++) this.add(area, 'soldier', 'patrol', loop[i % loop.length]);
@@ -149,7 +151,9 @@ export class Garrison {
         volumes.push({ x0: Math.floor(x) + dx, x1: Math.floor(x) + dx, z0: Math.floor(z) + dz, z1: Math.floor(z) + dz,
           y0: y - C.surfaceDepth, y1: y + C.structureHeadroom });
       }
-      const graph = makeGraph(this.game.world, volumes), group = components(graph).find(g => g.some(n => n.key === nodeKey({ x, y, z })));
+      const graph = makeGraph(this.game.world, volumes);
+      this.nav.reportLadders(graph.ladderProblems);
+      const group = components(graph).find(g => g.some(n => n.key === nodeKey({ x, y, z })));
       if (!group) return null;
       const nodes = new Set(group.map(n => n.key)), columns = new Set(group.map(n => cellKey(n.x, n.z)));
       home = { id: `eggHome:${this.game.nextId}`, kind: 'surface', creative: true, state: 'active', nodes, columns,

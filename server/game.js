@@ -2025,11 +2025,10 @@ export class Game {
 
     this.garrison.update(this.tick);
     const livingMobs = [...this.cows.values(), ...this.dragons.values(), ...this.mobs.values(), ...this.npcs.values()];
-    // Climbers aren't shoved off their walls.
     assignMobSteering(livingMobs);
     const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateRiftOrbs(), ...this.updateCows(), ...this.updateDragons(),
       ...this.updateMobs()];
-    for (const mob of resolveMobOverlaps(this.world, livingMobs.filter((mob) => !mob.dead && !mob.climbing))) {
+    for (const mob of resolveMobOverlaps(this.world, livingMobs)) {
       if (!movedItems.includes(mob)) movedItems.push(mob);
     }
 

@@ -19,6 +19,30 @@ export function makeGraph(world, volumes, wallCells = new Set(), platforms = new
     const p = { x: v.x0, y, z: v.z0 }, k = nodeKey(p);
     if (!nodes.has(k) && walkable(world, p)) nodes.set(k, { ...p, key: k, edges: [] });
   }
+  const wallBlocked = p => {
+    const wall = wallCells.get?.(cellKey(p.x, p.z));
+    return wall && p.y >= wall.y0 && p.y <= wall.y1 && !platforms.has(p.key);
+  };
+  // Include the hatch mouth and real landing even when a shaft volume ends
+  // at the last rung. These are circulation cells, not imaginary air goals.
+  for (const p of [...nodes.values()]) {
+    if (!isClimbable(world.getBlock(p.x, p.y, p.z))) continue;
+    const above = { ...p, y: p.y + 1, key: nodeKey({ ...p, y: p.y + 1 }), edges: [] };
+    if (!isClimbable(world.getBlock(above.x, above.y, above.z)) && walkable(world, above)) {
+      if (!nodes.has(above.key)) nodes.set(above.key, above);
+    }
+  }
+  for (const p of [...nodes.values()]) {
+    p.ladder = isClimbable(world.getBlock(p.x, p.y, p.z)) || isClimbable(world.getBlock(p.x, p.y - 1, p.z));
+    p.grounded = isSolid(world.getBlock(p.x, p.y - 1, p.z));
+    if (!p.ladder) continue;
+    for (const [dx, dz] of FACING_DIRS) {
+      const n = { x: p.x + dx, y: p.y, z: p.z + dz };
+      n.key = nodeKey(n);
+      if (!wallBlocked(n) && isSolid(world.getBlock(n.x, n.y - 1, n.z)) && walkable(world, n)
+        && !nodes.has(n.key)) nodes.set(n.key, { ...n, grounded: true, ladder: false, edges: [] });
+    }
+  }
   for (const p of nodes.values()) {
     const ladder = isClimbable(world.getBlock(p.x, p.y, p.z)) || isClimbable(world.getBlock(p.x, p.y - 1, p.z));
     if (ladder) for (const dy of [-1, 1]) {
@@ -30,18 +54,42 @@ export function makeGraph(world, volumes, wallCells = new Set(), platforms = new
       if (!n) continue;
       // Explicit shooting ledges may be entered from their inside ladder.
       // Every other edge onto/along a wall column is forbidden at every height.
-      if ([p, n].some(a => {
-        const wall = wallCells.get?.(cellKey(a.x, a.z));
-        return wall && a.y >= wall.y0 && a.y <= wall.y1 && !platforms.has(a.key);
-      })) continue;
+      if ([p, n].some(wallBlocked)) continue;
       if (dy === 1 && !playerFitsAt(world, { x: p.x + 0.5, z: p.z + 0.5, box: body }, p.y + 1)) continue;
       if (dy === -1 && !playerFitsAt(world, { x: n.x + 0.5, z: n.z + 0.5, box: body }, p.y)) continue;
-      p.edges.push({ to: n.key, cost: 1 + Math.abs(dy) * 0.5, ladder: false });
+      p.edges.push({ to: n.key, cost: 1 + Math.abs(dy) * 0.5, ladder: !!(p.ladder && !p.grounded || n.ladder && !n.grounded) });
       break;
     }
   }
+  validateLadderLandings(nodes);
   return nodes;
 }
+function validateLadderLandings(nodes) {
+  nodes.ladderProblems = [];
+  // A connected ladder run must have a supported exit at its upper end.
+  // Without one it is not a usable climb route in either direction.
+  const seen = new Set();
+  for (const first of nodes.values()) {
+    if (!first.ladder || seen.has(first.key)) continue;
+    const run = [first]; seen.add(first.key);
+    for (let i = 0; i < run.length; i++) for (const dy of [-1, 1]) {
+      const n = nodes.get(nodeKey({ ...run[i], y: run[i].y + dy }));
+      if (n?.ladder && !seen.has(n.key)) { seen.add(n.key); run.push(n); }
+    }
+    const top = run.reduce((a, b) => a.y > b.y ? a : b);
+    const landing = top.edges.some(e => {
+      const n = nodes.get(e.to);
+      return n?.grounded && (n.x !== top.x || n.z !== top.z) && n.y >= top.y;
+    });
+    if (landing) continue;
+    const problem = { x: top.x, y: top.y, z: top.z };
+    nodes.ladderProblems.push(problem);
+    const keys = new Set(run.map(n => n.key));
+    for (const n of run) n.edges = n.edges.filter(e => !e.ladder);
+    for (const n of nodes.values()) n.edges = n.edges.filter(e => !e.ladder || !keys.has(e.to));
+  }
+}
+
 export function components(graph, removed = new Set()) {
   const seen = new Set(removed), result = [];
   for (const first of graph.values()) {
@@ -259,6 +307,8 @@ export function computeAreas(world, plan) {
     const n = plan.graph.get(nodeKey(p)), down = plan.graph.get(nodeKey({ ...p, y: p.y - 1 }));
     if (n && down) { n.edges.push({ to: down.key, ladder: true, cost: C.ladderCost }); down.edges.push({ to: n.key, ladder: true, cost: C.ladderCost }); }
   }
+  validateLadderLandings(plan.graph);
+  plan.ladderProblems = plan.graph.ladderProblems;
   for (const a of plan.areas) for (const g of plan.gates.filter(g => g.areas.includes(a.id))) {
     for (const p of g.posts?.[a.id] ? [g.posts[a.id]] : g.cells) if (a.nodes.has(nodeKey(p))) a.interests.push({ x: p.x, y: p.y, z: p.z });
   }

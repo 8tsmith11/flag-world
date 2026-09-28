@@ -295,8 +295,10 @@ export function stepPlayer(state, input, world) {
   }
 
   if (onLadder) {
-    // No gravity on a ladder: climb, or hold still.
-    state.vy = climb * CLIMB_SPEED;
+    // Mob landing transitions get a takeoff impulse once their feet clear
+    // the rim. Player inputs omit climbExit and retain normal ladder motion.
+    state.vy = input.climbExit !== undefined && state.y >= input.climbExit
+      ? JUMP_VELOCITY : climb * CLIMB_SPEED;
   } else if (inWater) {
     state.vy -= GRAVITY * SWIM_GRAVITY_SCALE * TICK_DT;
     state.vy *= 0.8;
@@ -326,7 +328,7 @@ export function stepPlayer(state, input, world) {
   // Edge protection: crouching on the ground (not jumping), don't walk off
   // anything that would drop you more than CROUCH_MAX_DROP. Mobs set
   // state.edgeGuard to always have it.
-  if (state.edgeGuard && state.onGround) state.edgeFloorY = state.y;
+  if (state.edgeGuard && (state.onGround || onLadder)) state.edgeFloorY = state.y;
   const guard = state.edgeGuard || state.crouching && state.onGround && state.vy <= 0;
   moveBody(state, world, box, guard);
 
@@ -405,9 +407,12 @@ function hasFooting(world, box, x, y, z) {
 // Ground mobs retain their takeoff height while jumping or climbing. A body
 // overlapping the side of a cliff is not a safe landing spot.
 export function mobHasFooting(world, state, x = state.x, z = state.z) {
+  // A ladder is safe footing, including a hatch entered from its landing.
+  if (isOnLadder({ ...state, x, z }, world)) return true;
   const floor = Math.floor(state.onGround ? state.y : state.edgeFloorY ?? state.y);
   for (let y = floor; y >= floor - CROUCH_MAX_DROP - 1; y--) {
-    if (isSolid(world.getBlock(Math.floor(x), y, Math.floor(z)))) return true;
+    if (isSolid(world.getBlock(Math.floor(x), y, Math.floor(z)))
+      || isClimbable(climbableBlockAt(world, Math.floor(x), y, Math.floor(z)))) return true;
   }
   return false;
 }

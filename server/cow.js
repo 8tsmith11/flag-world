@@ -7,7 +7,7 @@
 // away from the attacker for COW_PANIC_TIME. Routes come from findPath.
 
 import {
-  TICK_RATE, COW_WIDTH, COW_HEIGHT, COW_HP, COW_WANDER_SPEED, COW_FLEE_SPEED, COW_NAVIGATION as NAV,
+  TICK_RATE, COW_WIDTH, COW_HEIGHT, COW_HP, COW_WANDER_SPEED, COW_FLEE_SPEED,
 } from '../shared/config.js';
 import { createPlayerState, stepPlayer, isInWater } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
@@ -62,7 +62,6 @@ export class Cow {
     this.wait = Math.floor(Math.random() * 3 * TICK_RATE);
     this.repath = 0;
     this.stuck = 0;
-    this.crowdedTicks = 0;
   }
 
   // Integer spot the cow stands on, for pathfinding.
@@ -72,10 +71,7 @@ export class Cow {
   }
 
   goTo(world, x, z, maxNodes) {
-    this.path = findPath(world, this.cell(), { x: Math.floor(x), z: Math.floor(z) }, { height: PATH_HEIGHT, halfWidth: COW_BOX.halfW, maxNodes,
-      allowed: (x,y,z) => ![...this.herd.cows].some(other => other !== this
-        && Math.abs(other.state.y - y) < COW_HEIGHT
-        && Math.hypot(other.state.x - x - 0.5, other.state.z - z - 0.5) < COW_WIDTH + NAV.clearance) });
+    this.path = findPath(world, this.cell(), { x: Math.floor(x), z: Math.floor(z) }, { height: PATH_HEIGHT, halfWidth: COW_BOX.halfW, maxNodes });
     this.stuck = 0;
   }
 
@@ -127,21 +123,6 @@ export class Cow {
         jump = next.y > Math.floor(s.y + 0.01) && s.onGround;
       }
     }
-    // Yield before two cows drive into the same waypoint. Replan around a
-    // occupied cell after a short staggered wait rather than pushing forever.
-    const ahead = forward > 0 && [...this.herd.cows].some(other => {
-      if (other === this || Math.abs(other.state.y - s.y) >= COW_HEIGHT) return false;
-      const dx = other.state.x - s.x, dz = other.state.z - s.z;
-      return Math.hypot(dx, dz) < COW_WIDTH + NAV.avoidAhead
-        && dx * -Math.sin(s.yaw) + dz * -Math.cos(s.yaw) > 0;
-    });
-    if (ahead) {
-      forward = 0; jump = false;
-      if (++this.crowdedTicks >= NAV.yieldTicks) {
-        this.path = []; this.wait = NAV.yieldTicks + this.id % NAV.yieldTicks;
-        this.repath = this.wait; this.crowdedTicks = 0;
-      }
-    } else this.crowdedTicks = 0;
     // Keep afloat in water.
     if (isInWater(s, world)) jump = true;
     const { x, z } = s;
