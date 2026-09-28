@@ -17,7 +17,9 @@ The server is in one of two phases (`PHASE` in `shared/protocol.js`):
    their name, team and ready flag with `lobbyUpdate`. The first member is the
    host; if the host leaves, the next oldest member becomes host. When every
    member is ready, the host sends `startMatch`. The server generates the world
-   from the seed, occupied team count and world size, and sends each member `welcome`.
+   from the seed, occupied team count and world size, sends `generation` percentage
+   updates during startup, and sends each member `welcome`. The browser builds
+   its copy in a module worker while showing a single “Generating world” progress bar.
 2. **Playing.** The match lasts until the server stops. A `hello` whose name
    matches a disconnected match player (ignoring case) takes over that player,
    keeping their position and inventory, and gets `welcome`. Any other
@@ -62,7 +64,6 @@ unique within the lobby (ignoring case).
 | `glideBlockedTicks` | int | Ticks left before a Void Eel bite permits gliding again; part of predicted movement state |
 | `flying` | bool | Creative flight active; part of predicted movement state |
 | `draw`     | number  | How far they've drawn a bow, 0..1 (0 when not drawing); drawn as the arm raising the bow and the string pulling back. With a crossbow in hand: how far it's loaded, 1 while loaded (the bolt shows on it) |
-| `poisonTicks` | int | Remaining poison duration in server ticks. A poison dart does 2 damage and applies 1 damage per second for 5 seconds. The local HUD shows a skull, green tint and motes. Repeated poison refreshes duration rather than stacking damage. |
 | `slowTicks` | int    | Ticks of Ice Sword frost slow left (40 on a hit); movement is 40% slower while above 0 and frost flakes are drawn around them. Part of predicted movement state |
 | `grapple`  | object \| null | While a grappling hook pulls: `{ hx, hy, hz }` where the hook caught and `{ x, y, z }` where their feet are headed; drawn as a rope to the hook. Part of predicted movement state |
 | `hookCooldown` | int | Ticks until their grappling hook can fire again (60 after each shot). Part of predicted movement state |
@@ -121,12 +122,11 @@ loot-only Wind Axe, Ice Sword, crossbow, Rope Bundle (stack size 8) and
 grappling hook. `287` Dragon Scale (dropped by dragons), `288` Silk (dropped by
 Crawlers, no use yet) and `289` Dragonscale Armor. Block `53` (anvil) is also
 its item.
-`290` is reserved after removal of the Flight Orb. `291`–`296` are Cow,
-Dragon, Crawler, Void Eel, Goblin Worker and Goblin King spawn eggs, and
-`297` is reserved; `298`–`299` are Goblin Soldier and Goblin Archer spawn eggs; their definitions live in
-`shared/mobEggs.js`. All egg types are creative-only to obtain, but anyone
-holding one can use it. Grass and dirt both drop dirt. Block `60` is Goblin
-Bricks (hardness 8, drops itself), the walls of the Goblin Fortress.
+`290` is reserved after removal of the Flight Orb. `291`–`294` are Cow,
+Dragon, Crawler and Void Eel spawn eggs; `295`–`299` and `301`–`304` are unused.
+Active egg definitions live in `shared/mobEggs.js`. All egg types are
+creative-only to obtain, but anyone holding one can use it. Grass and dirt
+both drop dirt. Block ids `59`–`61` and `79`–`82` are unused.
 Buckets, armor, accessories, gliders, hammers, swords, bows, crossbows, Wind
 Axes and grappling hooks have stack size 1;
 ordinary items stack to 64. What held tools do is in `shared/tools.js`.
@@ -162,7 +162,7 @@ Clients interpolate it and point the model along the velocity.
 | `vx`,`vy`,`vz` | number | Velocity (blocks/s) |
 
 **CowSnapshot** — a cow at one server tick. Sent in `entitySpawn` / `welcome`,
-then in `state` only on ticks it moved.
+then as changed snapshots at the viewer's distance cadence (`u`).
 
 | Field      | Type   | Notes |
 |------------|--------|-------|
@@ -172,7 +172,7 @@ then in `state` only on ticks it moved.
 | `yaw`      | number | Facing (0 looks toward -Z, like players) |
 
 **CrawlerSnapshot** — a Crawler. Sent in `entitySpawn` / `welcome`, then in
-`state` only on ticks it moved.
+`state` as changed snapshots at the viewer's distance cadence (`u`).
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -183,38 +183,8 @@ then in `state` only on ticks it moved.
 | `yaw` | number | Facing (0 looks toward -Z) |
 | `climbing` | bool | Climbing a wall (drawn tipped up it) |
 
-**GoblinSnapshot** — a Goblin Worker, Soldier, Archer, Hound, Brute or King. Full snapshots are sent in `entitySpawn` / `welcome` (with `maxHp`).
-Compact snapshots in `state` contain only `id`, `x`, `y`, `z`, `yaw`, `hp`
-and `a`. Positions are rounded to 1/16 block, yaw to 1/256 radian, and
-clients interpolate between snapshots. `a` is an animation bitfield:
-1 walking, 2 climbing, 4 working, 8 aiming, 16 crouching and 32 gliding.
-`aboard` hides balloon cargo while it is in the basket; the pilot remains visible.
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | int | Entity id |
-| `type` | string | `"goblinWorker"`, `"goblinSoldier"`, `"goblinArcher"`, `"goblinHound"`, `"goblinBrute"` or `"goblinKing"` |
-| `name` | string | `"Goblin Worker"` etc., used in the event feed |
-| `x`,`y`,`z` | number | Feet position (boxes: worker 0.6 × 1.2, soldier 0.7 × 1.3, archer 0.6 × 1.25, King 1.1 × 2.6) |
-| `yaw` | number | Facing (0 looks toward -Z) |
-| `hp` | number | Health (`maxHp` in `entitySpawn` / `welcome`) |
-| `walking`, `climbing` | bool | Walking; on a ladder |
-| `mining` | bool | Swinging its tool at a block (digging, chopping, building, clearing its way) |
-| `aiming` | bool | Archer only: bow up at a target |
-
-**GoblinTotemSnapshot** — the Goblin Totem. Sent in `welcome` / `entitySpawn`
-(with `maxHp`), then in `state` on ticks its HP changes (whole HP).
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | int | Entity id |
-| `type` | string | `"goblinTotem"` |
-| `name` | string | `"Goblin Totem"` |
-| `x`,`y`,`z` | number | Base, in the middle of the Totem Hall's floor (box 1.6 × 4.2) |
-| `hp` | number | Health, 0..400; clients show a bar over it while below `maxHp` |
-
-**VoidEelSnapshot** — a Void Eel's head. Sent in `welcome` and in every
-`state` tick. Clients draw its body trailing along the path the head swam.
+**VoidEelSnapshot** — a Void Eel's head. Sent in `welcome` and as changed
+`state` snapshots at distance cadence. Clients draw its body trailing along the path the head swam.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -226,6 +196,22 @@ clients interpolate between snapshots. `a` is an animation bitfield:
 | `coiling`,`lunging` | bool | One-second bite warning and fast strike animation |
 | `night` | bool | Faint night glow |
 | `tail` | `{x,y,z}` | Tail-tip weak point; melee and projectiles deal double damage there |
+
+**NpcSnapshot** — a Wise Monkey or Ancient Monkey (kinds in `shared/npcs.js`).
+Sent in `welcome` (they exist from match start), then as changed `state`
+snapshots at distance cadence.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | Entity id |
+| `type` | string | `"npc"` |
+| `npc` | string | `"wiseMonkey"`, `"ancientWaterMonkey"` or `"ancientLightningMonkey"` |
+| `name` | string | `"Wise Blue Monkey"`, `"Ancient Water Monkey"`, ... |
+| `team` | int \| null | A Wise Monkey's team (`TEAMS` index; its fur color), else `null` |
+| `x`,`y`,`z` | number | Feet (seat) position; box from `NPC_DEFS[npc].box` |
+| `yaw` | number | Body facing (0 looks toward -Z) |
+| `pose` | string | `"sit"`, `"stand"` (chest beat), `"walk"` or `"look"` (looking around) |
+| `look` | number | Head turn toward the nearest player, relative to `yaw` (radians) |
 
 **RiftOrbSnapshot** — a thrown Rift Orb in flight. Sent in `entitySpawn` and
 each `state` tick until it lands or falls into the void.
@@ -269,8 +255,8 @@ promptly for every player.
 | Field       | Type        | Notes |
 |-------------|-------------|-------|
 | `id`        | int         | Team flag id |
-| `state`     | string      | `"home"`, `"carried"`, `"dropped"`, `"held"` or `"captured"` (`FLAG_STATE`) |
-| `carrierId` | int \| null | Player or goblin carrying it |
+| `state`     | string      | `"home"`, `"carried"`, `"dropped"` or `"captured"` (`FLAG_STATE`) |
+| `carrierId` | int \| null | Player carrying it |
 | `x`,`y`,`z` | number      | Base of the pole: the pedestal when home, the carrier's feet when carried |
 
 **FlagInfo** — FlagState plus:
@@ -384,7 +370,7 @@ leather armor (3 leather), iron armor (10 iron ingots), a glider
 (3 leather and 2 wood), an anvil (6 iron ingots) and Dragonscale Armor (8
 Dragon Scales). Crafted items have no modifiers. Furnaces smelt raw beef into cooked beef in 5 s.
 While creative mode is enabled, `creative:<itemId>` recipes provide every
-canonical block and non-block item for one dirt each, without a station or
+canonical block and non-block item for free, without a station or
 modifiers. The server rejects those recipe ids for other players.
 
 ### `creativeToggle`
@@ -396,20 +382,22 @@ The server responds only to that connection with `creative`.
 ### `creativeAction`
 
 `{action}` from the local creative host during a match. Accepted actions are
-`"teleportTotem"` (to an open spot in the Totem Hall while the totem exists),
-`"setDay"` (noon), `"setNight"` (midnight), `"toggleImmortal"`, and
-`"toggleFlight"`, `"forceGoblinSiege"`, `"raiseGoblinTier"`, and `"maxGoblinBase"`.
-Force siege (G) ignores wood, but still requires a live Totem, open entrance,
-home flag target, and no active siege. Raise tier (T) increments the permanent
-minimum tier, capped at 4; existing home units keep their type until death.
-The last action accelerates the timed
-economy and applies its plans even with players nearby until the module,
-dwelling and tree-plot caps, both shafts, relocation, Castle, interior sections,
-and outer wall are built. The creative boost bypasses dwelling wood costs. Block batches
-reach connected clients immediately; reloading is unnecessary.
+`"setDay"` (noon), `"setNight"` (midnight), `"toggleImmortal"`,
+`"toggleFlight"`, `"toggleInvisible"` and `"captureLobby"`. Invisibility is a server player
+flag consumed by mob and turret targeting.
 The server replies with `creative`; time changes also broadcast `dayTime`.
 Immortality prevents damage and returns a player who falls into the void to
 their keep.
+
+### `talk`
+
+Right click on an NPC. The server answers with `speak`, to this player only,
+if the NPC is alive and within 6 blocks of the eyes (`NPC.talkReach`), at most
+once per `NPC.talkCooldown`.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | NPC entity id |
 
 ### `reclaim`
 
@@ -422,7 +410,7 @@ Match-in-progress screen only. Takes over a disconnected match player; gets
 
 ### `input`
 
-Match players only. Sent once per simulation tick (20/s). Each input advances the player by exactly one tick.
+Match players only. Sent once per simulation tick (20 per wall-clock second). Each input advances the player by exactly one fixed tick.
 
 | Field     | Type   | Notes |
 |-----------|--------|-------|
@@ -569,7 +557,7 @@ a 1.2 s cooldown. It coils and glows for 1 s with a hiss, then lunges. A bite
 stops gliding for 1.5 s. Its faintly glowing tail tip takes double damage.
 At night it glows faintly and rises 30% faster. A dead eel drops 1–2 Rift Orbs.
 
-Provocation: any damage from a player to a Crawler, Void Eel, dragon, Goblin King, Soldier or Archer (a
+Provocation: any damage from a player to a Crawler, Void Eel or dragon (a
 punch, arrow, crossbow bolt or Thorns, at any range) provokes it. It hunts that
 player, ignoring its aggro range, leash and home zone, until the player dies,
 disconnects or is eliminated, or it has had no line of sight to them for 10 s.
@@ -661,6 +649,21 @@ A request was refused. Clients show it on the current screen.
 |-----------|--------|
 | `message` | string |
 
+### `generation`
+
+Sent to lobby members as the host's world is generated, before `welcome`.
+Generation failure sends `error` and returns members to the lobby.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `percent` | number | Monotonically increasing progress from 0 to 100; no stage names or generation details |
+
+### `captureLobby`
+
+Sent only to the authorized local creative host after `creativeAction` with
+`{action: "captureLobby"}`. No fields. The client renders the current world view
+and downloads `lobby.png`; replace `public/img/lobby.png` with that file to use it.
+
 ### `welcome`
 
 You are in the match: sent to every member when the host starts it, and on a
@@ -677,8 +680,8 @@ reclaim.
 | `tick`    | int           | Current server tick |
 | `dayTime` | number        | Time of day at `tick`, 0..1 (see **Day and night**). Clients advance it with the ticks in `state` |
 | `creative` | bool | Whether this connection's player has creative mode active |
-| `immortal`,`flying`,`totemExists` | bool | Creative control state and whether Totem teleport is available |
-| `blocks`  | BlockChange[] | Every block changed since generation; apply after `generateWorld` |
+| `immortal`,`flying`,`invisible` | bool | Creative control state |
+| `blocks`  | BlockChange[] | Every edit since generation; apply after world generation |
 | `doorTeams` | `{key,team}[]` | Reinforced door ownership by lower-half block coordinate key |
 | `turrets` | `{x,y,z,id,team,yaw,pitch}[]` | Current turret bases and head angles |
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
@@ -688,18 +691,19 @@ reclaim.
 | `winnerId`| int \| null   | Set if the match is already over |
 | `winnerTeam` | int \| null | Winning team index, if over |
 | `winnerMembers` | string[] | Names on the winning team, if over |
-| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | Dropped items, projectiles and mobs currently in the world; goblins are included only within their configured network range of this player |
+| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | Dropped items, projectiles and mobs currently in the world |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
 
-Sent to each connected player every server tick (20/s). Goblin updates are
-included only for bodies within their configured network range.
+Sent to each connected player once per simulation tick (20/s). Changed mob
+snapshots are sent every 1, 3 or 6 ticks for distances below 64, below 160,
+or at least 160 blocks. Final stopped positions are retained until sent.
 
 | Field      | Type             | Notes |
 |------------|------------------|-------|
 | `tick`     | int              | Server tick number |
-| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot \| GoblinTotemSnapshot)[] | All players, dragons and Void Eels, plus only the items, projectiles, cows, Crawlers and goblins that moved (or changed, see their snapshots) this tick. One not listed stays where it was |
+| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | All players; moved items/projectiles; changed mob snapshots at each viewer’s distance cadence. Final stopped positions are retained until sent. `u` is that mob’s interval in ticks (1/3/6). An omitted entity retains its last state |
 | `flags`    | FlagState[] | Every flag |
 | `turrets` | `{x,y,z,id,team,yaw,pitch}[]` | Current turret bases and head angles |
 
@@ -723,18 +727,18 @@ player who caused it.
 
 ### `blockChanges`
 
-The server batches all changes from a tick into one message before `state`:
+The server batches block changes from a simulation tick before `state`:
 `{ type: "blockChanges", changes: [{x,y,z,id,team?}, ...] }`. Each entry has
 the same fields and meaning as `blockChange`. Repeated changes to a block in
-the same tick are coalesced to its final state. Clients still accept the
+the same batch are coalesced to its final state. Clients still accept the
 single-change form.
 
 ### `creative`
 
 Sent only to the localhost player after an accepted `creativeToggle` or
-`creativeAction`: `{enabled, immortal, flying, totemExists}`. The flags update
+`creativeAction`: `{enabled, immortal, flying, invisible}`. The flags update
 the private Creative Mode label, controls and crafting catalogue. Turning
-creative mode off disables flight and immortality while keeping acquired items.
+creative mode off disables flight, immortality and invisibility, and keeps acquired items.
 
 ### `dayTime`
 
@@ -751,18 +755,16 @@ cells are skipped, while dropped items are moved to nearby air.
 ### `entitySpawn`
 
 A non-player entity appeared: a block drop, a thrown item, an arrow, or a mob.
-Goblin spawns are sent only to players within range. Crossing out of range
-sends `entityDespawn`; crossing back sends `entitySpawn` with current HP and state.
 
 | Field    | Type     |
 |----------|----------|
-| `entity` | ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| GoblinSnapshot |
+| `entity` | ItemInfo \| ArrowSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| NpcSnapshot |
 
 ### `entityDespawn`
 
 A non-player entity was removed: an item was picked up (all of it) or reached
 its 5 minute lifetime; an arrow hit something, had its block broken, stayed
-stuck for 10 s, or fell below `world.voidY`; or a cow or dragon died. Cows also
+stuck for 10 s, or fell below `world.voidY`; or a cow, dragon or Wise Monkey died. Cows also
 despawn if they fall into the void.
 
 | Field | Type | Notes |
@@ -787,59 +789,32 @@ passes. Whatever doesn't fit stays on the ground.
 
 ### `swing`
 
-Another player swung their arm (punch, mining, or placing a block), a Goblin
-King or Soldier struck, or a Goblin Archer loosed an arrow. Not sent to the
-player who swung; their own first-person arm animates locally.
+Another player swung their arm (punch, mining, or placing a block). Not sent to
+the player who swung; their own first-person arm animates locally.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `id`  | int  | Player (or goblin) who swung |
+| `id`  | int  | Player who swung |
 
-### `chat`
+### `speak`
 
-A line for everyone's event feed: shaft breakthrough, Totem destruction,
-and siege launch ("A goblin siege is underway").
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `text` | string | The line |
-| `kind` | string | `"event"` (drawn as a highlighted world event) |
-
-### `goblinStatus`
-
-Sent once a second, only to players in creative mode: the Goblin Fortress's
-state, which their client shows while they look at the Goblin Totem.
+An NPC's answer to your `talk`, sent only to you. Clients show a subtitle
+at the bottom center (`name:` on one line, `text` below), fading after a time
+based on its length (`DIALOGUE`), and voice it by `VOICES[voice]`
+(`shared/dialogue.js`): `"speech"` voices are spoken with the browser's speech
+synthesis (master x voice volume); `"sound"` voices play `sound` at the NPC.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `totemId` | int \| null | The Totem's entity id |
-| `totemAlive` | bool | |
-| `project` | object \| null | The work in hand (repairs first): `{ kind, label, progress (0..1), done, total }`; `kind` includes `repairs`, `shaft`, `gatehouse`, `module`, `dwelling`, `plot`, `wall`, `castle` and `relocationPlug` |
-| `nextProjectIn` | int | Always 0; projects start back to back |
-| `population` | object | Colony goblins alive by type (`goblinWorker`, `goblinSoldier`, `goblinArcher`, `goblinHound`, `goblinBrute`); excludes siege armies |
-| `total`, `capacity`, `hardCap` | int | Colony size, current capacity, and the world size's hard cap |
-| `modules`, `moduleCap` | int | Brick modules and their cap |
-| `dwellings`, `dwellingCap` | int | Standing surface dwellings and their cap |
-| `plots` | int | Tree plots |
-| `walls`, `outerWall` | int, bool | Number of finished wall projects and whether the final outer wall is built |
-| `entrances` | `{ width, gatehouse, sealed }[]` | Surface entrance width, gatehouse state and whether its shaft is plugged |
-| `relocation` | string | `pending`, `digging`, `new entrance` or `complete` |
-| `castle` | bool | Whether the castle over the plugged entrance is complete |
-| `slots` | object[] | Per goblin `{slot,id,role,assignment,hp,activity,x,y,z,spawned}` |
-| `spawnedEntities` | int | Colony goblin bodies currently present in the entity map |
-| `tier` | int | Current progression tier, 1–4 |
-| `siege` | object | `{phase,target,bridgePlan,reserved,needed,wood,budget,remaining,spawned,progress,secondsRemaining,machines}`. `phase`: `idle`, `reserving wood`, `approach`, `assault`; target is a team or null. Bridge plan: `new`, `reuse`, `abandoned` or null. Wood is measured in plank equivalents; needed includes the 20% margin. Budget maps roles/types to total counts; remaining is the unspawned queue. Machines: `{id,type,hp,phase,cargo,bombs,crew}`. |
-| `offscreen` | bool | Goblins are in offscreen (estimated) mode |
-
-### `goblinTotemDestroyed`
-
-`{x, y, z}`: the Goblin Totem at that base broke apart. Clients play a big
-particle burst; its `entityDespawn`, loot (`entitySpawn`s) and `chat` line
-arrive separately.
+| `id` | int | Speaking NPC (for positional sound and its jaw) |
+| `name` | string | Speaker name shown in the subtitle |
+| `voice` | string | `"wiseMonkey"` or `"ancientMonkey"` |
+| `text` | string | The line, or a description such as `*a low grunt*` |
+| `sound` | string? | Sound-only voices: `"grunt"`, `"huff"` or `"rumble"` (`MONKEY_SOUNDS`) |
 
 ### `damage`
 
-A player, cow, dragon, Crawler, Void Eel or goblin (the Totem included) took damage (a punch, an arrow, a bite, fire, Thorns or a fall). Broadcast to every
+A player, cow, dragon, Crawler, Void Eel or Wise Monkey took damage (a punch, an arrow, a bite, fire, Thorns or a fall). Broadcast to every
 match player. Clients flash the
 target red, or shake the screen if they are the target.
 
@@ -847,7 +822,7 @@ target red, or shake the screen if they are the target.
 |--------------|------|-------|
 | `id`         | int  | Entity hit |
 | `attackerId` | int \| null | Player or mob who hit them; `null` for fall damage |
-| `hp`         | number | Their HP after the hit (clients use it for the Totem's health bar) |
+| `hp`         | number | Their HP after the hit |
 
 ### `death`
 
@@ -1066,7 +1041,7 @@ Leaves without a path to wood through at most six adjacent leaves decay and
 are sent as ordinary `blockChange` messages. Each decayed leaf has a 4%
 chance to drop a sapling, and breaking leaves drops one 10% of the time
 (`SAPLING_DROP_CHANCE`). The server schedules planted saplings to grow in
-3–5 minutes (`SAPLING_GROW_TIME`; goblin plot saplings on the goblin clock),
+3–5 minutes (`SAPLING_GROW_TIME`),
 sending the resulting tree as `blockChange` messages.
 
 ## Tiny islands
@@ -1147,373 +1122,64 @@ a double-click on the Flag World title, then clicks in the top-left, top-right,
 bottom-right and bottom-left screen quadrants within 3 s. The server confirms
 the toggle with `creative`; only that client shows the Creative Mode label.
 Clicking the label while the pointer is unlocked turns creative off. Creative
-mode gives access to the one-dirt catalogue and retains inventory on death.
-Its inventory controls teleport to the Goblin Totem, set noon or midnight,
-toggle immortality and flight, and instantly max the Goblin base by granting
-10,000 of each material and accelerating construction. Double-tapping jump also toggles flight
+mode gives access to the free catalogue and retains inventory on death.
+Its inventory controls set noon or midnight and toggle immortality, invisibility
+and flight. Inventory recipes cost nothing. Double-tapping jump also toggles flight
 while creative. Jump rises, crouch descends, horizontal flight is twice
 walking speed, and flight has no gravity or fall damage. Acquired items remain
 when creative is turned off.
 
-Spawn eggs exist for Cow, Dragon, Crawler, Void Eel, Goblin Worker,
-Soldier, Archer, Hound, Brute, Goblin King, Catapult and Balloon. Right-clicking a solid block with one spawns
-its normal mob on top and consumes the egg. Cow, Dragon and Crawler use the
-spawn position as home or leash center; a Void Eel uses the nearest island. A
-Goblin Worker, Soldier or Archer hatched inside the Goblin Fortress
-joins the colony (and counts toward its population); outside it, it's a
-stray: Workers potter about where they hatched and flee when attacked,
-Soldiers and Archers guard around it. A Goblin King
-hatched in the Totem Hall guards it; anywhere else it guards a 16-block square
-around where it hatched. Anyone holding an egg can use it.
-
-## Goblin Fortress
-
-World gen builds one Goblin Fortress deep inside the central island
-(`shared/goblinFortressGen.js`), from modules on a 3D grid of cells
-(`shared/goblinModules.js`; tuning in `shared/goblins.js`). A cell is 7 × 6 × 7
-blocks with its own Goblin Brick walls, floor and ceiling; neighbouring modules
-connect through 2-wide, 3-tall doorways cut through both walls, or, between
-ladder shafts, a ladder through the floor and ceiling. Module types: room,
-hallway, corner, T and cross junctions, ladder shaft, Bunk Room and the Totem
-Hall (2 × 2 cells, 2 levels tall). The starting fortress contains only the
-Totem Hall. Its totem faces the first planned expansion toward the surface
-shaft. It stands at a seeded
-angle and 30–62% of the radius from the island's center, at least 30% out,
-with natural stone at least 3 blocks under, 5 over and 3 beside it, 10 blocks
-above the deepest spot that fits (room to grow below). The central island's
-underside tapers smoothly with occasional roots; where the
-island is still too thin, its underside is deepened under the fortress. Caves
-and structures keep clear of it. The graph (modules, connections and the
-points goblins walk through) is `world.goblinFortress`; later phases add
-modules at runtime with `addModule` + `connectModules` / `autoConnect`, whose
-blocks arrive as `blockChange`.
-
-The Goblin Totem stands in the middle of the Totem Hall: 400 HP, hurt only by
-players' melee and arrows/bolts, back to full at 4 HP/s after 30 s without
-damage. Goblin construction uses timed plans. A wood counter gates siege launches and surface dwellings. Destroyed, it
-bursts (`goblinTotemDestroyed`), drops a `goblinTotem` loot pile, is announced
-(`chat`), and goblins stop spawning and stop starting or working on projects
-for the rest of the match; the goblins alive carry on otherwise.
-
-The Goblin King (80 HP) can walk between chambers on the Totem Hall's ground
-level, attacks players there (7 damage, strong knockback, every 1.5 s), and
-never climbs ladders. It drops
-`goblinKing` loot and doesn't respawn.
-
-All goblin numbers are in `shared/goblins.js` (`GOBLINS`); `goblinTimeScale`
-(default 1, or `GOBLIN_TIME_SCALE` in the server's environment) speeds up
-every goblin timer (project pacing, spawning, digging, placing, chopping,
-waits, plot tree growth), though not walking.
-
-### The colony
-
-A match starts with a Worker in slot 1, Soldiers in slots 2 and 3, the King,
-and the Totem. Construction and replanting are timed actions. Chopping supplies a configurable yield of plank equivalents to the siege wood counter.
-
-- **Workers** (10 HP) dig and build every project, repair damaged structures,
-  chop trees within 15 blocks of settlement entrances/buildings/walls and replant only in tree plots. Workers ignore nearby players while working and
-  flee only after being attacked; they return to work when safe.
-- Workers break obstacles, including player blocks, at the configured break
-  speed (about 1.5 times slower than before). They never break keeps or the
-  totem. They remove all blocks from a new module cell before placing its
-  Goblin Brick floor, walls and ceiling; hallway and ladder modules toward
-  the exit take priority so they dig their own route out.
-- **Soldiers** (16 HP, about 1.15 times player walking speed) carry a crude sword and a small shield:
-  4 damage every 1 s. **Archers** (10 HP) shoot server-simulated arrows (3
-  damage, range 20, every 1.5 s) and back away from players within 5 blocks.
-  Archers hold Lookouts or wall posts when available and move to the post edge
-  nearest a target before shooting; otherwise they patrol with soldiers.
-  A configurable share of Soldiers patrol the surface once it opens; the
-  rest stay in the fortress until an invasion or a surface goblin is attacked.
-  They respond through the shaft and return after 60 seconds without an
-  attack. Both guard types attack players within
-  12 (Soldiers) / 20 (Archers) blocks that they can see, give up a chase 25
-  blocks from their patrol spot, and are provoked like other mobs (ignoring
-  that limit). When a player enters any fortress module, all soldiers and
-  archers converge on the intruder, leaving posts. They resume ordinary
-  duty after 30 seconds without an intruder. Goblin arrows only hit players.
-- Goblins going up to the surface gather at the bottom of the shaft and climb
-  together once 3–5 have gathered (or after 8 s), soldiers first, half a
-  second apart.
-
-**Population:** capacity is 3 (the Totem Hall) plus 2 per underground Bunk
-Room plus standing dwellings' capacity, capped at 25 / 40 / 60 (Small /
-Medium / Large). Spawns and respawns are free while the totem lives and
-follow the spawn timer. Every goblin occupies a fixed-number slot; the next
-spawn fills the lowest open slot within capacity. Slot 1 is Worker, 2–4
-Soldier, 5 Archer, 6 Worker, then the repeating Soldier, Soldier, Archer,
-Soldier, Worker pattern. The pattern resets each match.
-
-### Projects
-
-Goblins work through one project at a time (lists of dig and place tasks for
-Workers). Projects run back to back. Repairs always go first. Otherwise,
-by priority:
-
-1. **Repairs.** A block change inside a goblin structure footprint marks that
-   structure damaged. Workers compare marked structures to their templates
-   and rebuild only differences, then clear the damage mark.
-2. **Surface shaft** (the first project): a shaft base module beside the
-   fortress (on its top level when possible) and a ladder column from it up
-   to the central island's surface, emerging at a seeded spot clear of keeps,
-   structures and rivers, on the most level, solid, low ground available.
-   Workers dig it, add ladders and line every side with Goblin Bricks,
-   including 1 × 1 shafts. The moment
-   it breaks through to the sky, `chat` announces it.
-3. **Shaft gatehouse**, right after: a Goblin Brick house around the shaft's
-   top (ladders on its back wall, a doorway in front, a path cleared out of
-   the door).
-4. **Tree plot** (at most 1 / 1 / 2) after the fifth dwelling: a 13 × 13
-   flattened, plank-bordered plot near an entrance with a 3 × 3 grid of saplings 4
-   apart. Workers chop whole trees for wood and replant only plot saplings. Natural
-   trees have no harvest-count limit. A siege reservation can bring plot
-   construction forward so exhausted nearby trees cannot deadlock the economy.
-5. **Entrance relocation**, once the surface base has several buildings and
-   the fortress has expanded: a distant module connects to a new 3 × 3 lined
-   shaft, ladders and gatehouse. After it is complete, workers fill the
-   entire old shaft with Goblin Bricks and remove its gatehouse. An all-brick
-   Goblin Castle (+6 capacity, with an archer battlement) then rises over the
-   plugged entrance. The new shaft has three ladder columns. This does
-   not send a chat announcement.
-6. **Wall sections** begin after at least eight surface dwellings. Three-block
-   Goblin Brick walls enclose groups of at least four dwellings, with gates and
-   ladder-accessible archer posts. At the dwelling cap, a final outer wall
-   encloses the base.
-7. Alternating **fortress modules** and **surface dwellings**; when one is capped or has
-   nowhere to go, the other.
-
-A new **module** goes on a free cell next to an existing one, chosen for
-staying on the ring around the island's center the fortress started on and
-for wrapping around it (so it slowly becomes a torus), with some randomness;
-now and then it grows up a ladder shaft above a room. Types: room, hallway,
-corner, T / cross junction, ladder shaft and **Bunk Room** (a room with three
-bunks, +2 capacity; favoured when goblins need room). Never within 30% of the
-island's radius from its center, never through the island's underside, never
-over structures, rivers, keeps or goblin buildings. A module may rise out of
-the ground (then it stands as a brick building on the surface), or, at the
-island's edge, a sealed room at the end of a hallway may poke out of the cliff
-(nothing grows past it). Its whole shell is Goblin Bricks: where it passes
-through caves or open air, Workers brick up every open cell of its walls,
-floor and ceiling. Brick modules are capped at 40 / 48 / 100.
-
-**Surface dwellings** stand near an entrance, outside the inner 35% of the
-central island's radius, on level, solid
-ground (flattened and filled underneath), doors facing the entrance: Hut (+2
-capacity), Longhouse (+4) and Lookout (+1; a raised platform with a ladder,
-where an Archer stands guard). Capped at 18 / 22 / 36 independently from the
-brick module cap. Before construction, workers clear and flatten the full
-footprint plus a three-block margin, removing whole trees where needed.
-Players can break them;
-one that loses 30% of its blocks stops counting and may be rebuilt later as a
-normal project. Nearby doorway routes are reserved so later buildings do not block them.
-
-### Offscreen mode
-
-When no player is within 180 blocks of the fortress, the entrances, the
-surface buildings, the active site and every colony goblin, goblins stop
-moving and their work advances at estimated rates instead: every 2 s, each
-Worker gets an estimated work budget, spent on the same dig and place tasks (cost: the
-block's break or place time, plus its share of the trips between the totem
-and the site). Changes are applied to the world directly in batches (as
-`blockChanges`), spawning continues as usual, and colony goblins are placed
-at plausible spots for their work in the simulation. Their bodies and the
-King leave the entity map with `entityDespawn`; on return they materialize
-with `entitySpawn`. The Totem remains an entity. When a player comes
-within range, full simulation resumes from there. Idle goblins inside the
-fortress are skipped until a player enters; moving and working goblins keep
-simulating. AI work is staggered and distant goblins update less often. The
-creative max-base action forces accelerated offscreen
-construction even while players are nearby.
-
-## Day and night
-
-A full day is `DAY_LENGTH` (24 minutes: 12 of day, 12 of night) of server
-ticks. Time of day is a fraction: 0 sunrise, 0.25 noon, 0.5 sunset, 0.75
-midnight; a match starts at `DAY_START` (0.04, early morning). The server
-sends it as `dayTime` in `welcome`; clients count on from the ticks in
-`state`. It's purely visual: the sun and moon cross the sky, the sky and fog
-color move through dawn, day, dusk and night, stars come out, lights dim to a
-blue moonlight (never pitch black) and fog draws in to 75% of the view
-distance at night. The creative inventory can switch directly to noon or midnight.
-
-Goblin construction uses the same timed economy with or without bodies. Surface
-plans apply progressively while watched, in batches otherwise. Underground
-modules and shafts finish their timers independently, then wait until no connected
-player is inside the fortress or within 16 blocks of their planned changes.
-Fortress bodies linger for 30 seconds after the last interior viewer leaves.
-Surface bodies normally exist within 80 blocks; visible silhouettes are retained
-out to the networking radius to avoid disappearing during distant combat.
+Spawn eggs exist for Cow, Dragon, Crawler and Void Eel. Air is excluded
+from the catalogue. Right-clicking a solid block with one spawns the mob and
+consumes the egg. Anyone holding an available egg can use it.
 
 
-### Goblin siege entities and flags
+Goblin village/fortress generation uses the same deterministic seed, team count
+and world size as other worldgen. Structure plans and entrance stages are kept
+on the server and do not have a message. Hidden fortress shooters emit ordinary
+`arrow` entities through `entitySpawn`, `state` and `entityDespawn`. Poison ticks
+use existing `damage` messages; sensors and poison timers are server-owned and
+add no wire fields. No creative overlay or colony messages are added.
 
-`entitySpawn` / `welcome` recognize `goblinHound`, `goblinBrute`,
-`goblinCatapult`, `goblinBalloon` and `siegeShot`. Hounds have 8 HP,
-1.6× walking speed and a 3-damage bite every 0.8 s. Brutes have 50 HP,
-0.8× walking speed, 8-damage club strikes every 1.6 s, strong knockback,
-faster obstacle breaking and slower shaft climbs. Both have spawn eggs.
+## Baked client lighting and fullscreen
 
-Machines use the normal compact goblin position/HP snapshot, plus `phase`,
-`cargo`, `bombs`, `firing` and `aboard`. Catapults have 60 HP, Balloons 40 HP.
-The balloon's hitbox covers its envelope; its pilot is a separate attackable
-siege goblin. `siegeShot` uses `{id,type,x,y,z,yaw,bomb}`: a visible ballistic
-boulder or bomb, removed with `entityDespawn` when the economy resolves impact.
-Impacts spare keep/pedestal blocks, blocks above hardness 4, and all recorded
-siege bridge/platform coordinates. Unobserved impacts resolve in batches.
+Torch ids 84 (floor) and 85–88 (wall facings) are new; all historical ids remain
+unchanged. Torches drop item 84 and emit configured block light (default 12).
+`input.place` supplies the existing face normal; the server validates floor or
+wall support and selects the encoded facing. Removing support drops an attached torch. Four torches craft from one plank.
+Lighting is derived client-side and adds no replication fields or server ticks.
+The worker mirrors lighting-relevant block edits, computes initial light near
+loaded chunks, and refloods only the bounded region affected by an edit.
+Time of day changes a skylight shader uniform and never dirties chunk meshes.
 
-Facing poison traps use block ids 79–82 (N/E/S/W). A completed fortress
-module gets wall traps; the starting modules get them too. Only players
-trigger them along their facing line, up to 4 blocks away. They use ordinary
-`arrow` entities and a 3 s cooldown. Poison uses `PlayerSnapshot.poisonTicks`;
-there is no client-authoritative status message or physics change.
+Play enters fullscreen before setting ready or starting/reclaiming a match.
+Leaving fullscreen suspends input until the return overlay is clicked. A match
+also installs a `beforeunload` confirmation, removed at match end/disconnection.
+Keyboard Lock is requested when supported; it requires a secure context
+(localhost or HTTPS), so ordinary HTTP LAN clients cannot capture browser
+shortcuts through that API. Browser/OS permissions still govern key capture.
 
-Tier 1 is initial; Tier 2 requires relocated entrance plus Castle; Tier 3
-requires the outer wall; Tier 4 requires two completed Tier 3+ sieges.
-Home slots repeat Soldier, Hound, Archer, Soldier, Worker, Hound, with a
-Brute every eighth slot. Locked Hound/Brute slots spawn Soldiers. The same
-slot's next respawn uses its newly unlocked type, at a 45 s population interval.
+## Wise Monkeys, Ancient Monkeys and dialogue
 
-Wood is the launch gate, with no siege interval. The target selector chooses
-randomly among teams whose flags are home. The precomputed bridge and machine
-plan reserves its cost plus 20%; dwellings spend only above that reservation.
-Each siege owns a finite, tier-specific budget, separate from home slots.
-Small groups emerge out of sight inside the fortress, walk through the shaft,
-and stage workers/escorts before the main force. No siege unit respawns.
-
-Workers progressively build a supported ladder tower and connected plank
-bridge. The first bridge is one wide; an intact known bridge is repaired and
-widened. More than 30% damage/obstruction abandons it and selects different
-launch/landing points for a new two-wide bridge. Later sieges may add a second
-route. Workers repair gaps and clear obstructions throughout the active siege.
-Long marches share sparse navigation fields and retain their route until
-traversal fails. Near flags/keeps and the base, units use ordinary goblin voxel
-pathfinding and physics, adapting to player block changes.
-
-Tier 2 catapults use a platform on the bridge if the keep is out of range.
-They need a living siege operator; another surviving soldier/archer can fill
-an empty crew position. Intact catapults persist for reuse, destroyed ones drop
-planks. Tier 3 balloons have a pilot and four budgeted soldier/archer riders;
-they fly and drop gliders in waves, including while unobserved. Tier 4 catapults
-throw bombs and balloons have finite bomb cargo. Destroyed envelopes or dead
-pilots crash, killing everyone still aboard. Empty balloons return to base.
-
-Goblin flag grabs take the normal 2 seconds. `carrierId` may be a goblin id;
-`flagEvent` retains its normal owning-team notifications for grabs, drops and
-returns. A dead carrier drops its flag with the existing return timer/physics.
-A successful return to the Goblin Totem puts the flag on a pedestal with state
-`held`. Held flags are visible and never auto-return; the owning team returns
-one instantly by touching it, other teams can grab it in 2 seconds. Its owner
-cannot capture while it is held. Totem destruction returns every held flag.
-Goblins never capture a flag or eliminate a team.
-
-Siege state ends after the queue is empty and all its units are dead/returned,
-or 15 minutes after landing / 25 minutes after launch, or immediately when the
-Totem dies. Spawn/construction stop; surviving fighters keep fighting, flag
-carriers still return home, crew returns and balloons return. Siege kills have
-a configurable small chance to use the `siegeGoblin` loot table. Individual
-HP, position, journey, assignment, army membership, machine state and flight
-live in the economy, independent of network interest or rendering.
-
-Balloon pilot/riders are allocated directly aboard from the finite army budget.
-The machine is created on a clear level plank launch pad after the first bridge
-lands and the configured launch delay expires; it ascends before crossing.
-No loading actor walks into the basket. Launch pad wood is included in the reserve.
-Main exterior gates have timber frames, brick caps and two home soldier guard
-positions. Wall plans preserve walking routes between the active entrance and
-dwelling doors. Inner and outer perimeters remain separate; only planned gates open the walls. Gates require level, clear approaches on both sides.
-
-Goblin bodies and watched construction use player chunk neighborhoods (`detail.chunkRadius`
-and `detail.buildChunkRadius`), rather than a body-distance cutoff. Falling
-goblins keep authoritative physics outside watched chunks and die normally in
-the void. Siege workers must finish shaft travel and reach a supported surface
-launch before building; staging routes exclude underground shortcuts. One lead
-worker builds the current plan, with a spaced backup. Higher tiers currently
-use two workers while bridge construction is sequential. Goblins retain the
-ability to dig through obstructions; ordinary breaking uses the configured
-strength, speed, hardness scale and obstruction delay.
-
-Ordinary goblin walking dismounts ladders sideways, so forward input cannot
-accidentally keep a flag carrier climbing at the tower base. Goblins jump only
-onto a clear one-block step with headroom. Incomplete local paths retain their
-last reachable waypoint and retry; they never become a straight walk into a
-wall. Bridge repair covers all established structural blocks, including those
-that were intact at launch. An already landed bridge releases the main army
-even when its construction task list is empty.
-
-`goblinStatus.siege` also includes `workers: [{id,phase,activity,x,y,z,distanceToWork}]`
-and `nextBlock: {x,y,z} | null` for creative troubleshooting. Worker hammer
-animation runs only for reachable clearing/placement actions, with a short
-configured animation pulse; staging, climbing and blocked travel show idle or
-walking animation.
-
-Surface gate records retain their actual facing and terrain-following approaches;
-wall generation checks both sides of the gate and preserves clear headroom.
-Above-ground siege routes may swim across rivers using ordinary collision and
-water physics. Goblin walking follows waypoint directions directly rather than
-walking an arc while turning; blocked journeys retry and emerging armies update
-their destination when an entrance is relocated. Flag carrier speed applies the
-normal carrying penalty once. Catapult crews finish their machine route before
-receiving any assault movement, and replacements are selected only after the
-assigned crew is lost. A balloon already returned to its pad stays there when
-the siege ends.
-
-Surface rendezvous heights follow contiguous terrain at the entrance after
-terraforming, so the army does not wait for an obsolete feet height. Separated
-islands overhead do not affect that height. Digging routes must approach and
-clear solid corners before turning diagonally past them. Close movement slows
-at waypoints, with tighter alignment for wide goblins; switching to local
-pathfinding remains attached to that goal until the assignment changes.
-
-Wall plans verify walking access to the dwellings against the final proposed
-blocks. Access work includes shallow, open terrain cuts and plank footbridges
-at water surfaces. Castle doorways have a supported approach and steps to the
-yard. These are ordinary progressive construction tasks, including their wood.
-
-### `goblinSiegeDeclared` — server → everyone
-
-`{ type, x, y, z, target }` announces a successful siege launch at the goblin
-surface base. `target` is the team index. Chat still announces
-“A goblin siege is underway”. Clients play a procedural war horn and a short
-sequence of drums after audio has been unlocked by a user gesture.
-
-### `siegeExplosion` — server → everyone
-
-`{ type, x, y, z, radius }` is emitted when the authoritative simulation resolves
-a bomb impact, including batched impacts. Clients render fire/smoke debris and
-a brief orange flash, and play a distance-attenuated explosion sound. Boulders
-never emit this message. Both catapult ammunition types follow a high arc;
-balloon bombs fall. Larger catapult/projectile models and all combat tuning
-come from `shared/goblins.js`.
-
-Catapults resist melee/arrow knockback and remain stationary. New machines prefer
-a supported position behind the launch; long-range platforms are placed near the
-back of their usable firing range. Artillery cycles between route obstructions,
-turrets, breakable defenses, and player groups. Every impact still protects keeps
-and goblin bridges. Nearby goblins have procedural idle calls, hound barks,
-brute growls, hurt cries and work sounds.
-
-Builders advance directly to the next ladder work height. Repair work chooses
-nearby damage and a supported work position on the worker's side, so consecutive
-holes can be filled without first crossing them. Crowd separation is disabled
-in narrow lanes, and goblins check support before deliberately walking off an
-edge, including during jumps. Ground-level ladders advance their route normally.
-
-Settlement terrain heights come from each original island's height map; detached
-islands overhead do not raise walls, buildings or launch sites. Gates preserve
-existing door/stair lanes, avoid future buildings, and reserve their approaches
-against later construction. At cliff edges, connected outer-wall ledges preserve
-a full perimeter around existing buildings and their access lanes.
-Sealed or damaged gatehouses remain part of those bounds while their structures
-remain. Siege tower sites leave clearance around settlement buildings, doorway
-lanes and walls, and search alternate launch positions when necessary.
-Swimming marchers finish a bounded bank-exit jump before resuming ground routing;
-briefly leaving the water does not restart their route.
-Balloon obstacle avoidance uses persistent, collision-checked detours at flight
-speed, rather than alternating small moves beside a wall. Launch pads require
-clear, nearly level ground outside buildings. Returning flag carriers and crew
-stay on the surface until the entrance, then use normal shaft travel home.
-Construction first
-searches the compact village area, then a configured expansion ring when sites
-there are occupied. Estimated economy travel/climbing/positioning delays obey
-`goblinTimeScale`; physical entity movement does not. Chopping labor can save
-enough credit for distant trees instead of stalling below their estimated cost.
+- World gen (`shared/npcSites.js`) builds a shrine with a large chair on each
+  team island, away from its keep, and records NPC seats in `world.npcSites`:
+  a Wise Monkey per team, the Ancient Water Monkey in the gorge's river cave
+  (in the gorge river if there is no cave; the server logs that) and the
+  Ancient Lightning Monkey on the floor of a hollow storm cloud of Storm Cloud
+  blocks (id 120) past the highland edge of the central island
+  (`world.stormCloud`). The server spawns them at match start; they never
+  respawn.
+- Talking (`talk` / `speak`) is private to the player who asked.
+- A Wise Monkey answers its own team with the first unmet hint in
+  `WISE_MONKEY_HINTS` (`shared/npcLines.js`), judged on the team's progress:
+  items that have been in a member's inventory, items crafted and items
+  placed (`server/teamProgress.js`). With chance `DIALOGUE.clueChance` it gives
+  a clue about the world instead. Other teams get a dismissive line.
+- A Wise Monkey has `NPC.wiseMonkey.hp` HP, takes damage from anyone's punches
+  and arrows (`damage`), never fights back, and once killed is gone for the
+  match (`entityDespawn`), taking its team's hints with it.
+- Ancient Monkeys cannot be damaged yet, only make sounds (`speak` with
+  `sound`), and alternate sitting with standing (a chest beat), strolling and
+  looking around within `NPC.ancientMonkey.walkRadius` of their seat. Their
+  idle grunts, the chest beat and the storm cloud's flashes and thunder are
+  client-side.

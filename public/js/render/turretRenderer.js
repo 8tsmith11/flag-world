@@ -1,3 +1,4 @@
+import { updateEntityLight, lightModel, lightUniform } from './entityLighting.js';
 import * as THREE from 'three';
 
 const iron = new THREE.MeshLambertMaterial({ color: 0x9da1a7 });
@@ -52,6 +53,7 @@ export class TurretRenderer {
           pitch: snapshot.pitch ?? 0, targetPitch: snapshot.pitch ?? 0 };
         model.userData.yawPivot.rotation.y = snapshot.yaw;
         model.userData.head.rotation.x = snapshot.pitch ?? 0;
+        entry.light=lightUniform();lightModel(model,entry.light);
         this.models.set(key, entry);
       }
       entry.targetYaw = snapshot.yaw;
@@ -64,8 +66,9 @@ export class TurretRenderer {
     }
   }
 
-  update(dt) {
+  update(dt,world,daylight) {
     for (const entry of this.models.values()) {
+      if(world&&daylight)updateEntityLight(world,entry.model.position,daylight,entry.light,dt);
       const difference = Math.atan2(Math.sin(entry.targetYaw - entry.yaw), Math.cos(entry.targetYaw - entry.yaw));
       entry.yaw += difference * Math.min(1, dt * 12);
       entry.model.userData.yawPivot.rotation.y = entry.yaw;

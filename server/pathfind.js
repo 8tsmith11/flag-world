@@ -1,3 +1,4 @@
+import { playerFitsAt } from '../shared/physics.js';
 // A small A* for walking mobs. Nodes are standing spots: integer (x, y, z)
 // where the mob's feet are at y, the block below is solid, and it's clear
 // `height` blocks up (no water: mobs keep out of ponds). Moves go to the 8
@@ -7,7 +8,7 @@
 // The search stops after maxNodes. If the goal wasn't reached it returns the
 // path to the closest spot found, which is what a fleeing mob wants anyway.
 
-import { BLOCK, isSolid, isWater } from '../shared/blocks.js';
+import { isSolid, isWater } from '../shared/blocks.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
@@ -15,7 +16,7 @@ export function canStand(world, x, y, z, height) {
   if (!isSolid(world.getBlock(x, y - 1, z))) return false;
   for (let h = 0; h < height; h++) {
     const id = world.getBlock(x, y + h, z);
-    if (isSolid(id) || id === BLOCK.WATER) return false;
+    if (isSolid(id) || isWater(id)) return false;
   }
   return true;
 }
@@ -61,14 +62,14 @@ class Heap {
   }
 }
 
-const key = (x, y, z) => (y * 2048 + z) * 2048 + x;
+const key = (x, y, z) => `${x},${y},${z}`;
 
 // Path of standing spots from `start` (integer {x, y, z}, where the mob
 // stands) toward the column (goal.x, goal.z): [{x, y, z}, ...] not including
 // the start, or [] if it can't move at all.
-export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDrop = 1, allowed = null, goalHeight = false, canBreak = null, breakCost = 4, allowWater = false, canSupport = null, supportCost = 4, diagonal = true } = {}) {
+export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDrop = 1, allowed = null, goalHeight = false, canBreak = null, breakCost = 4, allowWater = false, canSupport = null, supportCost = 4, diagonal = true, halfWidth = 0.3 } = {}) {
   const standable=(x,y,z,h=height)=> {
-    if(canStand(world,x,y,z,h))return true;
+    if(canStand(world,x,y,z,h) && playerFitsAt(world, { x: x + 0.5, y, z: z + 0.5, box: { halfW: halfWidth, height: h } }, y))return true;
     if((!canBreak && !allowWater && !canSupport) || !(isSolid(world.getBlock(x,y-1,z)) || allowWater && isWater(world.getBlock(x,y-1,z)) || canSupport?.(x,y,z)))return false;
     for(let dy=0;dy<h;dy++) {const id=world.getBlock(x,y+dy,z);
       if(isWater(id) && !allowWater || isSolid(id) && (!canBreak || !canBreak(x,y+dy,z,id)))return false;
@@ -106,6 +107,9 @@ export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDr
       const levels=[];
       for (const dy of steps) {
         if (dy === 1 && !standable(node.x, node.y, node.z, height + 1)) continue;
+        // Descending must clear the body before it can fall to the landing.
+        if (dy < 0 && !canBreak && !playerFitsAt(world, { x: nx + 0.5, y: node.y, z: nz + 0.5,
+          box: { halfW: halfWidth, height } }, node.y)) continue;
         if (standable(nx, node.y + dy, nz, height)
           && (!allowed || allowed(nx,node.y+dy,nz))) {
           levels.push(node.y+dy);

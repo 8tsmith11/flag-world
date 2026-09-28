@@ -1,3 +1,5 @@
+import { generationProgress } from '../shared/generationProgress.js';
+import { FortressTraps, isGoblin } from './fortressTraps.js';
 // Authoritative game state. Two phases: a lobby where players pick a name and
 // color and ready up, then a match with the world, players and the fixed-rate
 // tick loop. A match runs until the server stops; players who connect during it
@@ -8,7 +10,7 @@ import {
   REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, TOWER_MIN_HEIGHT,
   BOW_COOLDOWN, ARROW_SPEED, ARROW_DAMAGE, ARROW_KNOCKBACK, ARROW_GRAVITY,
   CROSSBOW_ARROW_SPEED, CROSSBOW_ARROW_DAMAGE, CROSSBOW_ARROW_GRAVITY, ROPE_LENGTH,
-  COW_HERD_AREA, COW_HERD_SIZE, COW_PANIC_TIME, COW_DROPS, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
+  COW_HERD_AREA, COW_HERD_SIZE, COW_WIDTH, COW_PANIC_TIME, COW_DROPS, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
   DRAGON_FIRE_DAMAGE, DRAGON_DROPS,
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
   MAX_HP, REGEN_DELAY, REGEN_INTERVAL, EAT_TIME, FOOD_HEAL_TIME, HIT_TOLERANCE,
@@ -16,10 +18,10 @@ import {
   FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS, DRAGON_LEASH, CRAWLER_DROPS, EEL_BAND, EEL_DROPS,
   EEL_GLIDE_BREAK, CRAWLER_DAMAGE, EEL_DAMAGE,
   DAY_LENGTH, DAY_START, BIOME_SETTINGS,
-  SAPLING_DROP_CHANCE, ARROW_DRAG,
+  SAPLING_DROP_CHANCE, TREE_SETTINGS, ARROW_DRAG,
 } from '../shared/config.js';
 import {
-  BLOCK, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
+  BLOCK, branchBoxes, blocksAttack, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
   ladderBlock, isLadder, ladderFacing, doorBlock, isDoor, doorState,
 } from '../shared/blocks.js';
 import { getItemDef, ITEM } from '../shared/items.js';
@@ -46,7 +48,7 @@ import {
 } from '../shared/physics.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '../shared/raycast.js';
 import {
-  C2S, S2C, PHASE, MAX_NAME_LENGTH, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT, TEAMS, GOBLIN_ANIMATION,
+  C2S, S2C, PHASE, MAX_NAME_LENGTH, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT, TEAMS,
 } from '../shared/protocol.js';
 import { Player, GRAB_TICKS } from './player.js';
 import { Flag } from './flag.js';
@@ -55,12 +57,13 @@ import { WaterSimulation } from './water.js';
 import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
-import { GoblinController } from './goblins.js';
+import { EntityInterest } from './entityInterest.js';
 import { TurretController } from './turrets.js';
 import { turretType } from '../shared/turrets.js';
-import { KING_BOX, WORKER_BOX, SOLDIER_BOX, ARCHER_BOX, HOUND_BOX, BRUTE_BOX } from './goblin.js';
-import { GOBLINS } from '../shared/goblins.js';
 import { assignMobSteering, steerGround, resolveMobOverlaps } from './mobSteering.js';
+import { Npc, npcLine } from './npcs.js';
+import { TeamProgress } from './teamProgress.js';
+import { NPC } from '../shared/config.js';
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -124,6 +127,7 @@ function isLocalAddress(address) {
 
 export class Game {
   constructor() {
+    this.entityInterest=new EntityInterest();
     this.phase = PHASE.LOBBY;
     // Ids for lobby members, players and entities. A member keeps its id as a player.
     this.nextId = 1;
@@ -144,8 +148,6 @@ export class Game {
     this.leafDecay = null;
     this.saplings = null;
     this.quarry = null;
-    this.goblins = null;
-    this.goblinEntityIds = new Set();
     this.turretController = null;
     // Flags by owner id, and the last player standing once the match is decided.
     this.flags = new Map();
@@ -163,6 +165,9 @@ export class Game {
     this.dragons = new Map();
     // Crawlers and Void Eels by entity id.
     this.mobs = new Map();
+    // Wise and Ancient Monkeys by entity id; what each team has done, for hints.
+    this.npcs = new Map();
+    this.teamProgress = new TeamProgress();
     this.portals = new Map();
     // Sessions on the "match in progress" screen.
     this.spectators = new Set();
@@ -253,6 +258,9 @@ export class Game {
       case C2S.CREATIVE_ACTION:
         this.creativeAction(session, msg.action);
         break;
+      case C2S.TALK:
+        if (session.player) this.talk(session.player, msg.id);
+        break;
     }
   }
 
@@ -274,6 +282,7 @@ export class Game {
       if (!player.creative) {
         player.state.flying = false;
         player.immortal = false;
+        player.invisible = false;
       }
     }
     this.sendCreativeState(session);
@@ -282,32 +291,23 @@ export class Game {
   sendCreativeState(session) {
     sendTo(session.socket, { type: S2C.CREATIVE, enabled: !!session.creative,
       immortal: !!session.player?.immortal, flying: !!session.player?.state.flying,
-      totemExists: !!this.goblins?.totemAlive });
+      invisible: !!session.player?.invisible });
   }
 
   creativeAction(session, action) {
     const player = session.player;
     if (!session.localHost || !session.creative || !player?.creative || player.dead) return;
-    if (action === 'toggleImmortal') player.immortal = !player.immortal;
-    else if (action === 'toggleFlight') player.state.flying = !player.state.flying;
-    else if (action === 'forceGoblinSiege') { this.goblins?.sieges.launch(true); }
-    else if (action === 'raiseGoblinTier') { this.goblins?.raiseTier(); }
-    else if (action === 'maxGoblinBase') {
-      if (!this.goblins?.startFastBuild()) return;
+    if (action === 'captureLobby') {
+      sendTo(session.socket,{type:S2C.CAPTURE_LOBBY});
+      return;
     }
+    if (action === 'toggleImmortal') player.immortal = !player.immortal;
+    else if (action === 'toggleInvisible') player.invisible = !player.invisible;
+    else if (action === 'toggleFlight') player.state.flying = !player.state.flying;
     else if (action === 'setDay' || action === 'setNight') {
       const target = action === 'setDay' ? 0.25 : 0.75;
       this.dayOffset = target - DAY_START - this.tick / (DAY_LENGTH * TICK_RATE);
       this.broadcast({ type: S2C.DAY_TIME, dayTime: this.dayTime(), tick: this.tick });
-    } else if (action === 'teleportTotem' && this.goblins?.totemAlive) {
-      const t = this.goblins.totemSpot;
-      const hall = this.goblins.hall.box;
-      const x = hall.x0 + 2.5, y = t.y, z = hall.z0 + 2.5;
-      if (playerFitsAt(this.world, { ...player.state, x, z }, y)) {
-        Object.assign(player.state, { x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0,
-          grapple: null, onGround: false });
-        player.fallTop = null;
-      }
     } else return;
     this.sendCreativeState(session);
   }
@@ -379,20 +379,31 @@ export class Game {
     this.playerCount = this.members.size;
     const occupiedTeams = [...new Set([...this.members.values()].map((m) => m.team))].sort();
     this.teamCount = occupiedTeams.length;
+    this.occupiedTeams = occupiedTeams;
     const started = performance.now();
-    this.world = generateWorld(this.seed, occupiedTeams.length, this.worldSize);
+    try {
+      this.world = generateWorld(this.seed, occupiedTeams.length, this.worldSize, generationProgress(percent => {
+        for (const m of this.members.values()) sendTo(m.session.socket, { type: S2C.GENERATION, percent });
+      }));
+    } catch (error) {
+      console.error(`World generation failed for seed ${this.seed}:`, error);
+      for (const m of this.members.values()) sendTo(m.session.socket,
+        { type: S2C.ERROR, message: `World generation failed (seed ${this.seed}): ${error.message}` });
+      this.broadcastLobby();
+      return;
+    }
+    this.fortressTraps = new FortressTraps(this);
     this.turretController = new TurretController(this);
     this.water = new WaterSimulation(this.world);
-    this.leafDecay = new LeafDecay(this.world, (x, y, z) => {
-      if (Math.random() < 0.04) this.dropAt(ITEM.TREE_SEED, x, y, z);
+    this.leafDecay = new LeafDecay(this.world, (x, y, z, id) => {
+      if (id === BLOCK.LEAVES && Math.random() < TREE_SETTINGS.decaySaplingChance) this.dropAt(ITEM.TREE_SEED, x, y, z);
     });
     this.saplings = new SaplingGrowth(this.world, (x, y, z, top) =>
       [...this.players.values()].some((p) => !p.dead && p.state.x + playerBoxOf(p.state).halfW > x
         && p.state.x - playerBoxOf(p.state).halfW < x + 1
         && p.state.z + playerBoxOf(p.state).halfW > z
         && p.state.z - playerBoxOf(p.state).halfW < z + 1
-        && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y),
-      (x, y, z) => this.goblins?.saplingGrowTime(x, y, z));
+        && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y));
     this.quarry = new QuarryRegrowth(this);
     this.world.onBlockChanged = (x, y, z, id, oldId) => {
       this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id });
@@ -401,13 +412,15 @@ export class Game {
       this.pendingBlockChanges.set(`${x},${y},${z}`, { x, y, z, id,
         ...(team !== undefined ? { team } : {}) });
       this.water.enqueueAround(x, y, z);
-      if (oldId === BLOCK.WOOD && id !== BLOCK.WOOD) this.leafDecay.enqueueAroundLog(x, y, z);
+      this.leafDecay.changed(x, y, z, id, oldId);
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
       if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
       if (id === BLOCK.QUARRY_STONE || oldId === BLOCK.QUARRY_STONE) this.quarry.changed(x, y, z, id);
       if (turretType(oldId) && id !== oldId) this.turretController.remove(x, y, z);
+      if(getBlockDef(oldId).tileEntity && getBlockDef(oldId).tileEntity!==getBlockDef(id).tileEntity)this.removeContainer(x,y,z);
       this.turretController.invalidate();
-      this.goblins?.blockChanged(x, y, z, id, oldId);
+      if(isSupport(oldId)&&!isSupport(id)||isSolid(oldId)&&!isSolid(id)
+        ||getBlockDef(oldId).hanging&&!getBlockDef(id).hanging)this.dropUnsupported(x,y,z);
     };
     for (const [key, table] of this.world.lootChests) {
       this.world.tileEntities.set(key, new Chest(table));
@@ -440,8 +453,7 @@ export class Game {
     this.spawnDragons();
     this.spawnCrawlers();
     this.spawnEels();
-    this.goblins = new GoblinController(this);
-    this.goblins.spawnAll();
+    this.spawnNpcs();
     for (const player of this.players.values()) this.sendWelcome(player);
   }
 
@@ -465,7 +477,7 @@ export class Game {
     player.attach(session.socket);
     player.creative = session.localHost && player.creative;
     player.state.creative = player.creative;
-    if (!player.creative) player.state.flying = false;
+    if (!player.creative) {player.state.flying = false;player.invisible=false;}
     session.creative = player.creative;
     console.log(`${player.name} reconnected`);
     this.sendWelcome(player);
@@ -493,13 +505,6 @@ export class Game {
   }
 
   sendWelcome(player) {
-    player.goblinKnown = new Set();
-    const visibleEntity = (entity) => {
-      if (!entity.goblin) return true;
-      const visible = this.goblinInRange(player, entity);
-      if (visible) player.goblinKnown.add(entity.id);
-      return visible;
-    };
     this.send(player, {
       type: S2C.WELCOME,
       id: player.id,
@@ -513,7 +518,7 @@ export class Game {
       creative: player.creative,
       immortal: player.immortal,
       flying: player.state.flying,
-      totemExists: !!this.goblins?.totemAlive,
+      invisible: !!player.invisible,
       blocks: [...this.blockChanges.values()],
       doorTeams: [...this.world.doorTeams].map(([key, team]) => ({ key, team })),
       turrets: this.turretController.snapshot(),
@@ -524,7 +529,7 @@ export class Game {
         }),
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
       entities: [...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
-        ...this.mobs.values()].filter(visibleEntity).map((e) => e.describe()),
+        ...this.mobs.values(), ...this.npcs.values()].map((e) => e.describe()),
       inventory: player.inventory,
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
       portals: [...this.portals.values()].map(({ id, x, y, z, expiresTick }) => ({ id, x, y, z, expiresTick })),
@@ -697,16 +702,6 @@ export class Game {
       const drop = getBlockDef(id).drops;
       if (drop !== null) this.dropAt(drop, x, y, z);
       if (id === BLOCK.LEAVES && Math.random() < SAPLING_DROP_CHANCE) this.dropAt(ITEM.TREE_SEED, x, y, z);
-      const key = `${x},${y},${z}`;
-      const container = this.world.tileEntities.get(key);
-      if (container) {
-        container.populate?.(this.seed, x, y, z);
-        if (container.kind === 'furnace' && container.burn > 0) {
-          this.broadcast({ type: S2C.FURNACE_LIT, x, y, z, lit: false });
-        }
-        this.world.tileEntities.delete(key);
-        for (const stack of container.takeAll()) this.dropAt(stack.item, x, y, z, stack.count, stack.mods);
-      }
     }
     FACING_DIRS.forEach(([dx, dz], facing) => {
       // A ladder on the west side of this block faces east, toward it.
@@ -718,9 +713,28 @@ export class Game {
     if (isDoor(above) && !doorState(above).upper) this.breakBlock(x, y + 1, z);
   }
 
+  // Registry-defined attachments also fall after explosions and other writers.
+  dropUnsupported(x,y,z) {
+    const id=this.world.getBlock(x,y,z);
+    for(const [dx,dy,dz]of NEIGHBOURS) {
+      const bx=x+dx,by=y+dy,bz=z+dz,def=getBlockDef(this.world.getBlock(bx,by,bz)),support=def.support;
+      const valid=def.hanging?isSolid(id)||getBlockDef(id).hanging:isSupport(id);
+      if(!valid&&support&&dx+support[0]===0&&dy+support[1]===0&&dz+support[2]===0)this.breakBlock(bx,by,bz);
+    }
+  }
+
   dropAt(item, x, y, z, count = 1, mods = null) {
     const r = () => (Math.random() - 0.5) * 2;
     this.spawnItem(item, count, x + 0.5, y + 0.5 - ITEM_SIZE / 2, z + 0.5, r(), ITEM_POP_SPEED, r(), ITEM_PICKUP_DELAY, mods);
+  }
+
+  // All block writers (players, footprint restores and explosions) share cleanup.
+  removeContainer(x,y,z) {
+    const key=`${x},${y},${z}`,container=this.world.tileEntities.get(key);if(!container)return;
+    container.populate?.(this.seed,x,y,z);
+    if(container.kind==='furnace' && container.burn>0)this.broadcast({type:S2C.FURNACE_LIT,x,y,z,lit:false});
+    this.world.tileEntities.delete(key);
+    for(const stack of container.takeAll())this.dropAt(stack.item,x,y,z,stack.count,stack.mods);
   }
 
   // True if any live player would overlap the block.
@@ -766,7 +780,16 @@ export class Game {
     // What goes where: [x, y, z, block id] for each cell.
     let cells;
     let lift = false;
-    if (def.places === 'sapling') {
+    if (def.places === 'torch') {
+      if (pos.ny !== 1 && (pos.ny !== 0 || Math.abs(pos.nx) + Math.abs(pos.nz) !== 1)) return;
+      if (!isSupport(this.world.getBlock(pos.x - pos.nx, pos.y - pos.ny, pos.z - pos.nz))) return;
+      cells = [[pos.x, pos.y, pos.z, pos.ny === 1 ? BLOCK.TORCH
+        : facedBlock(BLOCK.TORCH, facingOf(-pos.nx, -pos.nz))]];
+    } else if (getBlockDef(def.block).hanging) {
+      const above=this.world.getBlock(pos.x,pos.y+1,pos.z);
+      if(!isSolid(above)&&!getBlockDef(above).hanging)return;
+      cells=[[pos.x,pos.y,pos.z,def.block]];
+    } else if (def.places === 'sapling') {
       if (pos.ny !== 1 || this.world.getBlock(pos.x, pos.y, pos.z) !== BLOCK.AIR) return;
       const soil = this.world.getBlock(pos.x, pos.y - 1, pos.z);
       if (soil !== BLOCK.GRASS && soil !== BLOCK.DIRT) return;
@@ -814,7 +837,11 @@ export class Game {
       // Nobody may be in the way, except that a player jumping up can place
       // the block under their own feet (towering) and is lifted on top of it.
       for (const p of this.players.values()) {
-        if (p.dead || !playerOverlapsBlock(p.state.x, p.state.y, p.state.z, pos.x, pos.y, pos.z, playerBoxOf(p.state))) continue;
+        if(p.dead)continue;
+        const boxes=def.block===BLOCK.BRANCH?branchBoxes(this.world,pos.x,pos.y,pos.z):null;
+        if(boxes ? !boxes.some(b=>playerOverlapsBlock(p.state.x,p.state.y,p.state.z,pos.x,pos.y,pos.z,playerBoxOf(p.state),b))
+          : !playerOverlapsBlock(p.state.x,p.state.y,p.state.z,pos.x,pos.y,pos.z,playerBoxOf(p.state)))continue;
+        if(def.block===BLOCK.BRANCH)return;
         if (p !== player || !this.canTower(p, pos)) return;
         lift = true;
       }
@@ -823,6 +850,7 @@ export class Game {
       const toward = Math.abs(look.x) > Math.abs(look.z) ? facingOf(-Math.sign(look.x), 0) : facingOf(0, -Math.sign(look.z));
       cells = [[pos.x, pos.y, pos.z, facedBlock(def.block, toward)]];
     }
+    this.teamProgress.placed(player.team, stack.item);
     player.inventory.takeOne(slot);
     if (stack.item === ITEM.WATER_BUCKET) player.inventory.add(ITEM.EMPTY_BUCKET, 1);
     if (lift) {
@@ -832,6 +860,7 @@ export class Game {
     if (def.places === 'reinforcedDoor') this.world.doorTeams.set(`${pos.x},${pos.y},${pos.z}`, player.team);
     for (const [x, y, z, id] of cells) {
       this.world.setBlock(x, y, z, id);
+      this.leafDecay?.placed(x, y, z, id);
       const container = createContainer(getBlockDef(id).tileEntity);
       if (container) this.world.tileEntities.set(`${x},${y},${z}`, container);
     }
@@ -844,11 +873,7 @@ export class Game {
     const egg = eggForItem(player.inventory.get(slot)?.item);
     if (!egg || !pos || !this.inReach(player, pos) || !isSolid(this.world.getBlock(pos.x, pos.y, pos.z))) return;
     const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
-    const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX,
-      goblinWorker: WORKER_BOX, goblinKing: KING_BOX, goblinSoldier: SOLDIER_BOX,
-      goblinArcher: ARCHER_BOX, goblinHound: HOUND_BOX, goblinBrute: BRUTE_BOX,
-      goblinCatapult: {halfW:GOBLINS.catapult.width/2,height:GOBLINS.catapult.height},
-      goblinBalloon: {halfW:GOBLINS.balloon.width/2,height:GOBLINS.balloon.height} };
+    const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX };
     const box = boxes[egg.type];
     if (!box || !playerFitsAt(this.world, { x, y, z, box }, y)) return;
     const island = this.world.islands?.length ? this.world.islands.reduce((best, candidate) =>
@@ -876,19 +901,6 @@ export class Game {
         this.mobs.set(mob.id, mob);
         break;
       }
-      case 'goblinCatapult':
-      case 'goblinBalloon':
-        mob = this.goblins.sieges.addMachine(egg.type, {x,y,z});
-        break;
-      case 'goblinHound':
-      case 'goblinBrute':
-      case 'goblinWorker':
-      case 'goblinSoldier':
-      case 'goblinArcher':
-      case 'goblinKing':
-        mob = this.goblins.hatch(egg.type, x, y, z);
-        this.mobs.set(mob.id, mob);
-        break;
       default: return;
     }
     player.inventory.takeOne(slot);
@@ -1048,7 +1060,9 @@ export class Game {
       const at = parseBlockPos(this.world, msg.at);
       if (!at || this.world.getBlock(at.x, at.y, at.z) !== BLOCK.WORKBENCH || !this.inReach(player, at)) return;
     }
-    if (player.inventory.craft(recipe)) player.inventoryDirty = true;
+    if (!player.inventory.craft(recipe)) return;
+    player.inventoryDirty = true;
+    if (!recipe.creative) this.teamProgress.crafted(player.team, recipe.output);
   }
 
   // The Reroll button at an anvil the player has open: pays ANVIL_REROLL_COST
@@ -1215,31 +1229,26 @@ export class Game {
     const moved = [];
     for (const arrow of this.arrows.values()) {
       const flying = !arrow.stuckIn;
-      // Goblin arrows only hit players.
-      const targets = arrow.shooter.goblin ? [...this.players.values()]
-        : arrow.shooter.turret
+      const targets = arrow.shooter.trap
+          ? [...this.players.values(), ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()].filter(t => !isGoblin(t))
+          : arrow.shooter.turret
           ? [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
-            ...this.dragons.values(), ...[...this.mobs.values()].filter((m) => m.goblin || m instanceof Crawler || m instanceof VoidEel)]
+            ...this.dragons.values(), ...[...this.mobs.values()].filter((m) => m instanceof Crawler || m instanceof VoidEel)]
           : [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
-            ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()];
+            ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values(), ...this.npcs.values()];
       const result = arrow.step(this.world, targets);
       if (result === 'gone' || arrow.y < this.world.voidY) {
         this.removeArrow(arrow);
       } else if (result?.hit) {
         const target = result.hit, t = target.state;
         // A small push along the arrow's flight.
-        if(!target.immovable) {
         t.kx += result.dir.x * ARROW_KNOCKBACK;
         t.kz += result.dir.z * ARROW_KNOCKBACK;
         t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
         t.onGround = false;
-        }
         this.hurt(target, arrow.damage * (result.damageScale ?? 1), arrow.shooter,
-          arrow.shooter.goblin ? DEATH_CAUSE.MOB : DEATH_CAUSE.PLAYER);
-        if (arrow.poison && !target.dead && !target.immortal) {
-          target.poisonUntil = this.tick + Math.round(GOBLINS.traps.poisonSeconds*TICK_RATE);
-          target.nextPoison = this.tick + Math.round(GOBLINS.traps.poisonInterval*TICK_RATE);
-        }
+          DEATH_CAUSE.PLAYER);
+        if (arrow.poison && !target.dead) this.fortressTraps.infect(target);
         this.removeArrow(arrow);
       } else if (flying) {
         moved.push(arrow);
@@ -1248,29 +1257,6 @@ export class Game {
     return moved;
   }
 
-  // A Goblin Archer's shot at a player: aimed at their chest, leading for
-  // gravity (the lower of the two arcs), with a little spread.
-  goblinShoot(archer, target) {
-    const settings = GOBLINS.archer;
-    const eye = archer.eye(), t = target.state;
-    const aim = { x: t.x + t.vx * 0.2, y: t.y + playerBoxOf(t).height * 0.6, z: t.z + t.vz * 0.2 };
-    const dx = aim.x - eye.x, dy = aim.y - eye.y, dz = aim.z - eye.z;
-    const d = Math.hypot(dx, dz) || 0.01;
-    // Drag slows the arrow over the flight; aim as if a bit slower.
-    const v = settings.arrowSpeed * Math.pow(ARROW_DRAG, d / settings.arrowSpeed * TICK_RATE / 2);
-    const g = ARROW_GRAVITY;
-    const root = v ** 4 - g * (g * d * d + 2 * dy * v * v);
-    const pitch = root >= 0 ? Math.atan((v * v - Math.sqrt(root)) / (g * d)) : Math.PI / 4;
-    const yaw = Math.atan2(dz, dx) + (Math.random() - 0.5) * 2 * settings.spread;
-    const p = pitch + (Math.random() - 0.5) * 2 * settings.spread;
-    const speed = settings.arrowSpeed;
-    const arrow = new Arrow(this.nextId++, archer, eye.x, eye.y, eye.z,
-      Math.cos(yaw) * Math.cos(p) * speed, Math.sin(p) * speed, Math.sin(yaw) * Math.cos(p) * speed, 0.5);
-    arrow.damage = settings.damage;
-    arrow.gravity = g;
-    this.arrows.set(arrow.id, arrow);
-    this.broadcast({ type: S2C.ENTITY_SPAWN, entity: arrow.describe() });
-  }
 
   removeArrow(arrow) {
     this.arrows.delete(arrow.id);
@@ -1311,7 +1297,8 @@ export class Game {
           for (let c = 0, attempts = 0; c < size && attempts < 30; attempts++) {
             const x = cx + Math.floor((rand() - 0.5) * 8), z = cz + Math.floor((rand() - 0.5) * 8);
             const y = grassy(x, z, island);
-            if (y === null) continue;
+            if (y === null || [...herd.cows].some(c => Math.hypot(c.state.x - x - 0.5,
+              c.state.z - z - 0.5) < COW_WIDTH + 0.1)) continue;
             const cow = new Cow(this.nextId++, herd, x + 0.5, y, z + 0.5);
             this.cows.set(cow.id, cow);
             c++;
@@ -1483,26 +1470,7 @@ export class Game {
     const moved = [];
     for (const mob of this.mobs.values()) {
       const s = mob.state;
-      if(mob.goblin && s.y<this.world.voidY) {this.removeMob(mob);continue;}
-      if (mob.siegeManaged) { moved.push(mob); continue; }
-      if (mob.goblin && mob.respawnJourney) {
-        this.goblins.sim.progressJourney(mob);
-        mob.walking = !mob.climbing;
-        moved.push(mob);
-        continue;
-      }
-      // Sleeping goblins need no physics; their individual state stays intact.
-      if (mob.goblin && (this.goblins.frozen(mob) || this.goblins.sleeping(mob))) {
-        if (mob.walking || mob.climbing) {
-          mob.walking = false;
-          mob.climbing = false;
-          moved.push(mob);
-        }
-        if (mob.teleported) moved.push(mob);
-        mob.teleported = false;
-        continue;
-      }
-      const before = `${s.x},${s.y},${s.z},${s.yaw},${mob.extraKey?.() ?? ''}`;
+      const before = `${s.x},${s.y},${s.z},${s.yaw}`;
       const time = this.dayTime();
       const bitten = mob instanceof VoidEel
         ? mob.step(this.world, players, this.tick, time >= 0.5 && time < 1)
@@ -1517,18 +1485,17 @@ export class Game {
           bitten.state.gliding = false;
           bitten.state.glideBlockedTicks = ticks(EEL_GLIDE_BREAK);
         }
-        if (mob.biteKnockback) this.swing(mob);
+        if(mob.biteKnockback)this.swing(mob);
         this.meleeHit(bitten, mob.biteDamage ?? (mob instanceof Crawler ? CRAWLER_DAMAGE : EEL_DAMAGE), mob,
           mob.biteKnockback ?? 0.6);
       }
-      if (`${s.x},${s.y},${s.z},${s.yaw},${mob.extraKey?.() ?? ''}` !== before) moved.push(mob);
+      if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(mob);
     }
     return moved;
   }
 
   removeMob(mob) {
     if (mob.dead) return;
-    if (mob.goblin) this.goblins.removed(mob);
     mob.dead = true;
     this.mobs.delete(mob.id);
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: mob.id });
@@ -1540,12 +1507,10 @@ export class Game {
     const t = target.state, s = mob.state;
     let dx = t.x - s.x, dz = t.z - s.z;
     const len = Math.hypot(dx, dz) || 1;
-    if(!target.immovable) {
     t.kx = dx / len * KNOCKBACK_SPEED * knockback;
     t.kz = dz / len * KNOCKBACK_SPEED * knockback;
     t.vy = Math.max(t.vy, KNOCKBACK_UP * Math.min(1, knockback));
     t.onGround = false;
-    }
     this.damage(target, amount, mob, DEATH_CAUSE.MOB);
     const thorns = target.thorns?.() ?? 0;
     if (thorns > 0 && !target.dead) this.hurt(mob, thorns, target);
@@ -1571,12 +1536,12 @@ export class Game {
     this.removeMob(mob);
   }
 
-  // Damage to anything a player can hit: a player, cow, dragon, Crawler, Eel or goblin.
+  // Damage to anything a player can hit: a player, cow, dragon, Crawler or Eel.
   hurt(target, amount, attacker, cause = DEATH_CAUSE.PLAYER) {
-    if (target.goblin) this.goblins.hurt(target, amount, attacker, attacker instanceof Player);
-    else if (target instanceof Cow) this.hurtCow(target, amount, attacker);
+    if (target instanceof Cow) this.hurtCow(target, amount, attacker);
     else if (target instanceof Dragon) this.hurtDragon(target, amount, attacker);
     else if (target instanceof Crawler || target instanceof VoidEel) this.hurtMob(target, amount, attacker);
+    else if (target instanceof Npc) this.hurtNpc(target, amount, attacker);
     else this.damage(target, amount, attacker, cause);
   }
 
@@ -1598,6 +1563,56 @@ export class Game {
     }
   }
 
+  // ---- NPCs ----
+
+  // At the seats world gen chose: a Wise Monkey per team island, and the
+  // Ancient Water and Lightning Monkeys.
+  spawnNpcs() {
+    for (const site of this.world.npcSites ?? []) {
+      const team = site.team === undefined ? null : this.occupiedTeams[site.team] ?? null;
+      const npc = new Npc(this.nextId++, site, team, this.tick);
+      this.npcs.set(npc.id, npc);
+      if (site.fallback) console.log(`${npc.name}: no gorge cave, so it sits in the gorge river`);
+    }
+    for (const kind of ['ancientWaterMonkey', 'ancientLightningMonkey']) {
+      if (![...this.npcs.values()].some((npc) => npc.npc === kind)) console.log(`No site for ${kind} in this world`);
+    }
+  }
+
+  // Their snapshots reach clients through entityInterest when they change.
+  updateNpcs() {
+    const players = [...this.players.values()];
+    for (const npc of this.npcs.values()) npc.step(this.world, players, this.tick);
+  }
+
+  // A Wise Monkey dies for the rest of the match, and its team's hints with it.
+  hurtNpc(npc, amount, attacker) {
+    // LATER UPDATE: Ancient Monkeys are not damageable yet (see shared/npcs.js).
+    if (npc.dead || !npc.damageable) return;
+    npc.hp = Math.max(0, npc.hp - amount);
+    this.broadcast({ type: S2C.DAMAGE, id: npc.id, attackerId: attacker?.id ?? null, hp: npc.hp });
+    if (npc.hp > 0) return;
+    npc.dead = true;
+    this.npcs.delete(npc.id);
+    this.broadcast({ type: S2C.ENTITY_DESPAWN, id: npc.id });
+    console.log(`${attacker?.name ?? 'Something'} killed the ${npc.name}`);
+  }
+
+  // Right click on an NPC in reach: it answers this player only.
+  talk(player, id) {
+    const npc = this.npcs.get(id);
+    if (!npc || player.dead || this.tick < (player.nextTalkTick ?? 0)) return;
+    const s = player.state, n = npc.state, box = npc.def.box;
+    const eyeY = s.y + eyeHeight(s);
+    const gap = Math.hypot(Math.max(0, Math.abs(s.x - n.x) - box.halfW), Math.max(0, n.y - eyeY, eyeY - (n.y + box.height)),
+      Math.max(0, Math.abs(s.z - n.z) - box.halfW));
+    if (gap > NPC.talkReach) return;
+    player.nextTalkTick = this.tick + Math.round(NPC.talkCooldown * TICK_RATE);
+    const line = npcLine(npc, player, { progress: this.teamProgress.of(player.team),
+      features: { stormCloud: !!this.world.stormCloud, gorgeCave: !!this.world.gorgeCave } });
+    this.send(player, { type: S2C.SPEAK, id: npc.id, name: npc.name, voice: npc.def.voice, ...line });
+  }
+
   // ---- Combat ----
 
   // A punch: confirmed by casting from the attacker's eyes along this input's
@@ -1612,8 +1627,9 @@ export class Game {
     const s = player.state;
     const eye = { x: s.x, y: s.y + eyeHeight(s), z: s.z };
     const dir = lookDirection(s.yaw, s.pitch);
-    const block = raycastBlock(this.world, eye, dir, REACH_DISTANCE, (id) => isTargetable(id) && !isWater(id));
-    const targets = [...this.players.values(), ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()]
+    const block = raycastBlock(this.world, eye, dir, REACH_DISTANCE, blocksAttack);
+    const targets = [...this.players.values(), ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values(),
+      ...this.npcs.values()]
       .filter((p) => p !== player && (!(p instanceof Player) || p.team !== player.team) && !p.dead && p.connected);
     const hit = raycastPlayers(eye, dir, block ? block.t : REACH_DISTANCE, targets, (p) => playerBoxOf(p.state), HIT_TOLERANCE);
     if (!hit) return;
@@ -1624,12 +1640,10 @@ export class Game {
     const len = Math.hypot(dx, dz);
     if (len > 1e-6) { dx /= len; dz /= len; } else { dx = dir.x; dz = dir.z; }
     const push = KNOCKBACK_SPEED * (weapon.knockback ?? 1);
-    if(!target.immovable) {
     t.kx = dx * push;
     t.kz = dz * push;
     t.vy = Math.max(t.vy, weapon.lift ?? KNOCKBACK_UP);
     t.onGround = false;
-    }
     if (weapon.frost && (target instanceof Player || target instanceof Cow || target instanceof Crawler)) {
       t.slowTicks = ticks(FROST.seconds);
     }
@@ -1843,19 +1857,21 @@ export class Game {
   }
 
   takeFlag(player, flag) {
+    if(player.carrying || ![FLAG_STATE.HOME,FLAG_STATE.DROPPED].includes(flag.state))return false;
     flag.state = FLAG_STATE.CARRIED;
-    flag.held = false;
     flag.carrier = player;
     player.carrying = flag;
     player.state.carrying = true;
     player.grab = null;
     console.log(`${player.name} took team ${flag.team}'s flag`);
     this.flagEvent(flag, FLAG_EVENT.TAKEN, player);
+    return true;
   }
 
   // Leaves the carried flag where the carrier is; it falls from there.
   dropFlag(player) {
     const flag = player.carrying;
+    if(!flag)return;
     const { x, y, z } = player.state;
     player.carrying = null;
     player.state.carrying = false;
@@ -1867,6 +1883,7 @@ export class Game {
   }
 
   returnFlag(flag, by = null) {
+    if(flag.carrier?.carrying===flag){flag.carrier.carrying=null;flag.carrier.state.carrying=false;}
     flag.goHome();
     this.flagEvent(flag, FLAG_EVENT.RETURNED, by);
   }
@@ -1903,7 +1920,7 @@ export class Game {
         continue;
       }
       const own = player.flag;
-      if ([FLAG_STATE.DROPPED, FLAG_STATE.HELD].includes(own.state) && this.onFlag(player, own.body)) this.returnFlag(own, player);
+      if (own.state === FLAG_STATE.DROPPED && this.onFlag(player, own.body)) this.returnFlag(own, player);
       // Capture on your own pedestal while your flag is home, or while you're
       // flagless (your flag already captured).
       if (player.carrying) {
@@ -1913,7 +1930,7 @@ export class Game {
       }
 
       const target = [...this.flags.values()].find((f) => f.team !== player.team
-        && (f.state === FLAG_STATE.HOME || f.state === FLAG_STATE.DROPPED || f.state === FLAG_STATE.HELD) && this.onFlag(player, f.position));
+        && (f.state === FLAG_STATE.HOME || f.state === FLAG_STATE.DROPPED) && this.onFlag(player, f.position));
       if (!target) {
         player.grab = null;
         continue;
@@ -1940,9 +1957,9 @@ export class Game {
     this.tick++;
     this.water.tick(this.tick);
     for (const player of this.players.values()) {
-      // Each input is one tick of movement. Run whatever arrived since the last
-      // server tick so network jitter doesn't lose or duplicate inputs.
-      for (const input of player.inputQueue) {
+      // Each queued input runs one deterministic physics tick.
+      const inputs = player.inputQueue.splice(0);
+      for (const input of inputs) {
         player.lastSeq = input.seq;
         if (player.dead) continue;
         player.selected = input.slot;
@@ -1980,32 +1997,33 @@ export class Game {
         this.stepCrossbow(player, input.draw, input.fire);
         this.stepEating(player, input.eat);
       }
-      player.inputQueue.length = 0;
       this.regen(player);
     }
 
     this.leafDecay.tick();
     this.saplings.tick(this.tick);
     this.quarry.tick(this.tick);
-    this.goblins.update(this.tick);
     this.turretController.step(this.tick);
+    this.fortressTraps.step();
 
     this.updateFlags();
     this.updatePortals();
+    this.updateNpcs();
     this.updateContainers();
 
     const livingMobs = [...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()];
-    // The totem never moves, and climbers aren't shoved off their ladders.
-    const crowdGrid = assignMobSteering(livingMobs.filter((mob) => !mob.fixed));
+    // Climbers aren't shoved off their walls.
+    assignMobSteering(livingMobs);
     const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateRiftOrbs(), ...this.updateCows(), ...this.updateDragons(),
       ...this.updateMobs()];
-    for (const mob of resolveMobOverlaps(this.world, livingMobs.filter((mob) => !mob.dead && !mob.fixed && !mob.climbing), crowdGrid)) {
+    for (const mob of resolveMobOverlaps(this.world, livingMobs.filter((mob) => !mob.dead && !mob.climbing))) {
       if (!movedItems.includes(mob)) movedItems.push(mob);
     }
 
     for (const player of this.players.values()) {
       if (!player.inventoryDirty) continue;
       player.inventoryDirty = false;
+      this.teamProgress.noteInventory(player);
       this.send(player, { type: S2C.INVENTORY, ...player.inventory.toJSON() });
     }
 
@@ -2014,56 +2032,16 @@ export class Game {
       this.pendingBlockChanges.clear();
     }
 
-    this.syncGoblinInterest();
     const players = [...this.players.values()].map((p) => p.snapshot(this.tick));
-    const ordinary = movedItems.filter((e) => !e.goblin).map((e) => e.snapshot());
-    const goblins = movedItems.filter((e) => e.goblin).map((e) => ({ entity: e,
-      snapshot: this.compactGoblin(e.snapshot()) }));
+    const ordinary = movedItems.filter(e => this.items.has(e.id) || this.arrows.has(e.id) || this.riftOrbs.has(e.id))
+      .map(e => e.snapshot());
+    this.entityInterest.collect(this);
     const flags = [...this.flags.values()].map((f) => f.snapshot());
     const turrets = this.turretController.snapshot();
     for (const player of this.players.values()) {
       if (player.socket?.readyState !== 1) continue;
-      this.send(player, { type: S2C.STATE, tick: this.tick,
-        entities: [...players, ...ordinary, ...goblins.filter(({ entity }) =>
-          player.goblinKnown?.has(entity.id)).map(({ snapshot }) => snapshot)], flags, turrets });
-    }
-  }
-
-  goblinInRange(player, goblin) {
-    const a = player.state, b = goblin.state;
-    return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= GOBLINS.network.range;
-  }
-
-  compactGoblin(s) {
-    const { positionStep, yawStep } = GOBLINS.network;
-    const q = (value, step) => Math.round(value / step) * step;
-    return { id: s.id, x: q(s.x, positionStep), y: q(s.y, positionStep),
-      z: q(s.z, positionStep), yaw: q(s.yaw, yawStep), hp: Math.ceil(s.hp),
-      a: (s.walking ? GOBLIN_ANIMATION.WALK : 0) | (s.climbing ? GOBLIN_ANIMATION.CLIMB : 0)
-        | (s.mining ? GOBLIN_ANIMATION.WORK : 0) | (s.aiming ? GOBLIN_ANIMATION.AIM : 0)
-        | (s.crouching ? GOBLIN_ANIMATION.CROUCH : 0) | (s.gliding ? GOBLIN_ANIMATION.GLIDE : 0),
-      aboard:!!s.aboard,
-      ...(s.phase === undefined ? {} : {phase:s.phase,cargo:s.cargo,bombs:s.bombs,firing:s.firing}) };
-  }
-
-  syncGoblinInterest() {
-    const goblins = [...this.mobs.values()].filter((mob) => mob.goblin);
-    for (const player of this.players.values()) {
-      if (player.socket?.readyState !== 1) continue;
-      const known = player.goblinKnown ??= new Set();
-      const visible = new Set();
-      for (const goblin of goblins) {
-        if (!this.goblinInRange(player, goblin)) continue;
-        visible.add(goblin.id);
-        if (!known.has(goblin.id)) {
-          known.add(goblin.id);
-          this.send(player, { type: S2C.ENTITY_SPAWN, entity: goblin.describe() });
-        }
-      }
-      for (const id of known) if (!visible.has(id)) {
-        known.delete(id);
-        this.send(player, { type: S2C.ENTITY_DESPAWN, id });
-      }
+      const updates=[...players,...ordinary];this.entityInterest.forPlayer(this,player,updates);
+      this.send(player,{type:S2C.STATE,tick:this.tick,entities:updates,flags,turrets});
     }
   }
 
@@ -2073,32 +2051,7 @@ export class Game {
 
   // To every connected match player, optionally skipping one.
   broadcast(msg, except = null) {
-    if ((msg.type === S2C.SWING || msg.type === S2C.DAMAGE)
-      && this.goblinEntityIds.has(msg.id)) {
-      for (const player of this.players.values()) if (player !== except
-        && player.goblinKnown?.has(msg.id)) this.send(player, msg);
-      return;
-    }
-    if (msg.type === S2C.ENTITY_SPAWN && msg.entity?.type?.startsWith('goblin')) {
-      this.goblinEntityIds.add(msg.entity.id);
-      for (const player of this.players.values()) {
-        if (player === except || player.socket?.readyState !== 1
-          || !this.goblinInRange(player, { state: msg.entity })) continue;
-        const known = player.goblinKnown ??= new Set();
-        if (known.has(msg.entity.id)) continue;
-        known.add(msg.entity.id);
-        this.send(player, msg);
-      }
-      return;
-    }
-    if (msg.type === S2C.ENTITY_DESPAWN && this.goblinEntityIds.has(msg.id)) {
-      this.goblinEntityIds.delete(msg.id);
-      for (const player of this.players.values()) {
-        if (player === except || !player.goblinKnown?.delete(msg.id)) continue;
-        this.send(player, msg);
-      }
-      return;
-    }
+    if(msg.type===S2C.ENTITY_DESPAWN)for(const p of this.players.values())p.entityLast?.delete(msg.id);
     const data = JSON.stringify(msg);
     for (const p of this.players.values()) {
       if (p !== except && p.socket?.readyState === 1) p.socket.send(data);

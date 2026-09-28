@@ -52,7 +52,6 @@ const rareWeapons = (weight) => [ITEM.WIND_AXE, ITEM.ICE_SWORD].map((item) => ({
 const lootGear = (rareWeight) => [ropeBundles, ...uncommonGear, ...rareWeapons(rareWeight)];
 
 export const LOOT_TABLES = {
-  siegeGoblin: { rolls: [1, 2], entries: [...supplies, ...simpleGear, ...lootGear(1)] },
   looseChest: { rolls: [2, 3], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
   looseChestCentral: { rolls: [4, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
   tinyIsland: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(4), riftOrb, ...lootGear(1)] },
@@ -75,22 +74,6 @@ export const LOOT_TABLES = {
     { ...uncommonGear[0], modChance: 0.6 }] },
   dungeonCentral: { rolls: [6, 9], entries: [...supplies, ...usefulGear, ...ironGear(2),
     { item: ITEM.IRON_INGOT, weight: 12, min: 2, max: 6 }, goldenBeef(5), ...accessoryEntries(6), riftOrb, ...lootGear(6)] },
-  // The Goblin Totem's pile when it's destroyed: lots of iron, Golden Beef,
-  // accessories and Rift Orbs, modded most of the time.
-  goblinTotem: { rolls: [16, 22], entries: [
-    { item: ITEM.IRON_INGOT, weight: 14, min: 3, max: 8 },
-    { item: BLOCK.IRON_ORE, weight: 6, min: 4, max: 10 },
-    ...ironGear(3, 0.75), goldenBeef(8),
-    ...accessoryEntries(4).map((entry) => ({ ...entry, modChance: 0.8 })),
-    { ...riftOrb, weight: 6, max: 2 },
-    ...rareWeapons(2).map((entry) => ({ ...entry, modChance: 0.8 })),
-    { ...uncommonGear[0], modChance: 0.75 }] },
-  // The Goblin King's drop.
-  goblinKing: { rolls: [4, 6], entries: [
-    { item: ITEM.IRON_INGOT, weight: 10, min: 2, max: 5 },
-    ...ironGear(3, 0.6), goldenBeef(5),
-    ...accessoryEntries(2).map((entry) => ({ ...entry, modChance: 0.6 })),
-    { ...riftOrb, weight: 3 }] },
 };
 
 export function rollLoot(tableName, seed, x, y, z, slotCount = 27) {

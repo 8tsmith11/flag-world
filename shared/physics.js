@@ -10,9 +10,9 @@ import {
   CROUCH_SPEED_SCALE, CROUCH_HEIGHT, CROUCH_EYE_DROP, CROUCH_MAX_DROP, BOW_DRAW_SPEED_SCALE, EAT_SPEED_SCALE,
   GLIDE_SPEED, GLIDE_FALL_SPEED, SPRINT_SPEED_SCALE, WATER_CURRENT_SPEED,
   GRAPPLE_RANGE, GRAPPLE_SPEED, GRAPPLE_COOLDOWN,
-  FLIGHT_SPEED,
+  FLIGHT_SPEED, TREE_SETTINGS,
 } from './config.js';
-import { BLOCK, isSolid, isClimbable, isLadder, isDoor, doorState, isWater, waterLevel } from './blocks.js';
+import { BLOCK, isSolid, isClimbable, climbableBlockAt, isLadder, isDoor, doorState, isWater, waterLevel, branchBoxes } from './blocks.js';
 import { accessoryDef } from './accessories.js';
 import { ITEM } from './itemIds.js';
 import { FROST } from './tools.js';
@@ -79,7 +79,10 @@ function collides(world, minX, minY, minZ, maxX, maxY, maxZ, state = null) {
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
         const id = world.getBlock(x, y, z);
-        if (isSolid(id)) return true;
+        if (id === BLOCK.BRANCH) {
+          if (branchBoxes(world,x,y,z).some(b => minX < x+b[3]-EPS && maxX > x+b[0]+EPS
+            && minY < y+b[4]-EPS && maxY > y+b[1]+EPS && minZ < z+b[5]-EPS && maxZ > z+b[2]+EPS)) return BLOCK.BRANCH;
+        } else if (isSolid(id)) return true;
         if (state && isDoor(id)) {
           const door = doorState(id);
           const team = world.doorTeams?.get(`${x},${door.upper ? y - 1 : y},${z}`);
@@ -97,11 +100,11 @@ function collidesAt(world, box, x, y, z, state = null) {
 
 // Whether a player standing at (x, y, z) would overlap the block at (bx, by, bz).
 // box: their collision box (playerBoxOf).
-export function playerOverlapsBlock(x, y, z, bx, by, bz, box = PLAYER_BOX) {
+export function playerOverlapsBlock(x, y, z, bx, by, bz, box = PLAYER_BOX, bounds = [0,0,0,1,1,1]) {
   const { halfW, height } = box;
-  return x + halfW > bx + EPS && x - halfW < bx + 1 - EPS
-    && y + height > by + EPS && y < by + 1 - EPS
-    && z + halfW > bz + EPS && z - halfW < bz + 1 - EPS;
+  return x + halfW > bx + bounds[0] + EPS && x - halfW < bx + bounds[3] - EPS
+    && y + height > by + bounds[1] + EPS && y < by + bounds[4] - EPS
+    && z + halfW > bz + bounds[2] + EPS && z - halfW < bz + bounds[5] - EPS;
 }
 
 // Moves along one axis; on hit, snaps flush against the block face. Returns true if blocked.
@@ -113,7 +116,19 @@ function moveAxis(state, world, box, axis, delta) {
     remaining -= step;
     const prev = state[axis];
     state[axis] = prev + step;
-    if (!collidesAt(world, box, state.x, state.y, state.z, state)) continue;
+    const collision = collidesAt(world, box, state.x, state.y, state.z, state);
+    if (!collision) continue;
+    if (collision === BLOCK.BRANCH) {
+      let good = 0, bad = step;
+      for (let i = 0; i < TREE_SETTINGS.collisionSteps; i++) {
+        const mid = (good + bad) / 2;
+        state[axis] = prev + mid;
+        if (collidesAt(world, box, state.x, state.y, state.z, state)) bad = mid; else good = mid;
+      }
+      state[axis] = prev + good;
+      blocked = true;
+      break;
+    }
 
     // Snap to the nearest block boundary in the direction of travel.
     const extent = axis === 'y' ? (step > 0 ? box.height : 0) : (step > 0 ? box.halfW : -box.halfW);
@@ -170,7 +185,7 @@ function climbableAt(state, world) {
   for (let y = y0; y <= y1; y++) {
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
-        const id = world.getBlock(x, y, z);
+        const id = climbableBlockAt(world, x, y, z);
         if (isLadder(id)) return 'ladder';
         if (isClimbable(id)) rope = true;
       }
@@ -311,7 +326,8 @@ export function stepPlayer(state, input, world) {
   // Edge protection: crouching on the ground (not jumping), don't walk off
   // anything that would drop you more than CROUCH_MAX_DROP. Mobs set
   // state.edgeGuard to always have it.
-  const guard = (state.crouching || state.edgeGuard) && state.onGround && state.vy <= 0;
+  if (state.edgeGuard && state.onGround) state.edgeFloorY = state.y;
+  const guard = state.edgeGuard || state.crouching && state.onGround && state.vy <= 0;
   moveBody(state, world, box, guard);
 
   // Knockback fades (slowly in the air, fast on the ground) and stops against a wall.
@@ -379,9 +395,19 @@ function hasFooting(world, box, x, y, z) {
   for (let by = Math.floor(minY); by <= Math.floor(y + box.height - EPS); by++) {
     for (let bz = z0; bz <= z1; bz++) {
       for (let bx = x0; bx <= x1; bx++) {
-        if (isClimbable(world.getBlock(bx, by, bz))) return true;
+        if (isClimbable(climbableBlockAt(world, bx, by, bz))) return true;
       }
     }
+  }
+  return false;
+}
+
+// Ground mobs retain their takeoff height while jumping or climbing. A body
+// overlapping the side of a cliff is not a safe landing spot.
+export function mobHasFooting(world, state, x = state.x, z = state.z) {
+  const floor = Math.floor(state.onGround ? state.y : state.edgeFloorY ?? state.y);
+  for (let y = floor; y >= floor - CROUCH_MAX_DROP - 1; y--) {
+    if (isSolid(world.getBlock(Math.floor(x), y, Math.floor(z)))) return true;
   }
   return false;
 }
@@ -390,7 +416,9 @@ function hasFooting(world, box, x, y, z) {
 // most of it (found by halving) that stops at the edge.
 function guardedStep(state, world, box, axis, delta) {
   if (delta === 0) return 0;
-  const fits = (d) => hasFooting(world, box, axis === 'x' ? state.x + d : state.x, state.y, axis === 'z' ? state.z + d : state.z);
+  const fits = (d) => state.edgeGuard
+    ? mobHasFooting(world, state, axis === 'x' ? state.x + d : state.x, axis === 'z' ? state.z + d : state.z)
+    : hasFooting(world, box, axis === 'x' ? state.x + d : state.x, state.y, axis === 'z' ? state.z + d : state.z);
   if (fits(delta)) return delta;
   let ok = 0, bad = delta;
   for (let i = 0; i < 8; i++) {

@@ -9,6 +9,7 @@
 // the bow upright, and pulls the string back.
 
 import * as THREE from 'three';
+import { lightModel, lightUniform, updateEntityLight } from './entityLighting.js';
 import { createArm, createGliderModel, setHandItem, setBowDraw, handItem } from './models.js';
 
 // Resting pose: shoulder below and right of the view, arm reaching forward and
@@ -32,6 +33,8 @@ const BOB_PER_BLOCK = 2.4;
 export class ViewModel {
   constructor(color) {
     this.scene = new THREE.Scene();
+    this.light = lightUniform();
+    this.lightEquipment=undefined;
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.2));
     const light = new THREE.DirectionalLight(0xffffff, 1.6);
     light.position.set(0.3, 1, 0.6);
@@ -114,7 +117,12 @@ export class ViewModel {
     );
   }
 
-  render(renderer) {
+  render(renderer, world, position, daylight, dt) {
+    if (world) {
+      updateEntityLight(world,position,daylight,this.light,dt);
+      const equipment=this.hand.userData.item;
+      if(this.lightEquipment!==equipment){lightModel(this.scene,this.light);this.lightEquipment=equipment;}
+    }
     const size = renderer.getSize(new THREE.Vector2());
     if (this.camera.aspect !== size.x / size.y) {
       this.camera.aspect = size.x / size.y;

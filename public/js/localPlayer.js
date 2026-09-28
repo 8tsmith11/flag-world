@@ -27,8 +27,10 @@ export class LocalPlayer {
   }
 
   reconcile(snapshot) {
+    this.seq = Math.max(this.seq, snapshot.lastSeq ?? 0);
     this.pending = this.pending.filter((i) => i.seq > snapshot.lastSeq);
     const s = this.state;
+    const before = { x:s.x, y:s.y, z:s.z };
     s.x = snapshot.x; s.y = snapshot.y; s.z = snapshot.z;
     s.vx = snapshot.vx; s.vy = snapshot.vy; s.vz = snapshot.vz;
     s.kx = snapshot.kx; s.kz = snapshot.kz;
@@ -46,6 +48,12 @@ export class LocalPlayer {
     s.hookCooldown = snapshot.hookCooldown ?? 0;
     s.moveScale = snapshot.moveScale ?? 1;
     for (const input of this.pending) stepPlayer(s, input, this.world);
+    // Apply the same correction to both endpoints of render interpolation.
+    // Otherwise each server packet briefly bends the camera back to an old
+    // prediction, which is especially visible during a fast turn.
+    this.prev.x += s.x-before.x;
+    this.prev.y += s.y-before.y;
+    this.prev.z += s.z-before.z;
   }
 
   // Jumps straight to a server state (respawn) without interpolating from the old spot.

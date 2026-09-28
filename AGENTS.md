@@ -29,17 +29,15 @@ including the host, plays by opening `http://<host-ip>:3000`.
   Match players outlive their connection and are reclaimed by name; see the
   connection flow in `PROTOCOL.md`.
 - World generation is deterministic from the seed, the player count and the
-  world size (`WORLD_SIZES` in `shared/worldgen.js`: Test, Tiny, Small,
-  Medium, Large); only those three are sent to clients. Test is the small slab world.
-  The others are floating islands (`shared/islands.js`) and are tuned from
+  world size (`WORLD_SIZES` in `shared/worldSizes.js`, re-exported by
+  `shared/worldgen.js`: Small, Medium, Large); only those three are sent to
+  clients. They are floating islands (`shared/islands.js`) and are tuned from
   that config plus the constants at the top of `islands.js`. Sizes differ in
   the center island's width and its gap to the ring (`WORLD_SIZES`);
   `ISLAND_LAYOUT` (ring and scatter thickness, keep spacing) is shared and
   `islandLayout(size)` derives the rest, world width included. Caves are worm tunnels (smooth noise-steered
   paths carving round tubes) carved into each island's buffer (`carveCaves`)
-  before fragment removal. The Test
-  world is carved by the same code (as one square "island"), plus a tunnel
-  near the first keep. Use
+  before structure placement. Use
   `world.sizeX`/`sizeY`/`sizeZ`, not constants.
 - Chunks are sparse: `World` only stores chunks that have held a non-air
   block, and `getBlock` returns air for missing ones. Clients mesh only chunks
@@ -82,24 +80,6 @@ including the host, plays by opening `http://<host-ip>:3000`.
   All three share `server/provocation.js`: player damage makes them hunt the
   attacker until they lose sight of them for `PROVOKE_FORGET_TIME`. Worldgen
   picks Crawler spawn points (`world.mobSpawns`) and roosts (`world.roosts`).
-- Goblins: the Goblin Fortress is modules on a cell grid, all data in
-  `shared/goblinModules.js` (module types, `registerModule`/`moduleBlocks`,
-  `planConnection`, starting layout, surface templates: gatehouse, hut,
-  longhouse, lookout, tree plot) and placed by `shared/goblinFortressGen.js`
-  inside the central island before caves (which avoid it). The graph lives in
-  `world.goblinFortress`. Every goblin number is in `shared/goblins.js`
-  (`goblinTimeScale` speeds up all goblin timers for testing).
-  `server/goblins.js` (GoblinController) spawns the Totem, King and colony
-  into `Game.mobs` and owns storage, population, the project queue, repairs
-  (`intended` blocks vs. `blockChanged`), entrances and surfacing groups;
-  projects are block task lists planned in `server/goblinProjects.js`, done by
-  the mobs in `server/goblin.js` (Worker digs, Builder places, Soldier/Archer
-  guard), routed by `server/goblinNav.js` (module graph, shaft ladders,
-  surface A*). With no player near, `server/goblinOffscreen.js` advances the
-  same tasks at estimated rates. Goblin block changes go through
-  `controller.setBlock` so they aren't taken for damage. Client models share
-  one base goblin (`render/goblinModels.js`, `GOBLIN_LOOKS`); creative players
-  get `goblinStatus` for the totem inspector (`goblinInspector.js`).
 - Day/night is visual only: the server sends `dayTime` in `welcome`, clients
   run the clock from `state` ticks and `render/sky.js` lights the scene.
 - Breaking a block needs the held item's tool strength (bare hands are
@@ -144,12 +124,11 @@ server/
   dragon.js                  Dragons: patrol, landing, leash, fire breath
   crawler.js                 Crawlers: wandering, hunting, wall climbing, bites
   eel.js                     Void Eels: patrol under an island, chase exposed players
-  goblins.js                 Goblin Fortress controller: storage, population, projects, repairs, entrances, damage
-  goblin.js                  Goblin Totem, King, Worker, Builder, Soldier and Archer mobs
-  goblinProjects.js          Goblin projects as block tasks: sites and planners for shafts, modules, buildings
-  goblinOffscreen.js         Offscreen goblin simulation (estimated work rates)
-  goblinNav.js               Goblin routing: module graph, shaft ladders, surface A*
+  spatialHash.js             Shared server targeting, push, sensor and interest index
+  entityInterest.js          Changed-only mob replication at distance cadence
   provocation.js             Shared grudge (provoked target) and line-of-sight test
+  npcs.js                    NPC entities (Wise/Ancient Monkeys): head turns, sit/stand/stroll, what they say
+  teamProgress.js            Per-team items obtained, crafted and placed, for Wise Monkey hints
   flag.js                    A player's flag: home / carried / dropped / captured
   containers.js              Chest and furnace tile entities: slots, shift-click, smelting
 shared/                      Runs on server and client
@@ -161,14 +140,21 @@ shared/                      Runs on server and client
   recipes.js                 Crafting recipes (with stations), smelting and fuel data
   tools.js                   Hammer and sword stats
   world.js                   Sparse chunked voxel storage (World, Chunk), tile entity map
-  worldgen.js                World sizes config, seed parsing, generateWorld, the Test world
+  worldgen.js                Seed parsing and shared generateWorld entry
+  worldSizes.js              World size registry (re-exported by worldgen)
   islands.js                 Floating-island world gen (center, middle ring, outer scatter, bridges)
+  centralTerrain.js          Seeded highland/lowland regions, curved ridge and eroded height terraces
+  riverCave.js               Radius-scaled gorge tunnel with a lined bed, walking shoulders and preserved roof
   structures.js              Keeps, sand shores, trees, seeded PRNG shared by the generators
-  goblins.js                 Goblin tuning (placement, colony, projects, caps, offscreen), goblinTimeScale
-  goblinModules.js           Fortress module types, grid, module/connection blocks, starting layout, surface templates
-  goblinFortressGen.js       Places and builds the starting fortress in the central island
+  ballistics.js             Discrete drag/gravity aim and clear-arc helpers
   physics.js                 Deterministic player/item movement and voxel collision
   raycast.js                 Voxel raycast (crosshair block) and ray/box tests (punch targets)
+  torches.js                 Final generated attachment resolution against actual solid faces
+  vegetation.js              Seeded biome plants and hanging strands; construction reservations
+  npcs.js                    NPC kinds as data: model, box, hp, behavior, voice, dialogue
+  npcSites.js                Worldgen: Wise Monkey shrines, Ancient Monkey seats, the storm cloud
+  dialogue.js                Reusable dialogue: voices, subtitle timing, progress conditions, line choice
+  npcLines.js                Wise Monkey hints/clues/stranger lines, Ancient Monkey sound responses
   protocol.js                Message type names, phases, entity type names
 public/
   index.html                 Page shell and import map
@@ -181,8 +167,8 @@ public/
     itemIcon.js              DOM item icons for the hotbar and inventory
     inventoryScreen.js       Inventory / workbench / furnace / chest screen: slots, cursor, recipes, preview
     hud.js                   Health bar, kill feed, flag grab bar, notifications
-    goblinInspector.js       Creative-mode Goblin Totem inspector panel
     lobby.js                 Lobby and match-in-progress screens, remembered name
+    dialogue.js              Subtitles (bottom center), speech synthesis and sound-only NPC voices
     spectator.js             Free-fly camera for eliminated players
     localPlayer.js           Client-side prediction and reconciliation
     debug.js                 Debug HUD
@@ -192,15 +178,370 @@ public/
       sky.js                 Day/night: sun, moon, stars, sky and fog color, lights
       mesher.js              Chunk -> BufferGeometry (visible cube faces; shaped blocks as colored boxes)
       chunkRenderer.js       Meshes chunks within the view distance, nearest first; unloads far ones
+      plantMaterial.js       Alpha-tested plant atlas, shader wind and distance fade
+      entityLighting.js      Shared air-cell sampling, smoothing and model/instance shader lighting
       entityRenderer.js      Remote entity models, snapshot interpolation, player animation
       models.js              Player model (body, head, arm), item models (cubes, hammer)
       viewModel.js           First-person arm and held item
       blockHighlight.js      Targeted block outline and break progress overlay
       flagRenderer.js        Flags, carried flags on backs, light beams, return puffs
       grappleLine.js         Grappling hook rope and hook head while a pull is on
-      goblinModels.js        Base goblin model (Worker, Builder, Soldier, Archer, King gear) and the Goblin Totem
-      goblinEffects.js       Goblin Totem destruction burst
+      monkeyModels.js        Orangutan and gorilla NPC models on one rig; pose blending and idle animation
+      stormEffects.js        Storm cloud flashes (additive sprites) and thunder
 scripts/
   check.js                   `npm run check`
 PROTOCOL.md                  WebSocket message reference
 ```
+
+
+## Reusable structures and goblin worldgen
+
+- `shared/structures/` is civilization-neutral. `buildability.js` reads the
+  central terrain, connected water components, trees and registered structure
+  boxes; `site.js` ranks eligible anchors outside caller-supplied reservations;
+  `jigsaw.js` resolves weighted connector pools
+  with rotation, uniqueness, required pieces, collision and earthwork rejection;
+  `density.js` limits local excavation fill; `terrace.js` resolves local pads;
+  `walls.js` clusters footprints and smooths axis-aligned outlines;
+  `place.js` writes the resolved blocks and registers boxes/loot.
+- Rejected jigsaw candidates defer voxel allocation until accepted (or until
+  a validator reads their blocks). Accepted plans remain plain data. Density
+  checks reuse factored axis intersections with a conservative volume bound;
+  the exact local fill limit and deterministic layout remain unchanged.
+  Immutable wall outlines reuse membership indexes. Fortress content reuses
+  hall/shaft templates and copies only room loot metadata for depth changes.
+- `worldSizes.js` holds the size registry; `worldgen.js` remains the seeded
+  generation entry. `islands.js` accepts noise functions and a progress callback.
+  The server sends `generation` percentages before `welcome`. Client generation
+  runs in `public/js/worldWorker.js` through `worldGeneration.js`, using the
+  same shared algorithms and vendor noise library without requiring worker
+  import maps. `World.fromData` restores prototypes after buffer transfer;
+  worker copies omit construction plans. The startup panel stays responsive
+  and shows a percentage bar without generation details; generation errors are displayed.
+- New worldgen producers must register occupied bounding boxes in
+  `world.structures` (including standalone chests and roosts); the existing
+  keeps are included by their footprint in buildability. Natural terrain masks
+  remain unchanged by construction.
+- `shared/goblins/surfacePieces.js` and `fortressPieces.js` provide the content
+  pools; `settings.js` scales continuously from the central island radius;
+  `fortressLayout.js` chooses a winding spine, random rooms, branches and a
+  sealed cliff gallery through the generic jigsaw assembly API.
+  `gatehouses.js` supplies timber gatehouse content; `generate.js` assembles
+  a complete village and sealed fortress after
+  other structures and trees in `islands.js`. All generation tuning is in
+  `STRUCTURE_GEN` and `GOBLIN_GEN` in `shared/config.js`, without named world-size branches.
+- `world.goblinPlan` retains surface pieces, connections, breadth-first order,
+  pad earthworks, roads, rings/gates/posts, buildability and fortress stages.
+  The final stage is placed; `fortress.stages.initial` retains the direct
+  ladder shaft and Totem Hall for later construction. The final stage plugs
+  that lower shaft and winds through random rooms, level hallways and lined
+  1×1 ladder shafts into the hall from the side. A separate King's room is
+  connected to the hall and is the deepest chamber. Named King/Totem spawn
+  points remain data for later slices. The Castle's shaft mouth is flush with
+  its ground floor. Towers use central hatch ladders, compounds contain small
+  seeded building clusters, and wall-post ladders stay on the inside. Raised platforms outside a compound
+  must exceed the normal sprint-jump range to its wall. Enclosure outlines
+  cannot cut through another building or tower. `fortress.roomOrder` records
+  main-route rooms; `routeOrder` records every connected room, hall and shaft.
+  `world.goblinPlan.settings` retains scaled constraints; `reserved` marks a
+  circular future-use center zone. Cliff galleries have single-block slits
+  and brick buttresses. Tree plots, stairs underground, colony AI,
+  construction, sieges and creative overlays are absent.
+- Goblin Bricks retain historical block ID 60 (hardness 8); hidden poison
+  shooters retain IDs 79–82. IDs 59 and 61 stay reserved. Mushroom decoration
+  uses new block ID 83. Never reuse deleted IDs.
+- `server/fortressTraps.js` pairs concealed wall shooters with floor sensors,
+  launches ordinary Arrow entities, excludes goblin factions and applies
+  server-owned poison through existing damage messages. Breaking the shooter
+  disables its sensor; poison expires and cannot reduce HP below one.
+- `shared/blockTextures.js` defines atlas UVs. `chunkRenderer.js` packs all
+  textured block materials with extruded gutters and mipmaps, nearest
+  magnification and renderer-maximum anisotropy. Shaped blocks retain their
+  model geometry. Goblin Brick artwork is the historical 32-pixel drawing
+  recovered with `git show`, resampled without smoothing into the same atlas.
+- `registeredBlockIds()` and `registeredItemIds()` enumerate the actual
+  registries, including air and encoded block variants.
+  Creative recipes are generated from that inventory registry. Mushroom
+  inventory art is `public/textures/mushroom.svg`, referenced by its definition.
+- Crawlers use `pathfind.js` with body-width clearance and partial paths to
+  chase targets in the air; target acquisition is separate from reachability.
+  `mobSteering.js` resolves overlaps symmetrically with bounded, collision-safe
+  pushes using fresh position grids. Player prediction physics remains shared.
+- `node scripts/structure-map.js <seed> [small|medium|large]` prints an island
+  overview (reserved center and cliff protrusions), detailed compounds,
+  gatehouses/Castle, and fortress level slices (`--surface-only` omits slices).
+  `node scripts/village-check.js 1 2 3 --maps` checks placed voxels and writes
+  ASCII artifacts under `/tmp/structure-<seed>.txt`. Also run `npm run check`.
+
+
+## Lighting, hydrology and lobby media
+
+- All tuning for these systems lives in `shared/config.js`: `LIGHTING`,
+  `SKY_SETTINGS`, `CLOUD_SEA`, `RIVER_SETTINGS`, `GENERATION_PROGRESS`,
+  `LOBBY_MEDIA`, and `LOBBY_CAPTURE`. The day/night cycle is 12 minutes.
+- `shared/lighting.js` contains bounded opaque-aware block floods, cached
+  sky/void boundary rays and bounded opaque-aware open-air floods. Direct sky
+  uses the actual highest opaque block. Void sources use bottom/side exposure;
+  roof/floor-enclosed cavities receive short spill at their openings, so a
+  straight fortress slit does not illuminate the entire gallery.
+  `public/js/lightingWorker.js` mirrors lighting-relevant edits; initial chunk
+  light is computed there. `render/voxelLighting.js` schedules loads and patches
+  Basic materials with one three-channel block/sky/void vertex attribute. Time changes
+  only the skylight uniform. Edits remove and re-add light within the configured
+  reach; opaque edits also reflood loaded chunks along changed boundary rays.
+  Exact dirty chunks feed the existing per-frame remesh budget.
+  No PointLights, per-frame floods, or full-world lighting recomputations.
+- Torch ids 84–88 are floor/wall variants; never reuse or renumber ids.
+  Item 84 drops from every variant and crafts from planks. Atlas torch art and
+  `public/textures/torch.svg` provide its texture/icon; held models use a torch.
+- `shared/rivers.js` plans lake sources, optional through-lakes and continuous
+  noisy downhill curves to the real central-island boundary. A distance field
+  carves tapered beds/banks and constant-level reaches with waterfall drops.
+  Its first river is a radius-scaled gorge with a winding outward route,
+  varying width and steep rock banks. Its former source lake is replaced by
+  a river cave bending around the reserved center to a second cliff waterfall.
+  `rivers[0].waterfalls` records both outlets. Tributaries can reuse its
+  downstream route and levels. The gorge updates the central surface map;
+  original natural terrain masks remain unchanged, as for other rivers.
+  `finishRiverBanks` runs after village earthworks. Lake footprints respect
+  minimum area and the circular central reserve. Natural terrain masks remain
+  unchanged. `world.riverGenerationMs` includes bank finishing time.
+- `shared/generationProgress.js` maps internal stages to monotonically
+  increasing percentages. `generation` carries only `{percent}`. Server build,
+  client worker generation and first visible meshes share one loading bar.
+- `public/js/lobbyMusic.js` loops the CC0 track in `public/audio/lobby.ogg`
+  after a gesture and fades it when loading finishes. Its volume is remembered.
+  Source/license and normalization are in `ASSETS.md`.
+- `public/js/fullscreen.js` handles fullscreen, optional Keyboard Lock,
+  paused input and close confirmation. Keyboard Lock requires localhost/HTTPS;
+  ordinary HTTP LAN clients retain the browser's shortcut restrictions.
+- `render/capture.js` downloads the current view after host-authorized
+  `captureLobby`; it does not enable preserveDrawingBuffer for normal frames.
+  `public/capture.html` / `public/js/captureScene.js` render a fixed large world
+  without joining a match. `scripts/capture-lobby.js` uses externally installed
+  Playwright to produce `public/img/lobby.png` from that actual renderer.
+- Focused checks: `node scripts/lighting-check.js`, `node scripts/river-check.js`
+  (seeds 1–3, optional seed arguments or `--large`), and `npm run check`.
+  River checks write overhead SVG maps to `/tmp/river-<seed>.svg`.
+
+
+## World appearance and entity illumination
+
+- `WORLD_LOOK`, `ISLAND_SHAPE` and `VEGETATION` in `shared/config.js` contain
+  appearance/profile/decorations tuning. Height and biome noise use domain
+  warping; island outlines stay near-circular. Bottom heights use broad 2D
+  lobes anchored to island height, independent of small surface bumps. Only
+  the thin outer shell uses extra 3D noise, retaining a sheer upper rim and
+  connected rock columns. Sealed fortress galleries may bridge that tapered
+  shell; interior rooms retain the full rock-margin requirement.
+- `shared/torches.js` resolves generated torches after all construction and
+  river bank finishing: prefer a solid wall, otherwise a solid floor. IDs
+  84–88 remain unchanged. Floor torches do not acquire a wall orientation
+  during jigsaw rotation. Wall models tilt rigidly out from their supporting
+  face. Authoritative placement rejects ceilings/non-solid supports; existing
+  attachment cleanup also handles broken supports and explosions.
+- Plant IDs 89–101 follow the historical torch range; mushroom 83 is retained
+  and now uses the same crossed-quads shape. Every plant/strand has unique SVG
+  inventory art and enters creative inventory through the canonical item
+  registry. No historical/reserved ID is reused. Existing fortress mushroom
+  farm decorations remain explicit content rather than biome vegetation.
+- `shared/vegetation.js` runs last with its own seeded RNG and noise clusters.
+  Surface plants require grass/dirt and clearance; a column mask excludes all
+  registered construction, keeps, goblin roads/walls and the circular reserve.
+  Roots/vines occupy exposed cliff cells and the upper underside. Their
+  emission is data in the registry. `blocksAttack` excludes decorations from
+  client aiming and authoritative melee rays while mining still targets them; non-solid registry properties
+  already exclude them from projectiles, targeting LOS and collision.
+- `render/plantMaterial.js` packs SVG artwork into one alpha-tested atlas.
+  The mesher batches two crossed quads per cell into one plant draw per chunk.
+  Anchored shader sway and distance fade require no per-plant CPU updates or
+  remeshing. Plant item models reuse their SVG textures.
+- `render/entityLighting.js` samples the same block/sky/void buffers and uses
+  exactly the terrain's tint and time coefficients. Normally one light-grid
+  lookup per visible entity/frame; a sample inside solid terrain selects the
+  brightest of its six non-solid neighbours. One RGB uniform per entity is
+  smoothed over the configured fraction of a second. World-space normals add
+  slight up/down shading. Material bindings refresh only when equipment
+  changes; shared materials receive independent entity bindings. Players,
+  cows, dragons, crawlers, eels, items, arrows, the first-person arm/held item
+  and turret models use this helper. Sprites are supported; `lightInstance`
+  writes the same smoothed value into an instance attribute for future batches
+  (current entity factories do not use instancing). Hit-flash emissive colors
+  remain visible. Entity night brightness has no separate visibility floor.
+  Empty air chunks are requested through `LightingClient.requestCell` too;
+  entities retain their previous illumination while buffers arrive. This
+  includes the first-person hand when flying beyond stored terrain chunks.
+  Worker floods handle regions outside world bounds without invalid buffer
+  allocations or aliased block light. Sea glow fills missing skylight rather
+  than adding to full skylight; night sky and void strengths remain separate
+  config values, shared by terrain, water, vegetation and entities.
+- `public/look.html` / `public/js/lookScene.js` provide an actual-renderer
+  review harness. `scripts/look-capture.js before|after 1 2 3` uses externally
+  installed Playwright (`PLAYWRIGHT_MODULE`, optional `CHROME_PATH`) and saves
+  above/side/below/forest day/night PNGs and timings under `/tmp/look-<label>`.
+  It detects shader compilation errors and checks time-only remesh counts.
+  The forest camera finds actual standing space after terrain earthworks,
+  avoiding old height-map samples inside solid ground or tree trunks.
+- Focused checks: `node scripts/world-look-check.js` checks Small seeds 1–3,
+  actual torch supports, vegetation exclusions, fortress darkness, creative
+  choices, determinism, melee and arrows through plants. It includes the
+  existing village check. `node scripts/lighting-check.js` checks sky/void and
+  block light, boundary-ray edits, straight cave mouths, real torch placement
+  and support drops. Also run `node scripts/river-check.js` and `npm run check`.
+  Entity appearance checks are manual at the user's request.
+
+## Central island regions and hanging support
+
+- `CENTRAL_TERRAIN` and `GORGE_SETTINGS` in `shared/config.js` tune the new
+  central features. `centralTerrain.js` derives orientation, transition,
+  ridge arc/radius and gorge side from an independent seeded stream. Heights,
+  noise scales, terrace bands and gorge dimensions scale from the real island
+  radius. The circular reserve receives exactly zero regional/terrace blend.
+  `islands.js` includes the regional profile in planning bounds and stacked
+  island clearance, before voxel allocation. Outline and underside algorithms
+  stay shared with other islands. The hot ore pass reads neighbours in its
+  current chunk directly; only boundary cells need world lookups. Exposure
+  rules and noise calls stay the same.
+- `rivers.js` records `world.terrainExclusions` for the gorge and its buffered
+  rim and river cave. `riverCave.js` extends the upstream end into a tunnel,
+  bending around the circular reserve to another face, and carves
+  bounded columns from the existing river distance field, retaining a rock
+  roof and dry walking shoulders. The surface gorge remains open; both cliff
+  outlets waterfall into the void. `GORGE_SETTINGS` supplies tunnel dimensions
+  and the fortress rock margin; `world.gorgeCave` retains entrance/exit data.
+  `structures/buildability.js` includes those columns in generic keep-out
+  cells; site selection, jigsaw pads, roads, walls and fortress rooms consume
+  that same map. `worldStructures.js` respects the mask for other construction.
+  `centralTerrain.lowland` is a transferred Float32 map; `structures/site.js`
+  scores broad height relief and lowland preference from `STRUCTURE_GEN.score`.
+  Fortress cliff selection
+  in `goblins/fortressLayout.js` rejects occupied cliff approaches, keeping the
+  sealed protrusion clear of reserved terrain and gorge walls.
+- `world.reservedZones` holds the center reservation. The shared
+  `structures/place.js` policy checks resolved plans and is reused by standalone
+  structure, roost and quarry placement. Random structures include the configured
+  reservation margin for roof overhangs and earthworks. Tree canopies also respect
+  this policy. Forest density, noisy clusters and clearings tune from
+  `BIOME_SETTINGS`; lowland forest patch sizes tune from `CENTRAL_TERRAIN`.
+  Retain trees in open village space and around its walls; construction
+  reserves its footprints and required headroom, without an extra clearing ring.
+  Required village/fortress placement precedes optional random structures;
+  those structures avoid the resolved pieces and outer enclosure. Trees follow
+  construction, with height-aware footprint checks so buried rooms do not
+  exclude surface trees. `placePlan` records a transient per-column headroom
+  map consumed by tree canopy checks, preserving roads and archer platforms
+  while allowing trees in open courtyard space. It is discarded after growth.
+  Surface plans defer earthwork allocation until gatehouses validate. Each
+  candidate anchor uses a separate repeatable layout seed to avoid retrying
+  the same unsuitable branch pattern at every site.
+  `structures/walls.js` opens a gate only when a road has opposite approaches,
+  avoiding gaps where a terminating road merely touches the enclosure.
+- Glowing vegetation frequency and emission tune from `VEGETATION`. The goblin
+  song gain is `AUDIO.fortressGain`; sound files and falloff remain shared.
+  `public/js/audioMixer.js` registers both gorge waterfalls as ambience sources.
+- Hanging definitions in `blocks.js` carry support `[0,1,0]`. `vegetation.js`
+  starts a strand only below a solid block or an existing strand. `Game.stepPlace`
+  enforces the same rule; generic attachment cleanup drops the remaining chain
+  when overhead support disappears. `shared/audio.js` maps all crossed-quad
+  plants and strands to grass audio for both breaking and placing.
+- `node scripts/central-island-check.js` checks seeds 1–3: structure/river
+  reserve exclusions, roofed river cave with walking shoulders, both waterfalls,
+  fortress separation, existing village checks and repeat-seed voxel hashes.
+  `--large` uses Large worlds. The user owns visual/gameplay checks and the
+  three entity appearance checks. Run `npm run check`; compare generation with
+  the same Large seeds and team count, and measure the actual dense-forest view.
+
+## Branching forests and stone spires
+
+- Branch is new block ID 102; all historical and reserved IDs remain intact.
+  `branchBoxes` in `shared/blocks.js` caches the 64 six-neighbour shapes: a
+  one-third-width core and arms toward Branch/log/leaf faces. The same boxes
+  drive chunk meshing, authoritative/client raycasts, predicted player/item
+  collision, eel body clearance, placement overlap checks and multipart
+  selection overlays.
+  Branches are solid but light-transparent. Meshing reuses the bark atlas;
+  `public/textures/branch.svg` supplies their unique automatic creative icon.
+- `TREE_SETTINGS`, `SPIRE_SETTINGS` and `WATER_SHIMMER` in
+  `shared/config.js` hold tuning. `shared/trees.js` creates seeded oak, birch,
+  pine and ancient skeletons with face-connected diagonal steps, leaning full
+  log trunks, forks and leaf clusters. It validates the complete plan before
+  writing, respecting keeps, construction headroom, water and the center reserve.
+  Crowns obstructed by terrain prune disconnected leaf cells with a local flood;
+  unobstructed crowns reuse cached species offsets without that extra work.
+  `shared/structures.js` retains the existing forest cell rolls/density and
+  exports the shared sapling/tree entry points. Giants precede understorey trees.
+  Natural trees register `kind: 'tree'` boxes and retain `world.trees` records;
+  tree boxes allow canopy overlap and forest-floor vegetation. A transient
+  construction-only obstacle list avoids repeated scans over preceding trees.
+- `shared/woodedBiomes.js` overlays Ancient Forest only on the original forest
+  mask, retained as `world.regularForest`; `world.ancientWeights` gives a smooth
+  transition in trunk height/width, limb length and crown radius. `shared/biomes.js` retains the original
+  terrain-weight names and adds two surface biome codes. Stone Spires are
+  exclusively central-island highlands, never team islands or the reserve.
+- `shared/stoneSpires.js` writes individually grounded tapered pillars, grassy
+  caps, connected stone arch strips and boulders after rivers and construction,
+  avoiding their occupied footprints. It updates the surface map and registers feature boxes while
+  preserving natural terrain masks. `world.stoneFeatures` records anchors and
+  resolved cells for stability checks. Small top trees follow forest growth.
+  `shared/fallenTrees.js` places a few supported ground-following old-growth
+  logs. Hollow giant bases have a walk-in entrance and short rooted foundations.
+- `server/leafDecay.js` handles natural Branches and leaves in the same bounded,
+  event-driven queue. Branch support paths traverse only Branches to a log;
+  leaf support paths may traverse both leaves and Branches. Reach and work
+  budgets are configured; connected-foliage discovery is spread across ticks
+  and support searches charge the tick budget by visited nodes. Logs never decay.
+  `Game.stepPlace` marks placed
+  foliage so it never decays; replacements/removals clear that protection.
+- `render/terrainAnimation.js` patches the existing voxel-lit materials:
+  water shine uses world position/time and an upward-face mask. It shares
+  the plant time uniform, without CPU block updates, refraction or remeshing.
+  Leaves remain static; only the existing plants and hanging vegetation sway.
+  Shine passes through voxel illumination, so it does not light dark water.
+- `node scripts/tree-biome-check.js` checks Branch geometry/rays/physics,
+  creative coverage, hollow entry, natural versus placed decay, all generated
+  Branch/leaf support paths, original-forest containment, central highland-only
+  spires, grounded rock components and repeat-seed voxel/biome hashes.
+  `--large` uses seeds 1–3 and four teams and compares generation against
+  `/tmp/trees-before.json` when present, or an explicit `--baseline=PATH`.
+  `scripts/look-capture.js LABEL 1 --forests-only
+  --size=large` measures dense regular and ancient forest views with the actual
+  renderer and checks shader compilation and time-only remesh counts.
+  Run `node --experimental-loader ./scripts/client-module-loader.js
+  scripts/tree-mesh-check.js` for actual Branch mesh/bark bounds and static leaf
+  geometry. Also run existing central-island, world-look, lighting, river and village
+  checks and `npm run check`. User playtesting owns appearance/gameplay review.
+
+## NPCs, the monkeys and spoken dialogue
+
+- NPC kinds are data in `shared/npcs.js` (`NPC_DEFS`): entity type `npc` with
+  `npc` naming the kind; model, box, hp (null = cannot be damaged), behavior
+  (`seated` or `restless`), voice and dialogue. `server/npcs.js` runs them in
+  `Game.npcs` (not `Game.mobs`): no pathfinding or combat, a quantized head
+  turn toward the nearest player, and for `restless` a sit -> stand -> walk /
+  look -> walk home -> sit cycle whose pose is in the snapshot. The client
+  animation (`render/monkeyModels.js`) blends joint targets per pose, so later
+  behavior can reuse `stand`, `walk` and `look`. Ancient Monkeys are marked
+  "LATER UPDATE": no damage and no abilities yet.
+- Dialogue is reusable: `shared/dialogue.js` holds voices (`speech` via the Web
+  Speech API with pitch/rate from `DIALOGUE.voices`, or `sound`), subtitle
+  timing and data conditions (`obtained`/`crafted`/`placed`/`feature`,
+  `all`/`any`). Lines are data in `shared/npcLines.js`. The server answers
+  `talk` with a private `speak`; `public/js/dialogue.js` shows the subtitle and
+  speaks it at master x voice volume (the `voice` slider comes from
+  `AUDIO.volumes`). Speech is optional; subtitles always show.
+- Team progress for hints is only what they need (`server/teamProgress.js`):
+  inventory contents when an `inventory` message is sent, non-creative crafts,
+  and placements (item ids). `node scripts/npc-hints-check.js` checks every
+  hint/clue condition on a fresh team and that the hints pass in order.
+- `shared/npcSites.js` runs after the goblin village and before optional
+  structures and trees, and registers shrine and cloud boxes in
+  `world.structures`. Shrines are 7x7 open platforms with a stepped roof,
+  corner logs, pillar torches and a large chair, on a levelled pad
+  (`SHRINE_GEN`). The Water Monkey sits in the deepest roomy river cell near the
+  middle of `world.gorgeCave` (fallback: `rivers[0]`, flagged `fallback`). The
+  storm cloud (`STORM_CLOUD`) is an ellipsoid plus puffs, hollowed above a
+  floor, with a doorway facing the island and window gaps; Storm Cloud (id
+  120) is solid, soft and light-transparent. Tuning: `NPC`, `DIALOGUE`,
+  `SHRINE_GEN`, `STORM_CLOUD` and the monkey/thunder entries of `AUDIO`.
+- Monkey and thunder sounds are CC0 recordings in `ASSETS.md`, converted by
+  `scripts/prepare-audio.py` (`FLAG_AUDIO_ONLY` limits it to matching files).

@@ -4,15 +4,8 @@
 
 import * as THREE from 'three';
 
-const TEXTURE_SIZE = 512;
-// [height as a fraction of world height, opacity, drift in blocks/s, blob count]
-const LAYERS = [
-  [0.22, 0.55, 1.5, 70],
-  [0.52, 0.7, 2.5, 55],
-  [0.86, 0.8, 4, 80],
-];
-// Sheets extend past the world so the edges aren't visible from the islands.
-const OVERHANG = 400;
+import { CLOUD_SEA as C } from '/shared/config.js';
+const TEXTURE_SIZE=C.textureSize,LAYERS=C.layers,OVERHANG=C.overhang;
 
 // A tile of soft blobs. Uses Math.random: clouds needn't match between players.
 function cloudTexture(blobs) {
@@ -21,12 +14,12 @@ function cloudTexture(blobs) {
   const ctx = canvas.getContext('2d');
   for (let i = 0; i < blobs; i++) {
     const x = Math.random() * TEXTURE_SIZE, y = Math.random() * TEXTURE_SIZE;
-    const r = 12 + Math.random() * 40;
+    const r = C.radius[0] + Math.random() * (C.radius[1]-C.radius[0]);
     // Draw wrapped copies so the tile repeats seamlessly.
     for (const ox of [-TEXTURE_SIZE, 0, TEXTURE_SIZE]) {
       for (const oy of [-TEXTURE_SIZE, 0, TEXTURE_SIZE]) {
         const g = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
-        g.addColorStop(0, 'rgba(255,255,255,0.9)');
+        g.addColorStop(0, `rgba(255,255,255,${C.blobOpacity})`);
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g;
         ctx.beginPath();
@@ -46,10 +39,12 @@ export class Clouds {
     this.group = new THREE.Group();
     this.layers = [];
     const span = Math.max(world.sizeX, world.sizeZ) + OVERHANG * 2;
-    for (const [height, opacity, drift, blobs] of LAYERS) {
+    const overhead = C.overhead;
+    for (const [index, [height, opacity, drift, blobs]] of [...LAYERS,
+      [overhead.height, overhead.opacity, overhead.drift, overhead.blobs]].entries()) {
       const texture = cloudTexture(blobs);
       // One texture tile per ~300 blocks.
-      texture.repeat.set(span / 300, span / 300);
+      texture.repeat.set(span / C.tileSpan, span / C.tileSpan);
       const mesh = new THREE.Mesh(
         new THREE.PlaneGeometry(span, span),
         new THREE.MeshBasicMaterial({
@@ -57,15 +52,15 @@ export class Clouds {
         }),
       );
       mesh.rotation.x = -Math.PI / 2;
-      mesh.position.set(world.sizeX / 2, world.sizeY * height, world.sizeZ / 2);
+      mesh.position.set(world.sizeX / 2, (index === LAYERS.length ? world.sizeY : Math.min(...world.islands.map(i=>i.bottomY)) - C.belowLowest) + height, world.sizeZ / 2);
       this.group.add(mesh);
-      this.layers.push({ texture, drift: drift / 300, material: mesh.material });
+      this.layers.push({ texture, drift: drift / C.tileSpan, material: mesh.material });
     }
     scene.add(this.group);
   }
 
   update(dt) {
-    for (const { texture, drift } of this.layers) texture.offset.x += drift * dt;
+    for (const { texture, drift } of this.layers) {texture.offset.x += drift * dt;texture.offset.y += drift * C.diagonalDrift * dt;}
   }
 
   // Clouds take the sky's light: `color` is a THREE.Color (white at noon).

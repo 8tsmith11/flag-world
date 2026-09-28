@@ -1,0 +1,2008 @@
+Seed 2; reserve radius 27.5; target rooms 16; depth 61
+Island overview x=194..430 z=194..430, 4 blocks/cell
+# outer wall i compound wall + gate G gatehouse a archer post C Castle E shaft h home L longhouse S storehouse W workshop T tower . path r reserved P cliff gallery ~ water X keep-out
+
+
+
+
+
+
+
+                            XXX
+                            XXX     XXXXX
+                                    XXXXX
+              XXX                   XXXXX
+              XXX             #######XXX###a
+             XXXX             #     ####a  ##
+             XXXX             #WWW.hhhh.hhh #
+             XXXX             aWWW.hhhh.hhh a
+                              #WWW hhhh hhh ###a###
+             ~~~              ##a###     .        ##
+             ~~~~                  #LLL.WWW.WWW.TTT##
+             ~~~~                  #LLL.WWW.WWW.TTT #
+             ~~~             XXXX  ai+iii+aiiiW TTT #
+                             XXXX  # .   .   i      #
+                  ~          XXXX  #hhhCCCCCCiiiii  #
+                  ~~~       rXXXX  ahhhCCCCCC TTTiii#
+                  ~~~    rrrrrrrrr #hhhCCECCC.TTTWWi#PP
+                        rrrrrrrrrrr##a CCCCCC TTTWWa
+            XXXX       rrrrrrrrrrrrr # CCCCCC   WWWi
+            XXXX       rrrrrrrrrrrrr # CCCCCC    . i
+            XXXX       rrrrrrrrrrrrrraaii+aiiiiii+ai#
+            XXXX      rrrrrrrrrrrrrrr  #SSS.hhh.SSS #
+                      rrrrrrrrrrrrrrr  #SSS.hhh.SSS #
+                      rrrrrrrrrrrrrrr  #SSS hhh SSS #
+                       rrrrrrrrrrrrrr  # .          #
+                       rrrrrrrrrrrrr   #SSS WWWW TTT#
+                       rrrrrrrrrrrrr~  #SSS.WWWW.TTT#
+                        rrrrrrrrrrr~~~ #SSS WWWW TTT#
+                         rrrrrrrXr ~~~ # .  ###a#a#a#
+                  ~~~      rrXXXX      aSSS #~~~~
+                  ~XXXX      XXXX      aSSS #~~~~
+                  ~XXXX                #SSS #~~~~~XXX
+                   XXXX               #a .  #~~~~ XXXX
+          XXX      XXXX               # LLL # ~~~ XXXX
+          XXX                       ..G.LLL #     XXX
+          XXX    XXXX                 G LLL a
+                 XXXX   XXX           #     #
+                 XXXX   XXX           #######
+                        XXX
+                        ~~
+                       ~~~~
+                       ~~~~~
+                       ~~~~~
+                       ~~~~
+
+
+
+
+
+
+
+
+
+Surface detail x=312..407 z=236..375, 1 blocks/cell
+# outer wall i compound wall + gate G gatehouse a archer post C Castle E shaft h home L longhouse S storehouse W workshop T tower . path r reserved P cliff gallery ~ water X keep-out
+                            XXXXXXXXXXXXXXX
+                            XXXXXXXXXXXXXXX
+                            XXXXXXXXXXXXXXX
+                            XXXXXXXXXXXXXXX
+    ########################XXXXXXXXXXXXXXX ############
+    #                      #                #          a
+    #                      ###############a##          ##
+    #                                                   #
+    #                                                   ####
+    #                                                      #
+    #   WWWWWWWWW       hhhhhhhhhhhhh       hhhhhhhhh      #
+    #   WWWWWWWWW       hhhhhhhhhhhhh       hhhhhhhhh      #
+    #   WWWWWWWWW       hhhhhhhhhhhhh       hhhhhhhhh      #
+    #   WWWWWWWWW.......hhhhhhhhhhhhh.......hhhhhhhhh      #
+    #   WWWWWWWWW.......hhhhhhhhhhhhh.......hhhhhhhhh      #
+    #   WWWWWWWWW.......hhhhhhhhhhhhh.......hhhhhhhhh      #
+    a   WWWWWWWWW       hhhhhhhhhhhhh       hhhhhhhhh      #
+    #   WWWWWWWWW       hhhhhhhhhhhhh       hhhhhhhhh      a
+    #   WWWWWWWWW       hhhhhhhhhhhhh       hhhhhhhhh      #
+    #                                          ...         #
+    #                                          ...         #############a###########
+    #                                          ...                                 #
+    #                                          ...                                 ######
+    #########a###########                      ...                                      #
+                        #                      ...                                      #
+                        #                      ...                                      #
+                        #   LLLLLLLLL       WWWWWWWWW       WWWWWWWWW       TTTTTTTTT   #
+                        #   LLLLLLLLL       WWWWWWWWW       WWWWWWWWW       TTTTTTTTT   #
+                        #   LLLLLLLLL       WWWWWWWWW       WWWWWWWWW       TTTTTTTTT   ####
+                        #   LLLLLLLLL.......WWWWWWWWW.......WWWWWWWWW.......TTTTTTTTT      #
+                        #   LLLLLLLLL.......WWWWWWWWW.......WWWWWWWWW.......TTTTTTTTT      #
+                        #   LLLLLLLLL.......WWWWWWWWW.......WWWWWWWWW.......TTTTTTTTT      #
+                        #   LLLLLLLLL       WWWWWWWWW       WWWWWWWWW       TTTTTTTTT      #
+                        #   LLLLLLLLL       WWWWWWWWW       WWWWWWWWW       TTTTTTTTT      #
+                        #   LLLLLLLLL       WWWWWWWWW       WWWWWWWWW       TTTTTTTTT      #
+                        #      ...             ...                                         #
+                        aiiiiii+++iiiiiiiiiiiii+++iiiaiiiiiiiiii                           #
+XXXXXXXXXXX             #      ...             ...             i                           #
+XXXXXXXXXXX             #      ...             ...             i                           #
+XXXXXXXXXXX             #      ...             ...             i                           #
+XXXXXXXXXXX             #      ...             ...             i                           #
+XXXXXXXXXXX             #      ...             ...             i                           #
+XXXXXXXXXXX             #   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC    i                           #
+XXXXXXXXXXX             #   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC    i                           #
+XXXXXXXXXXX             #   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC    iiiiiiiiiiiiiiiii           #
+XXXXXXXXXXX             #   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC                    i           #
+XXXXXXXXXXX             a   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC                    i           #
+XXXXXXXXXXX             #   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC                    i           #
+                        #   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC       TTTTTTTTT    iiiiiiiii   #
+rrrrrr                  a   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC       TTTTTTTTT            i   #
+rrrrrrrrr               #   hhhhhhhhh CCCCCCCCCCCCCCCCCCCCC       TTTTTTTTT            i   #
+rrrrrrrrrrrr            #             CCCCCCCCCCCCCCCCCCCCC.......TTTTTTTTTPPPPPPPPPPPPi####PPPP
+rrrrrrrrrrrrrr          #             CCCCCCCCCCECCCCCCCCCC.......TTTTTTTTTPPPPPPPPPPPPi#PPPPPPP
+rrrrrrrrrrrrrrrr        #             CCCCCCCCCCCCCCCCCCCCC.......TTTTTTTTTPWWWWWWWWWPPi#PPPPPPP
+rrrrrrrrrrrrrrrrr       #             CCCCCCCCCCCCCCCCCCCCC       TTTTTTTTT WWWWWWWWW  i#
+rrrrrrrrrrrrrrrrrr      #######a#     CCCCCCCCCCCCCCCCCCCCC       TTTTTTTTT WWWWWWWWW  i#
+rrrrrrrrrrrrrrrrrrr             #     CCCCCCCCCCCCCCCCCCCCC       TTTTTTTTT WWWWWWWWW  a#
+rrrrrrrrrrrrrrrrrrrr            #     CCCCCCCCCCCCCCCCCCCCC                 WWWWWWWWW  i#
+rrrrrrrrrrrrrrrrrrrrr           #     CCCCCCCCCCCCCCCCCCCCC                 WWWWWWWWW  i#
+rrrrrrrrrrrrrrrrrrrrrr          #     CCCCCCCCCCCCCCCCCCCCC                 WWWWWWWWW  i#
+rrrrrrrrrrrrrrrrrrrrrrr         #     CCCCCCCCCCCCCCCCCCCCC                 WWWWWWWWW  i#
+rrrrrrrrrrrrrrrrrrrrrrrr        #     CCCCCCCCCCCCCCCCCCCCC                 WWWWWWWWW  i#
+rrrrrrrrrrrrrrrrrrrrrrrr        #     CCCCCCCCCCCCCCCCCCCCC                    ...     i#
+rrrrrrrrrrrrrrrrrrrrrrrrr       #              ...                             ...     i#
+rrrrrrrrrrrrrrrrrrrrrrrrr       #              ...                             ...     i#
+rrrrrrrrrrrrrrrrrrrrrrrrrr      #              ...                             ...     i#
+rrrrrrrrrrrrrrrrrrrrrrrrrr      #              ...                             ...     i#
+rrrrrrrrrrrrrrrrrrrrrrrrrr      #a##a####iiiiii+++iiaiiiiiiiiiiiiiiiiiiiiiiiiii+++iaiiii#
+rrrrrrrrrrrrrrrrrrrrrrrrrrr             #      ...                             ...      ####
+rrrrrrrrrrrrrrrrrrrrrrrrrrr             #      ...                          SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrr             #   SSSSSSSSS       hhhhhhhhh       SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #   SSSSSSSSS       hhhhhhhhh       SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #   SSSSSSSSS       hhhhhhhhh       SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #   SSSSSSSSS.......hhhhhhhhh.......SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #   SSSSSSSSS.......hhhhhhhhh.......SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #   SSSSSSSSS.......hhhhhhhhh.......SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #   SSSSSSSSS       hhhhhhhhh       SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #   SSSSSSSSS       hhhhhhhhh       SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #   SSSSSSSSS       hhhhhhhhh       SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #      ...                          SSSSSSSSS      #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #      ...                                         #
+rrrrrrrrrrrrrrrrrrrrrrrrrrrr            #      ...                                         #
+rrrrrrrrrrrrrrrrrrrrrrrrrrr             #      ...                                         #
+rrrrrrrrrrrrrrrrrrrrrrrrrrr             #      ...                                         #
+rrrrrrrrrrrrrrrrrrrrrrrrrrr             #      ...                                         #
+rrrrrrrrrrrrrrrrrrrrrrrrrr              #      ...                                         #
+rrrrrrrrrrrrrrrrrrrrrrrrrr              #   SSSSSSSSS                                      #
+rrrrrrrrrrrrrrrrrrrrrrrrrr              #   SSSSSSSSS       WWWWWWWWWWW       TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrrrrrrrr               #   SSSSSSSSS       WWWWWWWWWWW       TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrrrrrrrr               #   SSSSSSSSS       WWWWWWWWWWW       TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrrrrrrr                #   SSSSSSSSS.......WWWWWWWWWWW.......TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrrrrrrr                #   SSSSSSSSS.......WWWWWWWWWWW.......TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrrrrrr                 #   SSSSSSSSS.......WWWWWWWWWWW.......TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrrrrr     ~~~          #   SSSSSSSSS       WWWWWWWWWWW       TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrrrr    ~~~~~~         #   SSSSSSSSS       WWWWWWWWWWW       TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrrr    ~~~~~~~~~       #   SSSSSSSSS       WWWWWWWWWWW       TTTTTTTTT    #
+rrrrrrrrrrrrrrrrrrr     ~~~~~~~~~       #   SSSSSSSSS                                      #
+rrrrrrrrrrrrrrrrrr      ~~~~~~~~~       #      ...                                         #
+rrrrrrrrrrrrrrrrr       ~~~~~~~~~       #      ...                                         #
+rrrrrrrrrrrrrrrr        ~~~~~~~~~       #      ...         ###########a########a#######a####
+rrrrrrrrrrrrrr            ~~~~~~        #      ...         #
+rrrrrrrrrrrrXX               ~~         #      ...         #
+rrrrrrrrrXXXXX                          #      ...         #
+rrrrrrXXXXXXXX                          a      ...         #      ~ ~   ~~
+XXXXXXXXXXXXXX                          #   SSSSSSSSS      #      ~~~~~~~~~
+XXXXXXXXXXXXXX                          #   SSSSSSSSS      #    ~~~~~~~~~~~
+XXXXXXXXXXXXXX                          #   SSSSSSSSS      #   ~~~~~~~~~~~~~~~
+XXXXXXXXXXXXXX                          a   SSSSSSSSS      #  ~~~~~~~~~~~~~~~~
+XXXXXXXXXXXXXX                          #   SSSSSSSSS      #  ~~~~~~~~~~~~~~~~
+XXXXXXXXXXXXXX                          #   SSSSSSSSS      #  ~~~~~~~~~~~~~~~~
+                                        #   SSSSSSSSS      #   ~~~~~~~~~~~~~~~
+                                        #   SSSSSSSSS      #  ~~~~~~~~~~~~~~~~~
+                                        #   SSSSSSSSS      #  ~~~~~~~~~~~~~~~~~
+                                        #      ...         #   ~~~~~~~~~~~~~~~~     XXXXXXXXXX
+                                        #      ...         #   ~~~~~~~~~~~~~~       XXXXXXXXXX
+                                        a      ...         #   ~~~~~~~~~~~~~~       XXXXXXXXXX
+                                    #####      ...         #   ~~~~~~~~~~~~~~       XXXXXXXXXXX
+                                    #          ...         #     ~~~~~~~~~~~~       XXXXXXXXXXX
+                                    #          ...         #       ~~~~~~~~~        XXXXXXXXXXXX
+                                    #          ...         #        ~~ ~~           XXXXXXXXXXXX
+                                    #      LLLLLLLLLLL     #                        XXXXXXXXXXX
+                                    #      LLLLLLLLLLL     #                        XXXXXXXXXX
+                                   GGG     LLLLLLLLLLL     #                        XXXXXXXXX
+                           ........GGG.....LLLLLLLLLLL     #                        XXXXXXXXX
+                           ........GGG.....LLLLLLLLLLL     #                        XXXXXXXXX
+                           ........GGG.....LLLLLLLLLLL     #                        XXXXXXXXX
+                                   GGG     LLLLLLLLLLL     #
+                                    #      LLLLLLLLLLL     #
+                                    #      LLLLLLLLLLL     #
+                                    #                      a
+                                    #                      #
+                                    #                      #
+                                    #                      #
+                                    #                      #
+                                    #                      #
+                                    ########################
+
+
+
+
+Route: Castle entrance -> upper shaft -> midRoom@360,59,288 -> guardroom@379,59,288 -> trophyHall@379,55,306 -> shrine@362,55,306 -> treasureVault@362,50,329 -> quarters@388,50,329 -> junction@388,46,307 -> quarters@388,46,290 -> prison@367,42,290 -> mushroomFarm@367,42,267 -> forge@390,38,267 -> junction@390,38,285 -> junction@366,33,285 -> quarters@366,33,267 -> guardroom@388,29,267 -> storeroom@388,29,287 -> junction@388,25,309 -> junction@360,25,309 -> totemHall@360,25,288
+Fortress labels: A=midRoom@59 B=guardroom@59 C=trophyHall@55 D=shrine@55 E=treasureVault@50 F=quarters@50 G=junction@46 H=quarters@46 I=prison@42 J=mushroomFarm@42 K=forge@38 L=junction@38 M=junction@33 N=quarters@33 O=guardroom@29 P=storeroom@29 Q=junction@25 R=junction@25 S=totemHall@25 T=kingsRoom@17 U=quarters@46 V=messHall@33 W=quarters@33 X=junction@55 Y=messHall@42
+Level 85; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 84; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 83; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 82; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 81; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 80; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 79; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 78; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 77; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 76; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 75; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 74; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 73; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 72; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 71; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 70; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 69; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 68; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 67; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 66; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 65; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 64; x=359..361 z=287..289
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 63; x=356..383 z=284..292
+# brick . interior * main route ^ ladder o window P exterior brick
+#########          #########
+#########          #########
+#########          #########
+#########          #########
+####^####          #########
+#########          #########
+#########          #########
+#########          #########
+#########          #########
+Level 62; x=356..410 z=284..298
+# brick . interior * main route ^ ladder o window P exterior brick
+#########          #########
+#.......#          #.......#
+#.......#          #.......#
+#...#...############.......#####################PPPPPPP
+#..#^#..############.......#####################PPPPPPP
+#...#...############.......####################PPPPPPPP
+#.......#          #.......#
+#.......#          #.......#
+#########          #########
+                      ###
+                      ###
+                      ###
+                      ###
+                      ###
+                      ###
+Level 61; x=356..410 z=284..298
+# brick . interior * main route ^ ladder o window P exterior brick
+#########          #########
+#.......#          #.......#
+#.......#          #.......#
+#...#...############.......#####################PPPPPPP
+#..#^.................................................P
+#...#...############.......####################PPPPPPPP
+#.......#          #.......#
+#.......#          #.......#
+#########          ####.####
+                      #.#
+                      #.#
+                      #.#
+                      #.#
+                      #^#
+                      ###
+Level 60; x=356..410 z=284..298
+# brick . interior * main route ^ ladder o window P exterior brick
+#########          #########
+#.......#          #.......#
+#.......#          #.......#
+#...#...############.......#####################PPPPPPP
+#..#^.................................................o
+#...#...############.......####################PPPPPPPP
+#.......#          #.......#
+#.......#          #.......#
+#########          ####.####
+                      #.#
+                      #.#
+                      #.#
+                      #.#
+                      #^#
+                      ###
+Level 59; x=356..410 z=284..333
+# brick . interior * main route ^ ladder o window P exterior brick
+#########          #########
+##.....##          ##.....##
+#.......#          #.......#
+#...#...############.......#####################PPPPPPP
+#..#A....**********....B..............................P
+#...#...############.......####################PPPPPPPP
+#.......#          #.......#
+#......##          #......##
+#########          ####.####
+                      #*#
+                      #*#
+                      #*#
+                      #.#
+                      #^#
+                      ###
+
+
+
+  #########        #########
+  #########        #########
+  #########        #########
+  #########        #########
+  #########        #########
+  #########        #########
+  #########        #########
+  #########        #########
+  #########        #########
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   #########
+                   #########
+                   #########
+                   #########
+                   #########
+                   #########
+                   #########
+                   #########
+                   #########
+Level 58; x=356..410 z=284..333
+# brick . interior * main route ^ ladder o window P exterior brick
+#########          #########
+#########          #########
+#########          #########
+################################################PPPPPPP
+################################################PPPPPPP
+###############################################PPPPPPPP
+#########          #########
+#########          #########
+#########          #########
+                      ###
+                      ###
+                      ###
+                      ###
+                      #^#
+                      ###
+                      ###
+                      ###
+                      ###
+  #########        #########
+  #.......#        #.......#
+  #.......#        #.......#
+  #.......##########.......#
+  #.......##########.......#
+  #.......##########.......#
+  #.......#        #.......#
+  #.......#        #.......#
+  #########        #########
+     ###              ###
+     ###              ###
+     ###              ###
+     ###              ###
+     ###              ###
+     ###              ###
+     ###              ###
+     ###              ###
+                      ###
+                      ###
+                      ###
+                      ###
+                      ###
+                      ###
+                   #########
+                   #.......#
+                   #.......#
+                   #.......#
+                   #.......#
+                   #.......#
+                   #.......#
+                   #.......#
+                   #########
+Level 57; x=358..383 z=296..333
+# brick . interior * main route ^ ladder o window P exterior brick
+                    ###
+                    #^#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+#########        ####.####
+##......#        #.......#
+#.......#        #.......#
+#.......##########.......#
+#........................#
+#.......##########.......#
+#.......#        #.......#
+#......##        #.......#
+####.####        ####.####
+   #.#              #.#
+   #.#              #.#
+   #.#              #.#
+   #.#              #.#
+   #.#              #.#
+   #.#              #.#
+   #^#              #.#
+   ###              #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                 ####.####
+                 #.......#
+                 #.......#
+                 #.......#
+                 #.......#
+                 #.......#
+                 #.......#
+                 #.......#
+                 #########
+Level 56; x=358..383 z=296..333
+# brick . interior * main route ^ ladder o window P exterior brick
+                    ###
+                    #^#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+#########        ####.####
+##......#        #.......#
+#.......#        #.......#
+#.......##########.......#
+#........................#
+#.......##########.......#
+#.......#        #.......#
+#......##        #.......#
+####.####        ####.####
+   #.#              #.#
+   #.#              #.#
+   #.#              #.#
+   #.#              #.#
+   #.#              #.#
+   #.#              #.#
+   #^#              #.#
+   ###              #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                 ####.####
+                 #.......#
+                 #.......#
+                 #.......#
+                 #.......#
+                 #.......#
+                 #.......#
+                 #.......#
+                 #########
+Level 55; x=358..383 z=296..333
+# brick . interior * main route ^ ladder o window P exterior brick
+                    ###
+                    #^#
+                    #.#
+                    #*#
+                    #*#
+                    #*#
+#########        ####.####
+##.....##        ##.....##
+#.......#        #.......#
+#.......##########.......#
+#...D....********....C...#
+#.......##########.......#
+#.......#        #.......#
+#......##        #......##
+####.####        ####.####
+   #*#              #.#
+   #*#              #.#
+   #*#              #.#
+   #*#              #.#
+   #*#              #.#
+   #.#              #.#
+   #^#              #.#
+   ###              #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                    #.#
+                 ####.####
+                 ##.....##
+                 #.......#
+                 #.......#
+                 #...X...#
+                 #.......#
+                 #.......#
+                 #......##
+                 #########
+Level 54; x=358..392 z=296..333
+# brick . interior * main route ^ ladder o window P exterior brick
+                    ###
+                    ###
+                    ###
+                    ###
+                    ###
+                    ###
+#########        #########
+#########        #########
+#########        #########
+##########################
+##########################
+##########################
+#########        #########
+#########        #########
+#########        #########
+   ###              ###
+   ###              ###
+   ###              ###
+   ###              ###
+   ###              ###
+   ###              ###
+   #^#              ###
+   ###              ###
+                    ###
+                    ###
+                    ###
+                    ###
+                    ###
+                    ###
+#########        ##################
+#########        ##################
+#########        ##################
+#########        ##################
+#########        ##################
+#########        ##################
+#########        ##################
+#########        ##################
+#########        ##################
+Level 53; x=358..392 z=316..333
+# brick . interior * main route ^ ladder o window P exterior brick
+   ###
+   #^#                       ###
+   ###                       ###
+   ###                       ###
+   ###                       ###
+   ###                       ###
+   ###                       ###
+   ###                       ###
+   ###                       ###
+#########                 #########
+#.......#                 #.......#
+#.......#                 #.......#
+#.......###################.......#
+#.......###################.......#
+#.......###################.......#
+#.......#                 #.......#
+#.......#                 #.......#
+#########                 #########
+Level 52; x=358..392 z=316..333
+# brick . interior * main route ^ ladder o window P exterior brick
+   ###
+   #^#                       ###
+   #.#                       #^#
+   #.#                       #.#
+   #.#                       #.#
+   #.#                       #.#
+   #.#                       #.#
+   #.#                       #.#
+   #.#                       #.#
+####.####                 ####.####
+#.......#                 #.......#
+#.......#                 #.......#
+#.......###################.......#
+#.................................#
+#.......###################.......#
+#.......#                 #.......#
+#.......#                 #.......#
+#########                 #########
+Level 51; x=358..392 z=316..333
+# brick . interior * main route ^ ladder o window P exterior brick
+   ###
+   #^#                       ###
+   #.#                       #^#
+   #.#                       #.#
+   #.#                       #.#
+   #.#                       #.#
+   #.#                       #.#
+   #.#                       #.#
+   #.#                       #.#
+####.####                 ####.####
+#.......#                 #.......#
+#.......#                 #.......#
+#.......###################.......#
+#.................................#
+#.......###################.......#
+#.......#                 #.......#
+#.......#                 #.......#
+#########                 #########
+Level 50; x=358..392 z=286..333
+# brick . interior * main route ^ ladder o window P exterior brick
+                          #########
+                          #########
+                          #########
+                          #########
+                          #########
+                          #########
+                          #########
+                          #########
+                          #########
+
+
+
+
+
+
+
+
+      #########           #########
+      #########           #########
+      #########           #########
+      #########           #########
+      #########           #########
+      #########           #########
+      #########           #########
+      #########           #########
+      #########           #########
+
+
+
+
+   ###
+   #^#                       ###
+   #.#                       #^#
+   #*#                       #.#
+   #*#                       #*#
+   #*#                       #*#
+   #*#                       #*#
+   #*#                       #*#
+   #*#                       #*#
+####.####                 ####.####
+##.....##                 ####...##
+#.......#                 #.......#
+#.......###################.......#
+#...E....*****************....F...#
+#.......###################.......#
+#.......#                 #.......#
+#......##                 #.##...##
+#########                 #########
+Level 49; x=358..392 z=286..333
+# brick . interior * main route ^ ladder o window P exterior brick
+                          #########
+                          #.......#
+                          #.......#
+                   ########.......#
+                   ########.......#
+                   ########.......#
+                          #.......#
+                          #.......#
+                          #########
+                             ###
+                             ###
+                             ###
+                             ###
+                             ###
+                             ###
+                             ###
+                             ###
+      #########           #########
+      #.......#           #.......#
+      #.......#           #.......#
+      #.......#############.......#
+      #.......#############.......#
+      #.......#############.......#
+      #.......#           #.......#
+      #.......#           #.......#
+      #########           #########
+                             ###
+                             ###
+                             ###
+                             ###
+   ###                       ###
+   ###                       ###
+   ###                       #^#
+   ###                       ###
+   ###                       ###
+   ###                       ###
+   ###                       ###
+   ###                       ###
+   ###                       ###
+#########                 #########
+#########                 #########
+#########                 #########
+###################################
+###################################
+###################################
+#########                 #########
+#########                 #########
+#########                 #########
+Level 48; x=364..392 z=286..319
+# brick . interior * main route ^ ladder o window P exterior brick
+                    #########
+                    #.......#
+                    #.......#
+             ########.......#
+             #^.............#
+             ########.......#
+                    #.......#
+                    #.......#
+                    ####.####
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+#########           ####.####
+#.......#           #.......#
+#.......#           #.......#
+#.......#############.......#
+#...........................#
+#.......#############.......#
+#.......#           #.......#
+#.......#           #.......#
+#########           ####.####
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #^#
+                       ###
+Level 47; x=364..392 z=286..319
+# brick . interior * main route ^ ladder o window P exterior brick
+                    #########
+                    #.......#
+                    #.......#
+             ########.......#
+             #^.............#
+             ########.......#
+                    #.......#
+                    #.......#
+                    ####.####
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+#########           ####.####
+#.......#           #.......#
+#.......#           #.......#
+#.......#############.......#
+#...........................#
+#.......#############.......#
+#.......#           #.......#
+#.......#           #.......#
+#########           ####.####
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #.#
+                       #^#
+                       ###
+Level 46; x=338..392 z=263..319
+# brick . interior * main route ^ ladder o window P exterior brick
+#########                #########
+#########                #########
+#########                #########
+#########                #########
+#########                #########
+#########                #########
+#########                #########
+#########                #########
+#########                #########
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                         #########            #########
+                         #########            ####...##
+                         #########            #.......#
+                         #########     ########.......#
+                         #########     #^.****....H...#
+                         #########     ########.......#
+                         #########            #.......#
+                         #########            #.##...##
+                         #########            ####.####
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                          #########           ####.####
+                          ####...##           ##.....##
+                          #.......#           #.......#
+                          #.......#############.......#
+                          #...U...................G...#
+                          #.......#############.......#
+                          #.......#           #.......#
+                          #.##...##           #......##
+                          #########           ####.####
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                                                 #*#
+                                                 #.#
+                                                 #^#
+                                                 ###
+Level 45; x=338..392 z=263..319
+# brick . interior * main route ^ ladder o window P exterior brick
+#########                #########
+#.......#                #.......#
+#.......#                #.......#
+#.......##################.......#########
+#.......##################.......#########
+#.......##################.......#########
+#.......#                #.......#
+#.......#                #.......#
+#########                #########
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                            ###
+                         #########            #########
+                         #.......#            #########
+                         #.......#            #########
+                         #.......######################
+                         #.......#######^##############
+                         #.......######################
+                         #.......#            #########
+                         #.......#            #########
+                         #########            #########
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                          #########           #########
+                          #########           #########
+                          #########           #########
+                          #############################
+                          #############################
+                          #############################
+                          #########           #########
+                          #########           #########
+                          #########           #########
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+                                                 ###
+Level 44; x=338..379 z=263..294
+# brick . interior * main route ^ ladder o window P exterior brick
+#########                #########
+#.......#                #.......#
+#.......#                #.......#
+#.......##################.......#########
+#.......................................^#
+#.......##################.......#########
+#.......#                #.......#
+#.......#                #.......#
+#########                ####.####
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                         ####.####
+                         ##......#
+                         #.......#
+                         #.......#########
+                         #..............^#
+                         #.......#########
+                         #.......#
+                         ##......#
+                         #########
+Level 43; x=338..379 z=263..294
+# brick . interior * main route ^ ladder o window P exterior brick
+#########                #########
+#.......#                #.......#
+#.......#                #.......#
+#.......##################.......#########
+#.......................................^#
+#.......##################.......#########
+#.......#                #.......#
+#.......#                #.......#
+#########                ####.####
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                            #.#
+                         ####.####
+                         ##......#
+                         #.......#
+                         #.......#########
+                         #..............^#
+                         #.......#########
+                         #.......#
+                         ##......#
+                         #########
+Level 42; x=338..394 z=263..294
+# brick . interior * main route ^ ladder o window P exterior brick
+#########                #########              #########
+##.....##                #......##              #########
+#.......#                #.......#              #########
+#.......##################.......#########      #########
+#...Y........................J....*****.^#      #########
+#.......##################.......#########      #########
+#.......#                #.......#              #########
+#......##                #.......#              #########
+#########                ####.####              #########
+                            #*#
+                            #*#
+                            #*#
+                            #*#
+                            #*#
+                            #*#
+                            #*#
+                            #*#
+                            #*#
+                            #*#                 #########
+                            #*#                 #########
+                            #*#                 #########
+                            #*#                 #########
+                            #*#                 #########
+                         ####.####              #########
+                         ##.....##              #########
+                         #.......#              #########
+                         #.......#########      #########
+                         #...I....*****.^#
+                         #.......#########
+                         #.......#
+                         #......##
+                         #########
+Level 41; x=338..394 z=263..294
+# brick . interior * main route ^ ladder o window P exterior brick
+#########                #########              #########
+#########                #########              #.......#
+#########                #########              #.......#
+#################################################.......#
+########################################^########.......#
+#################################################.......#
+#########                #########              #.......#
+#########                #########              #.......#
+#########                #########              #########
+                            ###                    ###
+                            ###                    ###
+                            ###                    ###
+                            ###                    ###
+                            ###                    ###
+                            ###                    ###
+                            ###                    ###
+                            ###                    ###
+                            ###                    ###
+                            ###                 #########
+                            ###                 #.......#
+                            ###                 #.......#
+                            ###        ##########.......#
+                            ###        ##########.......#
+                         #########     ##########.......#
+                         #########              #.......#
+                         #########              #.......#
+                         #################      #########
+                         #################
+                         #################
+                         #########
+                         #########
+                         #########
+Level 40; x=377..394 z=263..289
+# brick . interior * main route ^ ladder o window P exterior brick
+         #########
+         #.......#
+         #.......#
+##########.......#
+#^...............#
+##########.......#
+         #.......#
+         #.......#
+         ####.####
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+         ####.####
+         #.......#
+         #.......#
+##########.......#
+#^...............#
+##########.......#
+         #.......#
+         #.......#
+         #########
+Level 39; x=377..394 z=263..289
+# brick . interior * main route ^ ladder o window P exterior brick
+         #########
+         #.......#
+         #.......#
+##########.......#
+#^...............#
+##########.......#
+         #.......#
+         #.......#
+         ####.####
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+            #.#
+         ####.####
+         #.......#
+         #.......#
+##########.......#
+#^...............#
+##########.......#
+         #.......#
+         #.......#
+         #########
+Level 38; x=377..394 z=263..289
+# brick . interior * main route ^ ladder o window P exterior brick
+         #########
+         ##.....##
+         #.......#
+##########.......#
+#^.******....K...#
+##########.......#
+         #.......#
+         #......##
+         ####.####
+            #*#
+            #*#
+            #*#
+            #*#
+            #*#
+            #*#
+            #*#
+            #*#
+            #*#
+         ####.####
+         ##.....##
+         #.......#
+##########.......#
+#^.******....L...#
+##########.......#
+         #.......#
+         #......##
+         #########
+Level 37; x=341..394 z=263..310
+# brick . interior * main route ^ ladder o window P exterior brick
+                     #########               #########
+                     #########               #########
+                     #########               #########
+                     #########      ##################
+                     #########      ##################
+                     #########      ##################
+                     #########               #########
+                     #########               #########
+                     #########               #########
+                                                ###
+                                                ###
+                                                ###
+                                                ###
+                                                ###
+                                                ###
+                                                ###
+                                                ###
+                                                ###
+#########            #########               #########
+#########            #########               #########
+#########            #########               #########
+#########            #########      ##################
+#########            #########      #^################
+#########            #########      ##################
+#########            #########               #########
+#########            #########               #########
+#########            #########               #########
+
+
+
+
+
+
+
+
+
+
+
+
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+Level 36; x=341..379 z=263..310
+# brick . interior * main route ^ ladder o window P exterior brick
+                     #########
+                     #.......#
+                     #.......#
+                     #.......#########
+                     #.......#########
+                     #.......#########
+                     #.......#
+                     #.......#
+                     #########
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+#########            #########
+#.......#            #.......#
+#.......#            #.......#
+#.......##############.......##########
+#.......##############.......########^#
+#.......##############.......##########
+#.......#            #.......#
+#.......#            #.......#
+#########            #########
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                        ###
+                     #########
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #########
+Level 35; x=341..379 z=263..310
+# brick . interior * main route ^ ladder o window P exterior brick
+                     #########
+                     #.......#
+                     #.......#
+                     #.......#########
+                     #..............^#
+                     #.......#########
+                     #.......#
+                     #.......#
+                     ####.####
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+#########            ####.####
+#.......#            #.......#
+#.......#            #.......#
+#.......##############.......##########
+#....................................^#
+#.......##############.......##########
+#.......#            #.......#
+#.......#            #.......#
+#########            ####.####
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                     ####.####
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #########
+Level 34; x=341..379 z=263..310
+# brick . interior * main route ^ ladder o window P exterior brick
+                     #########
+                     #.......#
+                     #.......#
+                     #.......#########
+                     #..............^#
+                     #.......#########
+                     #.......#
+                     #.......#
+                     ####.####
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+#########            ####.####
+#.......#            #.......#
+#.......#            #.......#
+#.......##############.......##########
+#....................................^#
+#.......##############.......##########
+#.......#            #.......#
+#.......#            #.......#
+#########            ####.####
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                     ####.####
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #.......#
+                     #########
+Level 33; x=341..392 z=263..310
+# brick . interior * main route ^ ladder o window P exterior brick
+                     #########             #########
+                     ####...##             #########
+                     #.......#             #########
+                     #.......#########     #########
+                     #...N....*****.^#     #########
+                     #.......#########     #########
+                     #.......#             #########
+                     #.##...##             #########
+                     ####.####             #########
+                        #*#
+                        #*#
+                        #*#
+                        #*#
+                        #*#
+                        #*#
+                        #*#
+                        #*#
+                        #*#
+#########            ####.####
+##.....##            ##.....##
+#.......#            #.......#             #########
+#.......##############.......##########    #########
+#...V....................M....******.^#    #########
+#.......##############.......##########    #########
+#.......#            #.......#             #########
+#......##            #......##             #########
+#########            ####.####             #########
+                        #.#                #########
+                        #.#                #########
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                        #.#
+                     ####.####
+                     ####...##
+                     #.......#
+                     #.......#
+                     #...W...#
+                     #.......#
+                     #.......#
+                     #.##...##
+                     #########
+Level 32; x=341..392 z=263..310
+# brick . interior * main route ^ ladder o window P exterior brick
+                     #########             #########
+                     #########             #.......#
+                     #########             #.......#
+                     #######################.......#
+                     ###############^#######.......#
+                     #######################.......#
+                     #########             #.......#
+                     #########             #.......#
+                     #########             #########
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+#########            #########                ###
+#########            #########                ###
+#########            #########             #########
+#######################################    #.......#
+#######################################    #.......#
+#######################################    #.......#
+#########            #########             #.......#
+#########            #########             #.......#
+#########            #########             #.......#
+                        ###                #.......#
+                        ###                #########
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###                   ###
+                        ###
+                        ###
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+                     #########
+Level 31; x=376..392 z=263..299
+# brick . interior * main route ^ ladder o window P exterior brick
+        #########
+        #.......#
+        #.......#
+#########.......#
+#^..............#
+#########.......#
+        #.......#
+        #.......#
+        ####.####
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+        ####.####
+        #.......#
+        #.......#
+        #.......#
+        #.......#
+        #.......#
+        #.......#
+        #.......#
+        ####.####
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+           #.#
+           #^#
+           ###
+Level 30; x=355..392 z=263..299
+# brick . interior * main route ^ ladder o window P exterior brick
+                             #########
+                             #.......#
+                             #.......#
+                     #########.......#
+                     #^..............#
+                     #########.......#
+                             #.......#
+                             #.......#
+                             ####.####
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+###########                  ####.####
+###########                  #.......#
+###########                  #.......#
+###########                  #.......#
+###########                  #.......#
+###########                  #.......#
+###########                  #.......#
+###########                  #.......#
+###########                  ####.####
+###########                     #.#
+###########                     #.#
+                                #.#
+                                #.#
+                                #.#
+                                #.#
+                                #^#
+                                ###
+Level 29; x=355..392 z=263..313
+# brick . interior * main route ^ ladder o window P exterior brick
+                             #########
+                             ##.....##
+                             #.......#
+                     #########.......#
+                     #^.*****....O...#
+                     #########.......#
+                             #.......#
+                             #......##
+                             ####.####
+                                #*#
+                                #*#
+                                #*#
+                                #*#
+                                #*#
+                                #*#
+                                #*#
+                                #*#
+                                #*#
+                                #*#
+                                #*#
+###########                  ####.####
+#.........#                  ##.....##
+#.........#                  #.......#
+#.........#                  #.......#
+#.........#                  #...P...#
+#.........#                  #.......#
+#.........#                  #.......#
+#.........#                  #......##
+#.........#                  ####.####
+#.........#                     #*#
+###########                     #*#
+                                #*#
+                                #*#
+                                #*#
+                                #.#
+                                #^#
+                                ###
+
+
+
+
+
+ #########                   #########
+ #########                   #########
+ #########                   #########
+ #########                   #########
+ #########                   #########
+ #########                   #########
+ #########                   #########
+ #########                   #########
+ #########                   #########
+Level 28; x=355..392 z=263..313
+# brick . interior * main route ^ ladder o window P exterior brick
+                             #########
+                             #########
+                             #########
+                     #################
+                     #################
+                     #################
+                             #########
+                             #########
+                             #########
+                                ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+###########                  #########
+##........#                  #########
+#.........#                  #########
+#.........#                  #########
+#.........#                  #########
+#.........#                  #########
+#.........#                  #########
+#.........#                  #########
+#.........#                  #########
+#........##                     ###
+###########                     ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         #^#
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+ #########                   #########
+ #.......#                   #.......#
+ #.......#                   #.......#
+ #.......#####################.......#
+ #.......#####################.......#
+ #.......#####################.......#
+ #.......#                   #.......#
+ #.......#                   #.......#
+ #########                   #########
+Level 27; x=355..392 z=273..313
+# brick . interior * main route ^ ladder o window P exterior brick
+    ###
+    #^#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+#####.#####
+##........#
+#.........#
+#.........#
+#.........#
+#.........#
+#.........#
+#.........#
+#.........#
+#........##
+#####.#####
+    #.#
+    #.#
+    #.#
+    #.#                         ###
+    #.#                         #^#
+    #.#                         #.#
+    #.#                         #.#
+    #.#                         #.#
+    #.#                         #.#
+    #.#                         #.#
+    #.#                         #.#
+ ####.####                   ####.####
+ #.......#                   #.......#
+ #.......#                   #.......#
+ #.......#####################.......#
+ #...................................#
+ #.......#####################.......#
+ #.......#                   #.......#
+ #.......#                   #.......#
+ #########                   #########
+Level 26; x=355..392 z=273..313
+# brick . interior * main route ^ ladder o window P exterior brick
+    ###
+    #^#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+#####.#####
+##........#
+#.........#
+#.........#
+#.........#
+#.........#
+#.........#
+#.........#
+#.........#
+#........##
+#####.#####
+    #.#
+    #.#
+    #.#
+    #.#                         ###
+    #.#                         #^#
+    #.#                         #.#
+    #.#                         #.#
+    #.#                         #.#
+    #.#                         #.#
+    #.#                         #.#
+    #.#                         #.#
+ ####.####                   ####.####
+ #.......#                   #.......#
+ #.......#                   #.......#
+ #.......#####################.......#
+ #...................................#
+ #.......#####################.......#
+ #.......#                   #.......#
+ #.......#                   #.......#
+ #########                   #########
+Level 25; x=355..392 z=273..313
+# brick . interior * main route ^ ladder o window P exterior brick
+    ###
+    #^#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+    #.#
+#####.#####
+##.......##
+#.........#
+#.........#
+#.........#
+#....S....#
+#.........#
+#.........#
+#.........#
+#........##
+#####.#####
+    #*#
+    #*#
+    #*#
+    #*#                         ###
+    #*#                         #^#
+    #*#                         #.#
+    #*#                         #*#
+    #*#                         #*#
+    #*#                         #*#
+    #*#                         #*#
+    #*#                         #*#
+ ####.####                   ####.####
+ ##.....##                   ##.....##
+ #.......#                   #.......#
+ #.......#####################.......#
+ #...R....*******************....Q...#
+ #.......#####################.......#
+ #.......#                   #.......#
+ #......##                   #......##
+ #########                   #########
+Level 24; x=355..392 z=273..313
+# brick . interior * main route ^ ladder o window P exterior brick
+    ###
+    #^#
+    ###
+    ###
+    ###
+    ###
+    ###
+    ###
+    ###
+    ###
+###########
+###########
+###########
+###########
+###########
+###########
+###########
+###########
+###########
+###########
+###########
+    ###
+    ###
+    ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+    ###                         ###
+ #########                   #########
+ #########                   #########
+ #########                   #########
+ #####################################
+ #####################################
+ #####################################
+ #########                   #########
+ #########                   #########
+ #########                   #########
+Level 23; x=359..361 z=273..275
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 22; x=359..361 z=273..275
+# brick . interior * main route ^ ladder o window P exterior brick
+###
+#^#
+###
+Level 21; x=356..364 z=257..275
+# brick . interior * main route ^ ladder o window P exterior brick
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+
+
+
+
+
+
+
+   ###
+   #^#
+   ###
+Level 20; x=356..364 z=257..275
+# brick . interior * main route ^ ladder o window P exterior brick
+#########
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#########
+   ###
+   ###
+   ###
+   ###
+   ###
+   ###
+   ###
+   ###
+   #^#
+   ###
+Level 19; x=356..364 z=257..275
+# brick . interior * main route ^ ladder o window P exterior brick
+#########
+##......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#......##
+####.####
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #^#
+   ###
+Level 18; x=356..364 z=257..275
+# brick . interior * main route ^ ladder o window P exterior brick
+#########
+##......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#......##
+####.####
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #^#
+   ###
+Level 17; x=356..364 z=257..275
+# brick . interior * main route ^ ladder o window P exterior brick
+#########
+##.....##
+#.......#
+#.......#
+#...T...#
+#.......#
+#.......#
+#......##
+####.####
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #.#
+   #^#
+   ###
+Level 16; x=356..364 z=257..275
+# brick . interior * main route ^ ladder o window P exterior brick
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+   ###
+   ###
+   ###
+   ###
+   ###
+   ###
+   ###
+   ###
+   ###
+   ###

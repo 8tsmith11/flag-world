@@ -1,18 +1,23 @@
+import { animateWater } from './terrainAnimation.js';
+import { BLOCK_TEXTURE as TEXTURES } from '/shared/config.js';
+import { plantMaterial } from './plantMaterial.js';
+import { TEXTURE_TILES, ATLAS_ROWS } from '/shared/blockTextures.js';
 // Keeps chunk meshes in the scene for chunks within the view distance of the
 // camera (horizontally), building the nearest ones first, a few per frame,
 // rebuilding any marked dirty, and unloading ones that fall out of range.
 // Only chunks that exist are considered; the world stores no empty ones.
 
 import * as THREE from 'three';
-import { CHUNK_SIZE } from '/shared/config.js';
+import { LightingClient, litMaterial } from './voxelLighting.js';
+import { CHUNK_SIZE, LIGHTING as C } from '/shared/config.js';
 import { chunkKey } from '/shared/world.js';
 import { meshChunk } from './mesher.js';
 
 // Meshes built per frame.
-const BUILDS_PER_FRAME = 4;
+const BUILDS_PER_FRAME = C.buildsPerFrame;
 // Loaded chunks are kept until this much past the view distance, so walking
 // back and forth over the edge doesn't rebuild them.
-const UNLOAD_MARGIN = CHUNK_SIZE * 2;
+const UNLOAD_MARGIN = C.unloadMargin;
 
 function ironTexture() {
   const canvas = document.createElement('canvas');
@@ -39,56 +44,7 @@ function ironTexture() {
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.generateMipmaps = true;
-  texture.anisotropy = 8;
-  return texture;
-}
 
-// Goblin Bricks: rough, dark greenish-brown bricks in staggered rows of
-// uneven lengths, deep mortar, pitted faces and flecks of moss.
-function goblinBrickTexture() {
-  const size = 32;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#1f1e14';
-  ctx.fillRect(0, 0, size, size);
-  let seed = 0x6b1e5;
-  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-  const rows = [0, 8, 16, 24, 32];
-  for (let row = 0; row < 4; row++) {
-    const top = rows[row] + 1, bottom = rows[row + 1] - 1;
-    let x = row % 2 ? -6 : 0;
-    while (x < size) {
-      const length = 9 + Math.floor(random() * 7);
-      const r = 66 + Math.floor(random() * 22), g = 68 + Math.floor(random() * 20), b = 40 + Math.floor(random() * 12);
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
-      // Chipped corners: each brick is inset a little differently.
-      const inset = random() < 0.5 ? 1 : 0;
-      ctx.fillRect(x + 1, top + inset, length - 1, bottom - top - inset + (random() < 0.3 ? 0 : 1));
-      if (x < 0) ctx.fillRect(x + 1 + size, top + inset, length - 1, bottom - top - inset);
-      // Darker lower edge, lighter upper edge for a rough bevel.
-      ctx.fillStyle = 'rgba(20,18,10,0.45)';
-      ctx.fillRect(x + 1, bottom - 1, length - 1, 1);
-      ctx.fillStyle = 'rgba(150,150,100,0.25)';
-      ctx.fillRect(x + 1, top + inset, length - 1, 1);
-      x += length;
-    }
-  }
-  for (let i = 0; i < 90; i++) {
-    const shade = random() < 0.6 ? 'rgba(25,22,12,0.5)' : 'rgba(120,118,80,0.35)';
-    ctx.fillStyle = shade;
-    ctx.fillRect(Math.floor(random() * size), Math.floor(random() * size), 1, 1);
-  }
-  for (let i = 0; i < 7; i++) {
-    ctx.fillStyle = i % 2 ? '#4d6a2a' : '#3d5a24';
-    ctx.fillRect(Math.floor(random() * size), rows[Math.floor(random() * 4) + 1] - 2, 2 + Math.floor(random() * 3), 1 + Math.floor(random() * 2));
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
-  texture.anisotropy = 8;
   return texture;
 }
 
@@ -124,7 +80,7 @@ function stoneBrickTexture(variant = 'plain') {
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.generateMipmaps = true;
-  texture.anisotropy = 8;
+
   return texture;
 }
 
@@ -172,12 +128,99 @@ function patternedTexture(kind) {
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.generateMipmaps = true;
-  texture.anisotropy = 8;
+
+  return texture;
+}
+
+// Historical artwork from 6dd61a9 (also preserved in 5be99f1).
+function goblinBrickTexture() {
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1f1e14';
+  ctx.fillRect(0, 0, size, size);
+  let seed = 0x6b1e5;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  const rows = [0, 8, 16, 24, 32];
+  for (let row = 0; row < 4; row++) {
+    const top = rows[row] + 1, bottom = rows[row + 1] - 1;
+    let x = row % 2 ? -6 : 0;
+    while (x < size) {
+      const length = 9 + Math.floor(random() * 7);
+      const r = 66 + Math.floor(random() * 22), g = 68 + Math.floor(random() * 20), b = 40 + Math.floor(random() * 12);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      // Chipped corners: each brick is inset a little differently.
+      const inset = random() < 0.5 ? 1 : 0;
+      ctx.fillRect(x + 1, top + inset, length - 1, bottom - top - inset + (random() < 0.3 ? 0 : 1));
+      if (x < 0) ctx.fillRect(x + 1 + size, top + inset, length - 1, bottom - top - inset);
+      // Darker lower edge, lighter upper edge for a rough bevel.
+      ctx.fillStyle = 'rgba(20,18,10,0.45)';
+      ctx.fillRect(x + 1, bottom - 1, length - 1, 1);
+      ctx.fillStyle = 'rgba(150,150,100,0.25)';
+      ctx.fillRect(x + 1, top + inset, length - 1, 1);
+      x += length;
+    }
+  }
+  for (let i = 0; i < 90; i++) {
+    const shade = random() < 0.6 ? 'rgba(25,22,12,0.5)' : 'rgba(120,118,80,0.35)';
+    ctx.fillStyle = shade;
+    ctx.fillRect(Math.floor(random() * size), Math.floor(random() * size), 1, 1);
+  }
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = i % 2 ? '#4d6a2a' : '#3d5a24';
+    ctx.fillRect(Math.floor(random() * size), rows[Math.floor(random() * 4) + 1] - 2, 2 + Math.floor(random() * 3), 1 + Math.floor(random() * 2));
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  return texture;
+}
+
+
+// Extruded gutters isolate tiles through the useful mip levels.
+function blockAtlas(renderer) {
+  const sources = { ore: ironTexture(), bricks: stoneBrickTexture(), mossyBricks: stoneBrickTexture('mossy'),
+    crackedBricks: stoneBrickTexture('cracked'), planks: patternedTexture('planks'),
+    woodSides: patternedTexture('woodSides'), woodEnds: patternedTexture('woodEnds'), quarry: patternedTexture('quarry') };
+  sources.goblinBricks = goblinBrickTexture();
+  const torchCanvas=document.createElement('canvas');torchCanvas.width=torchCanvas.height=32;
+  const tc=torchCanvas.getContext('2d');tc.fillStyle='#9a6837';tc.fillRect(0,0,32,32);
+  tc.fillStyle='#d19a52';for(let x=0;x<32;x+=8)tc.fillRect(x,0,2,32);
+  tc.fillStyle='#ffe8a0';tc.fillRect(0,0,32,6);tc.fillStyle='#ed9034';tc.fillRect(0,6,32,2);
+  sources.torch=new THREE.CanvasTexture(torchCanvas);
+  const size = TEXTURES.tileSize;
+  const canvas = document.createElement('canvas'), stride = TEXTURES.tileStride, pad = (stride - size) / 2;
+  canvas.width = TEXTURES.atlasColumns * stride; canvas.height = ATLAS_ROWS * stride;
+  const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = false;
+  TEXTURE_TILES.forEach((name, index) => {
+    const tile = document.createElement('canvas'); tile.width = tile.height = size;
+    const tileContext = tile.getContext('2d'); tileContext.imageSmoothingEnabled = false;
+    tileContext.drawImage(sources[name].image, 0, 0, size, size);
+    const x = index % TEXTURES.atlasColumns * stride, y = Math.floor(index / TEXTURES.atlasColumns) * stride;
+    ctx.drawImage(tile, x + pad, y + pad);
+    ctx.drawImage(tile, 0, 0, size, 1, x + pad, y, size, pad);
+    ctx.drawImage(tile, 0, size - 1, size, 1, x + pad, y + pad + size, size, pad);
+    ctx.drawImage(tile, 0, 0, 1, size, x, y + pad, pad, size);
+    ctx.drawImage(tile, size - 1, 0, 1, size, x + pad + size, y + pad, pad, size);
+    for (const [sx, sy, dx, dy] of [[0, 0, 0, 0], [size - 1, 0, pad + size, 0],
+      [0, size - 1, 0, pad + size], [size - 1, size - 1, pad + size, pad + size]]) ctx.drawImage(tile, sx, sy, 1, 1, x + dx, y + dy, pad, pad);
+    sources[name].dispose();
+  });
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace; texture.generateMipmaps = true;
+  // Three disables anisotropic sampling with NearestFilter magnification.
+  // Linear sampling keeps thin grain/mortar lines stable during motion and
+  // enables the anisotropy below, especially on floors at shallow angles.
+  texture.magFilter = THREE.LinearFilter; texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return texture;
 }
 
 export class ChunkRenderer {
-  constructor(scene, world, viewDistance) {
+  constructor(scene, world, viewDistance, renderer) {
     this.scene = scene;
     this.world = world;
     this.viewDistance = viewDistance;
@@ -188,27 +231,25 @@ export class ChunkRenderer {
     this.queue = [];
     this.queueFrom = null;
 
-    this.opaqueMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
-    this.oreMaterial = new THREE.MeshLambertMaterial({ map: ironTexture() });
-    this.goblinMaterial = new THREE.MeshLambertMaterial({ map: goblinBrickTexture(), vertexColors: true });
-    this.brickMaterial = new THREE.MeshLambertMaterial({ map: stoneBrickTexture(), vertexColors: true });
-    this.mossyBrickMaterial = new THREE.MeshLambertMaterial({ map: stoneBrickTexture('mossy'), vertexColors: true });
-    this.crackedBrickMaterial = new THREE.MeshLambertMaterial({ map: stoneBrickTexture('cracked'), vertexColors: true });
-    this.plankMaterial = new THREE.MeshLambertMaterial({ map: patternedTexture('planks'), vertexColors: true });
-    this.woodSideMaterial = new THREE.MeshLambertMaterial({ map: patternedTexture('woodSides'), vertexColors: true });
-    this.woodEndMaterial = new THREE.MeshLambertMaterial({ map: patternedTexture('woodEnds'), vertexColors: true });
-    this.quarryMaterial = new THREE.MeshLambertMaterial({ map: patternedTexture('quarry'), vertexColors: true });
+    this.daylight={value:C.daySky,tint:{value:new THREE.Color(0xffedc9)}};
+    this.windTime={value:0};
+    this.opaqueMaterial = litMaterial(new THREE.MeshBasicMaterial({ vertexColors: true }),this.daylight);
+    this.atlas = blockAtlas(renderer);
+    const textured = litMaterial(new THREE.MeshBasicMaterial({ map: this.atlas, vertexColors: true }),this.daylight);
+    this.texturedMaterial = textured;
     this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
       opacity: 0.75, depthWrite: false });
-    this.transparentMaterial = new THREE.MeshLambertMaterial({
+    this.transparentMaterial = animateWater(litMaterial(new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
       opacity: 0.7,
       depthWrite: false,
       side: THREE.DoubleSide,
-    });
-
-    world.onBlockChanged = (x, y, z) => this.markBlockDirty(x, y, z);
+    }),this.daylight),this.windTime);
+    const plants=plantMaterial(this.daylight,this.windTime,renderer);this.plantMaterial=plants.material;this.plantReady=plants.ready;
+    this.lighting=new LightingClient(world,this.dirty);
+    this.lastRemeshMs=0;this.buildCount=0;
+    world.onBlockChanged = (x,y,z,id,oldId) => {this.markBlockDirty(x,y,z);this.lighting.edit(x,y,z,id,oldId);};
   }
 
   setViewDistance(distance) {
@@ -239,6 +280,7 @@ export class ChunkRenderer {
   }
 
   update(x, z) {
+    this.windTime.value=performance.now()/1000;
     const key = `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}`;
     if (key !== this.queueFrom) {
       this.queueFrom = key;
@@ -248,72 +290,64 @@ export class ChunkRenderer {
         if (d <= this.viewDistance) this.queue.push({ chunk, d });
       }
       this.queue.sort((a, b) => a.d - b.d);
+      this.buildCursor = 0;
+      this.lighting.setQueue(this.queue.map(entry=>entry.chunk));
       for (const [meshKey, entry] of this.meshes) {
         if (this.distanceTo(entry.chunk, x, z) > this.viewDistance + UNLOAD_MARGIN) this.unload(meshKey);
       }
     }
 
+    if(this.lighting.edits || this.lighting.error)return;
     let budget = BUILDS_PER_FRAME;
-    for (const { chunk } of this.queue) {
-      if (budget === 0) break;
+    const deadline = performance.now() + C.buildBudgetMs;
+    // Edits have priority. Idle frames never walk the full chunk queue.
+    for (const k of this.dirty) {
+      const entry = this.meshes.get(k);
+      if (!entry) { this.dirty.delete(k); continue; }
+      this.build(k, entry.chunk);
+      if (--budget === 0 || performance.now() >= deadline) return;
+    }
+    while (this.buildCursor < this.queue.length && budget > 0) {
+      const { chunk } = this.queue[this.buildCursor];
       const k = chunkKey(chunk.cx, chunk.cy, chunk.cz);
-      if (this.meshes.has(k) && !this.dirty.has(k)) continue;
+      if (this.meshes.has(k)) { this.buildCursor++; continue; }
+      if (!this.lighting.ready.has(k)) break;
+      this.buildCursor++;
       this.build(k, chunk);
       budget--;
-    }
-    // Dirty chunks that are loaded but outside the queue (just past the edge) still need rebuilding.
-    for (const k of this.dirty) {
-      if (budget === 0) break;
-      const entry = this.meshes.get(k);
-      if (!entry) {
-        this.dirty.delete(k);
-        continue;
-      }
-      this.build(k, entry.chunk);
-      budget--;
+      if (performance.now() >= deadline) break;
     }
   }
 
   build(key, chunk) {
+    const started=performance.now();
     this.unload(key);
     this.dirty.delete(key);
     const geo = meshChunk(this.world, chunk);
     const entry = {
       chunk,
+      plants:geo.plants&&new THREE.Mesh(geo.plants,this.plantMaterial),
       opaque: geo.opaque && new THREE.Mesh(geo.opaque, this.opaqueMaterial),
-      ore: geo.ore && new THREE.Mesh(geo.ore, this.oreMaterial),
-      goblin: geo.goblin && new THREE.Mesh(geo.goblin, this.goblinMaterial),
-      bricks: geo.bricks && new THREE.Mesh(geo.bricks, this.brickMaterial),
-      mossyBricks: geo.mossyBricks && new THREE.Mesh(geo.mossyBricks, this.mossyBrickMaterial),
-      crackedBricks: geo.crackedBricks && new THREE.Mesh(geo.crackedBricks, this.crackedBrickMaterial),
-      planks: geo.planks && new THREE.Mesh(geo.planks, this.plankMaterial),
-      woodSides: geo.woodSides && new THREE.Mesh(geo.woodSides, this.woodSideMaterial),
-      woodEnds: geo.woodEnds && new THREE.Mesh(geo.woodEnds, this.woodEndMaterial),
-      quarry: geo.quarry && new THREE.Mesh(geo.quarry, this.quarryMaterial),
+      textured: geo.textured && new THREE.Mesh(geo.textured, this.texturedMaterial),
       glow: geo.glow && new THREE.Mesh(geo.glow, this.glowMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
     };
+    if(entry.plants)this.scene.add(entry.plants);
     if (entry.opaque) this.scene.add(entry.opaque);
-    if (entry.ore) this.scene.add(entry.ore);
-    if (entry.goblin) this.scene.add(entry.goblin);
-    if (entry.bricks) this.scene.add(entry.bricks);
-    for (const name of ['mossyBricks', 'crackedBricks', 'planks', 'woodSides', 'woodEnds', 'quarry']) {
-      if (entry[name]) this.scene.add(entry[name]);
-    }
+    if (entry.textured) this.scene.add(entry.textured);
     if (entry.glow) { entry.glow.renderOrder = 2; this.scene.add(entry.glow); }
     if (entry.transparent) {
       entry.transparent.renderOrder = 1;
       this.scene.add(entry.transparent);
     }
     this.meshes.set(key, entry);
+    this.lastRemeshMs=performance.now()-started;this.buildCount++;
   }
 
   unload(key) {
     const entry = this.meshes.get(key);
     if (!entry) return;
-    for (const mesh of [entry.opaque, entry.ore, entry.goblin, entry.bricks,
-      entry.mossyBricks, entry.crackedBricks, entry.planks, entry.woodSides, entry.woodEnds,
-      entry.quarry, entry.glow, entry.transparent]) {
+    for (const mesh of [entry.opaque, entry.textured, entry.glow, entry.transparent, entry.plants]) {
       if (!mesh) continue;
       this.scene.remove(mesh);
       mesh.geometry.dispose();

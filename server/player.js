@@ -79,6 +79,7 @@ export class Player {
   attach(socket) {
     this.socket = socket;
     this.inputQueue.length = 0;
+    this.entityLast = new Map();
     this.breaking = null;
   }
 
@@ -154,7 +155,6 @@ export class Player {
       yaw: s.yaw, pitch: s.pitch,
       onGround: s.onGround,
       crouching: s.crouching,
-      poisonTicks: Math.max(0, (this.poisonUntil ?? 0) - tick),
       gliding: s.gliding,
       glideBlockedTicks: s.glideBlockedTicks ?? 0,
       flying: s.flying,

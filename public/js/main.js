@@ -5,12 +5,12 @@
 import {
   TICK_DT, TICK_RATE, PLAYER_EYE_HEIGHT, REACH_DISTANCE, RESPAWN_DELAY,
   BOW_COOLDOWN, DAY_LENGTH,
-  VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX,
+  VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX, LIGHTING, LOBBY_MEDIA,
 } from '/shared/config.js';
-import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT, TEAMS } from '/shared/protocol.js';
-import { generateWorld } from '/shared/worldgen.js';
+import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT, TEAMS, ENTITY_TYPE } from '/shared/protocol.js';
+import { generateClientWorld } from './worldGeneration.js';
 import {
-  BLOCK, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, doorState, isFurnace, isChest, isAnvil, isFlowingWater,
+  BLOCK, blocksAttack, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, doorState, isFurnace, isChest, isAnvil, isFlowingWater,
 } from '/shared/blocks.js';
 import { breakingStats, rangedStats } from '/shared/tools.js';
 import { getItemDef, ITEM } from '/shared/items.js';
@@ -34,13 +34,18 @@ import { BlockHighlight } from './render/blockHighlight.js';
 import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
-import { GoblinEffects } from './render/goblinEffects.js';
-import { GoblinInspector } from './goblinInspector.js';
 import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
 import { TurretRenderer } from './render/turretRenderer.js';
 import { QuarryEffects } from './render/quarryEffects.js';
+import { LobbyMusic } from './lobbyMusic.js';
+import { MatchFullscreen } from './fullscreen.js';
+import { downloadLobbyView } from './render/capture.js';
 import { Sounds } from './sounds.js';
+import { AudioSettings } from './audioSettings.js';
+import { AudioMixer } from './audioMixer.js';
+import { Dialogue } from './dialogue.js';
+import { StormEffects } from './render/stormEffects.js';
 
 // Cap on ticks simulated in one frame so a long stall doesn't burst-send inputs.
 const MAX_TICKS_PER_FRAME = 5;
@@ -56,10 +61,6 @@ const SHAKE_AMOUNT = 0.12;
 const MODE = { PLAY: 'play', DEAD: 'dead', SPECTATE: 'spectate', ENDED: 'ended' };
 
 const overlay = document.getElementById('overlay');
-const poisonOverlay = document.createElement('div');
-poisonOverlay.id = 'poison-status'; poisonOverlay.hidden = true;
-poisonOverlay.innerHTML = '<span>☠ Poison</span><i></i><i></i><i></i><i></i><i></i>';
-document.body.appendChild(poisonOverlay);
 const status = document.getElementById('status');
 const deathScreen = document.getElementById('death');
 const deathCause = document.getElementById('death-cause');
@@ -95,17 +96,36 @@ const carryLabel = new Label(document.getElementById('carry'));
 const entities = new EntityRenderer(scene);
 const portals = new PortalRenderer(scene);
 const turretRenderer = new TurretRenderer(scene);
-const goblinEffects = new GoblinEffects(scene);
-const goblinInspector = new GoblinInspector();
 // The local player's grappling hook rope (remote players' are on their models).
 const grappleLine = new GrappleLine(scene);
-const sounds = new Sounds();
+const audioSettings = new AudioSettings();
+const audioMixer = new AudioMixer(audioSettings);
+const sounds = new Sounds(audioMixer);
+const dialogue = new Dialogue(document.getElementById('subtitle'), audioSettings, audioMixer);
+const music=new LobbyMusic(audioSettings);
+const fullscreen=new MatchFullscreen(input);
+fullscreen.onResume=()=>{if(lockable())input.requestLock();};
 document.addEventListener('pointerdown', () => sounds.unlock());
 const flags = new FlagRenderer(scene, entities);
 const highlight = new BlockHighlight(scene);
 const freeCamera = new FreeCamera();
-const conn = new Connection(`ws://${location.host}`);
+const conn = new Connection(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
 const lobby = new LobbyScreen(conn);
+let loading = null, loadingController = null;
+const loadingBar = document.getElementById('world-loading-progress');
+function updateLoading(percent) {
+  if(!loading)return;
+  loading.percent=Math.max(loading.percent,Math.min(100,percent));
+  status.textContent='Generating world';loadingBar.value=loading.percent;
+}
+function beginLoading(percent=0) {
+  loading ??= {percent:0};loadingBar.hidden=false;
+  document.body.classList.add('loading-world');updateLoading(percent);showScreen('overlay');
+}
+function stopLoading() {
+  loading=null;loadingBar.hidden=true;document.body.classList.remove('loading-world');
+}
+lobby.onStart=()=>beginLoading();
 const matchScreen = new MatchScreen(conn);
 const inventoryScreen = new InventoryScreen(conn);
 const creativeLabel = document.getElementById('creative-label');
@@ -160,6 +180,7 @@ let chunks = null;
 let clouds = null;
 let furnaceEffects = null;
 let quarryEffects = null;
+let stormEffects = null;
 let player = null;
 let seed = 0;
 let connected = true;
@@ -217,16 +238,16 @@ function lockable() {
 }
 
 overlay.addEventListener('click', () => {
-  if (lockable()) input.requestLock();
+  if (lockable() && !loading && !fullscreen.paused) input.requestLock();
 });
 // After a menu closes with Esc (which can't recapture the mouse), a click on
 // the game itself resumes.
 renderer.domElement.addEventListener('click', () => {
-  if (lockable() && currentScreen === null) input.requestLock();
+  if (lockable() && !loading && !fullscreen.paused && currentScreen === null) input.requestLock();
 });
 const resumeHint = document.getElementById('resume-hint');
 input.onLockChange = (locked) => {
-  if (lockable()) showScreen(locked ? null : 'overlay');
+  if (lockable() && !loading) showScreen(locked ? null : 'overlay');
 };
 
 // E opens the inventory (freeing the mouse); E closes it and goes back to
@@ -234,8 +255,6 @@ input.onLockChange = (locked) => {
 // but browsers don't let Esc recapture the mouse, so it waits for a click.
 input.onKey = (code) => {
   if (code === 'KeyE' && mode === MODE.PLAY) openInventory('inventory', null);
-  if (mode === MODE.PLAY && player?.state.creative && ['KeyG','KeyT'].includes(code))
-    conn.send({type:C2S.CREATIVE_ACTION,action:code === 'KeyG' ? 'forceGoblinSiege' : 'raiseGoblinTier'});
 };
 
 // View distance slider on the click-to-play overlay.
@@ -391,6 +410,7 @@ function startSpectating() {
 function endMatch(winnerId, winnerTeam, members = []) {
   closeInventory(false);
   mode = MODE.ENDED;
+  fullscreen.stop();
   document.body.classList.remove('dead');
   document.getElementById('end-title').textContent = `${TEAMS[winnerTeam]?.name ?? 'Team'} wins!`;
   document.getElementById('end-sub').textContent = members.join(', ');
@@ -401,6 +421,8 @@ function endMatch(winnerId, winnerTeam, members = []) {
 conn.onOpen(() => conn.send({ type: C2S.HELLO, name: loadName() }));
 
 conn.on(S2C.LOBBY, (msg) => {
+  stopLoading();
+  fullscreen.stop();music.start();document.body.classList.remove('in-game');
   lobby.update(msg);
   showScreen('lobby');
 });
@@ -411,44 +433,68 @@ conn.on(S2C.MATCH_IN_PROGRESS, (msg) => {
 });
 
 conn.on(S2C.ERROR, (msg) => {
+  stopLoading();
   status.textContent = msg.message;
   lobby.showError(msg.message);
   matchScreen.showError(msg.message);
 });
 
-// Building the world takes a moment, so show a message first and hold any
-// messages that arrive meanwhile until it's done.
-conn.on(S2C.WELCOME, (msg) => {
-  conn.pause();
-  status.textContent = 'Generating world…';
-  showScreen('overlay');
-  setTimeout(() => {
-    startGame(msg);
-    conn.resume();
-  }, 30);
+conn.on(S2C.GENERATION, (msg) => {
+  beginLoading(msg.percent*LOBBY_MEDIA.serverProgressWeight);
 });
 
-function startGame(msg) {
+// Keep the page responsive while a worker builds the local voxels. Network
+// snapshots wait until the world and player exist, then replay in order.
+conn.on(S2C.WELCOME, async (msg) => {
+  conn.pause();
+  beginLoading(100*LOBBY_MEDIA.serverProgressWeight);
+  loadingController = new AbortController();
+  try {
+    const generated = await generateClientWorld(msg, ({ percent }) => {
+      updateLoading(100*LOBBY_MEDIA.serverProgressWeight+percent*LOBBY_MEDIA.localProgressWeight);
+    }, loadingController.signal);
+    if (!connected) return;
+    startGame(msg, generated);
+    conn.resume();
+  } catch (error) {
+    if (!connected) return;
+    stopLoading();
+    status.textContent = `Could not load world (seed ${msg.seed}): ${error.message} Refresh to retry.`;
+  } finally {
+    loadingController = null;
+  }
+});
+
+function startGame(msg, generated) {
+  mode = MODE.PLAY;
+  accumulator = 0;
+  lastTime = performance.now();
+  input.release();
+  input.yaw = msg.players.find(p => p.id === msg.id)?.yaw ?? 0;
+  input.pitch = msg.players.find(p => p.id === msg.id)?.pitch ?? 0;
   seed = msg.seed;
   dayClock = { baseTime: msg.dayTime, baseTick: msg.tick, tick: msg.tick, at: performance.now() };
-  world = generateWorld(msg.seed, msg.teamCount, msg.worldSize);
+  world = generated;
   for (const b of msg.blocks) world.setBlock(b.x, b.y, b.z, b.id);
   for (const { key, team } of msg.doorTeams ?? []) world.doorTeams.set(key, team);
   turretRenderer.sync(msg.turrets);
-  chunks = new ChunkRenderer(scene, world, viewDistance);
+  chunks = new ChunkRenderer(scene, world, viewDistance, renderer);
   clouds = new Clouds(scene, world);
   furnaceEffects = new FurnaceEffects(scene, world);
   quarryEffects = new QuarryEffects(scene, world);
+  stormEffects?.dispose();
+  stormEffects = world.stormCloud ? new StormEffects(scene, world.stormCloud, audioMixer) : null;
   for (const { x, y, z, id } of msg.blocks) {
     if (id === BLOCK.QUARRY_STONE) quarryEffects.changed(x, y, z, id);
   }
   for (const { x, y, z } of msg.litFurnaces ?? []) furnaceEffects.setLit(x, y, z, true);
   for (const portal of msg.portals ?? []) portals.add(portal);
   self = msg.players.find((p) => p.id === msg.id);
+  audioSettings.setPlayer(self.name);
   player = new LocalPlayer(msg.id, msg.color, self, world);
   setCreative(!!msg.creative);
   inventoryScreen.setCreativeState({ immortal: !!msg.immortal, flying: !!msg.flying,
-    totemExists: !!msg.totemExists });
+    invisible: !!msg.invisible });
   for (const p of msg.players) {
     names.set(p.id, p.name);
     playerTeams.set(p.id, p.team);
@@ -464,11 +510,15 @@ function startGame(msg) {
   viewModel = new ViewModel(player.color);
   status.textContent = 'Click to play';
   document.body.classList.add('in-game');
+  fullscreen.start();
   showScreen('overlay');
   if (self.eliminated) startSpectating();
   else if (self.dead) enterDeath(null, false);
   if (msg.winnerId !== null) endMatch(msg.winnerId, msg.winnerTeam, msg.winnerMembers);
-  requestAnimationFrame(frame);
+  if(loading)showScreen('overlay');
+  // Replacing this callback is idempotent, so a reclaim cannot start a second
+  // render loop against the same camera and canvas.
+  renderer.setAnimationLoop(frame);
 }
 
 conn.on(S2C.DAMAGE, (msg) => {
@@ -476,18 +526,11 @@ conn.on(S2C.DAMAGE, (msg) => {
     shakeUntil = performance.now() + SHAKE_MS;
     health.set(msg.hp, self?.maxHp);
   } else {
-    const entity=entities.entities.get(msg.id);
-    if(entity?.info.type.startsWith('goblin'))sounds.goblinHurt(entity.info.type,entity.object.position,camera.position);
+    sounds.mobDamage(entities.entities.get(msg.id), msg.hp);
     entities.flash(msg.id);
-    entities.setHp(msg.id, msg.hp);
   }
 });
 
-conn.on(S2C.CHAT, (msg) => feed.add(msg.text, msg.kind === 'event' ? 'event' : ''));
-conn.on(S2C.GOBLIN_STATUS, (msg) => goblinInspector.setStatus(msg));
-conn.on(S2C.GOBLIN_SIEGE_DECLARED, () => sounds.siegeDeclared());
-conn.on(S2C.SIEGE_EXPLOSION, (msg) => {goblinEffects.explosion(msg.x,msg.y,msg.z,msg.radius);sounds.explosion(msg,camera.position);});
-conn.on(S2C.GOBLIN_TOTEM_DESTROYED, (msg) => goblinEffects.totemBurst(msg.x, msg.y, msg.z));
 
 conn.on(S2C.DEATH, (msg) => {
   const colors = [msg.id, msg.killerId].filter((id) => id !== null).map((id) =>
@@ -536,12 +579,18 @@ conn.on(S2C.CREATIVE, (msg) => {
   inventoryScreen.setCreativeState(msg);
   if (player) player.state.flying = !!msg.flying;
 });
+conn.on(S2C.CAPTURE_LOBBY,()=>downloadLobbyView(renderer,scene,camera).catch(error=>toast.show(error.message)));
 conn.on(S2C.DAY_TIME, (msg) => {
   dayClock = { baseTime: msg.dayTime, baseTick: msg.tick, tick: msg.tick, at: performance.now() };
 });
 conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor,
   armor: msg.armor, accessory: msg.accessory }));
 conn.on(S2C.SWING, (msg) => entities.swing(msg.id));
+// An NPC answered us (only us): subtitle and voice, and its jaw moves.
+conn.on(S2C.SPEAK, (msg) => {
+  const seconds = dialogue.say(msg, entities.object(msg.id)?.position ?? null);
+  entities.talk(msg.id, msg.sound ? 0.8 : seconds);
+});
 conn.on(S2C.CONTAINER, (msg) => {
   const at = inventoryScreen.at;
   if (inventoryScreen.open && inventoryScreen.mode === msg.kind && at.x === msg.x && at.y === msg.y && at.z === msg.z) {
@@ -564,6 +613,8 @@ function applyBlockChange(msg) {
   const oldId = world.getBlock(msg.x, msg.y, msg.z);
   if (oldId !== BLOCK.AIR && msg.id === BLOCK.AIR) sounds.blockBreak(oldId,
     { x: msg.x + 0.5, y: msg.y + 0.5, z: msg.z + 0.5 }, camera.position);
+  if (oldId === BLOCK.AIR && msg.id !== BLOCK.AIR) sounds.blockPlace(msg.id,
+    { x: msg.x + 0.5, y: msg.y + 0.5, z: msg.z + 0.5 });
   if (isFurnace(oldId) && !isFurnace(msg.id)) {
     furnaceEffects?.setLit(msg.x, msg.y, msg.z, false);
   }
@@ -589,7 +640,6 @@ conn.on(S2C.STATE, (msg) => {
       continue;
     }
     self = e;
-    poisonOverlay.hidden = !(e.poisonTicks > 0) || e.dead;
     health.set(e.hp, e.maxHp);
     inventoryScreen.setCreativeState({ flying: !!e.flying });
     if (mode === MODE.DEAD && !e.dead) leaveDeath(e);
@@ -601,8 +651,11 @@ conn.on(S2C.STATE, (msg) => {
 });
 
 conn.onClose(() => {
+  loadingController?.abort();
+  stopLoading();
   status.textContent = 'Disconnected from server. Refresh to reconnect.';
   connected = false;
+  fullscreen.stop();music.fadeOut();audioMixer.stop();dialogue.stop();chunks?.lighting.dispose();
   showScreen('overlay');
   document.exitPointerLock();
 });
@@ -682,19 +735,23 @@ function updateFlagHud() {
 }
 
 function frame(now) {
-  requestAnimationFrame(frame);
-  const dt = (now - lastTime) / 1000;
+  const dt = Math.min(0.1, Math.max(0, (now - lastTime) / 1000));
   lastTime = now;
   accumulator += dt;
-  input.update(dt);
+  if(!fullscreen.paused&&!loading)input.update(dt);
   accumulator = Math.min(accumulator, TICK_DT * MAX_TICKS_PER_FRAME);
 
-  const playing = mode === MODE.PLAY;
+  const playing = connected && mode === MODE.PLAY && !fullscreen.paused && !loading;
   if (!playing) accumulator = 0;
   while (accumulator >= TICK_DT) {
     accumulator -= TICK_DT;
     const controls = input.sample();
     localTick++;
+    // Right click on an NPC talks to it instead of anything else.
+    if (controls.place && targetPlayer !== null && entities.entities.get(targetPlayer)?.info.type === ENTITY_TYPE.NPC) {
+      conn.send({ type: C2S.TALK, id: targetPlayer });
+      controls.place = false;
+    }
     // Holding a bow, right click (held) draws it instead of placing or using;
     // holding a crossbow, it loads it, and once loaded either click fires.
     // A grappling hook fires on right click.
@@ -752,7 +809,7 @@ function frame(now) {
 
   const pos = player.renderPosition(accumulator / TICK_DT);
   if (document.body.classList.contains('spectating')) {
-    if (mode === MODE.SPECTATE && input.locked) freeCamera.update(dt, input);
+    if (mode === MODE.SPECTATE && input.locked && !fullscreen.paused && !loading) freeCamera.update(dt, input);
     const f = freeCamera.position;
     camera.position.set(f.x, f.y, f.z);
   } else {
@@ -763,19 +820,17 @@ function frame(now) {
   camera.rotation.set(input.pitch, input.yaw, 0);
 
   const dir = lookDirection(input.yaw, input.pitch);
-  const block = playing ? raycastBlock(world, camera.position, dir, REACH_DISTANCE, isTargetable) : null;
-  const combatBlock = playing ? raycastBlock(world, camera.position, dir, REACH_DISTANCE, (id) => isTargetable(id) && !isWater(id)) : null;
-  const hit = playing ? raycastPlayers(camera.position, dir, combatBlock ? combatBlock.t : REACH_DISTANCE,
-    entities.attackTargets(), (p) => playerBoxOf(p.state)) : null;
-  targetPlayer = hit ? hit.player.id : null;
-  // Creative players inspecting the Goblin Totem.
-  const inspecting = playing && !!player?.state.creative && goblinInspector.status?.totemId != null;
-  const lookBlock = inspecting ? raycastBlock(world, camera.position, dir, 48, (id) => isTargetable(id) && !isWater(id)) : null;
-  goblinInspector.update(inspecting, inspecting ? entities.object(goblinInspector.status.totemId)?.position : null,
-    camera.position, dir, lookBlock?.t);
+  // Mine decorations normally, but aim combat through them on the client
+  // as well as the server. Most frames need just the one shared block ray.
+  const miningBlock=playing?raycastBlock(world,camera.position,dir,REACH_DISTANCE,(id)=>isTargetable(id)&&!isWater(id)):null;
+  const combatBlock=miningBlock&&!getBlockDef(miningBlock.id).blocksAttack
+    ?raycastBlock(world,camera.position,dir,REACH_DISTANCE,blocksAttack):miningBlock;
+  const hit=playing?raycastPlayers(camera.position,dir,combatBlock?combatBlock.t:REACH_DISTANCE,
+    entities.attackTargets(),(p)=>playerBoxOf(p.state)):null;
+  targetPlayer=hit?hit.player.id:null;
   // Only buckets target water. Other actions reach the block behind it.
-  const bucket = heldItem() === ITEM.EMPTY_BUCKET || heldItem() === ITEM.WATER_BUCKET;
-  target = hit ? null : bucket ? block : combatBlock;
+  const bucket=heldItem()===ITEM.EMPTY_BUCKET||heldItem()===ITEM.WATER_BUCKET;
+  target=hit?null:bucket&&playing?raycastBlock(world,camera.position,dir,REACH_DISTANCE,isTargetable):miningBlock;
   // Looking away (or the block breaking) resets progress, as on the server.
   if (!sameBlock(breaking, target)) breaking = null;
   highlight.update(target, breaking ? breaking.ticks / breakTicks(target.id, heldTool().speed) : 0);
@@ -800,23 +855,34 @@ function frame(now) {
   }
 
   chunks.update(camera.position.x, camera.position.z);
+  if(loading) {
+    const total=chunks.queue.length,done=chunks.queue.filter(({chunk})=>chunks.meshes.has(chunk.cx+4096*(chunk.cz+4096*chunk.cy))).length;
+    updateLoading(100*(LOBBY_MEDIA.serverProgressWeight+LOBBY_MEDIA.localProgressWeight+LOBBY_MEDIA.meshProgressWeight*(total?done/total:0)));
+    if(chunks.lighting.error){stopLoading();status.textContent=`Could not light the world: ${chunks.lighting.error.message}`;}
+    else if(total&&done===total){stopLoading();music.fadeOut();audioMixer.start(world);status.textContent='Click to play';showScreen(mode===MODE.DEAD?'death':mode===MODE.ENDED?'end':'overlay');}
+  }
   clouds?.update(dt);
   // Day and night, from the match clock.
+  let audioDayTime = 0;
   if (dayClock) {
     const ticks = dayClock.tick - dayClock.baseTick + Math.min(1, (now - dayClock.at) / 1000 * TICK_RATE);
     const time = (dayClock.baseTime + ticks / (DAY_LENGTH * TICK_RATE)) % 1;
+    audioDayTime = time;
     sky.update(time, camera);
+    chunks.daylight.value=LIGHTING.nightSky+(LIGHTING.daySky-LIGHTING.nightSky)*sky.daylight;
+    chunks.daylight.tint.value.copy(sky.light.color);
     setViewDistance(scene, camera, viewDistance, sky.fogScale);
     clouds?.setTint(sky.tint);
   }
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
   quarryEffects?.update(dt, camera.position, chunks.viewDistance);
+  stormEffects?.update(dt, camera.position, mode === MODE.PLAY || mode === MODE.SPECTATE);
   portals.update(dt, camera);
-  goblinEffects.update(dt);
-  entities.update(dt);
-  turretRenderer.update(dt);
+  entities.update(dt, world, chunks.daylight, camera);
+  turretRenderer.update(dt,world,chunks.daylight);
+  audioMixer.update(dt, camera.position, input.yaw, audioDayTime);
   sounds.update(dt, camera.position, player.state, world, entities,
-    input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'));
+    input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'), mode === MODE.PLAY && connected && !loading);
   flags.update(dt, player.id, pos);
   // The hook's rope runs from about the right hand to where it caught.
   const grapple = playing ? player.state.grapple : null;
@@ -835,7 +901,7 @@ function frame(now) {
       draw: drawAmount(),
       gliding: s.gliding,
     });
-    viewModel.render(renderer);
+    viewModel.render(renderer, world, camera.position, chunks.daylight, dt);
   }
   inventoryScreen.render(dt, heldItem());
 

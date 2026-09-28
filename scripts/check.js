@@ -1,7 +1,6 @@
 // `npm run check`: syntax-checks every JavaScript file, then imports the
-// server and shared modules so missing exports / bad import paths fail too.
-// Client modules import by absolute URL (/shared/..., three) so they can only
-// be syntax-checked here.
+// server and shared modules and links the browser entry's dependency graph
+// so missing exports / bad import paths fail too.
 
 import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
@@ -37,6 +36,13 @@ for (const file of [...jsFiles('server'), ...jsFiles('shared')]) {
     failed++;
     console.error(`FAIL import ${file}\n${err.stack}\n`);
   }
+}
+
+try {
+  execFileSync(process.execPath, ['--experimental-vm-modules', path.join(root, 'scripts/client-import-check.js')], { stdio: 'pipe' });
+} catch (err) {
+  failed++;
+  console.error(`FAIL client imports\n${err.stderr}`);
 }
 
 if (failed) {

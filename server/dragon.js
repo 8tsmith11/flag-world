@@ -1,3 +1,4 @@
+import { MOB_NAVIGATION as NAV } from '../shared/config.js';
 // Server-owned dragon. It flies, occasionally lands to wander, pursues nearby
 // players, and breathes a short cone of fire with clear sight.
 //
@@ -89,8 +90,8 @@ export class Dragon {
     const island = this.homeIsland;
     return players.filter((p) => huntable(p)
       && Math.hypot(p.state.x - island.x, p.state.z - island.z) <= this.leashRadius)
-      .map((p) => ({ player: p, distance: Math.hypot(p.state.x - s.x, p.state.y - s.y, p.state.z - s.z) }))
-      .filter(({ distance }) => distance < DRAGON_SIGHT)
+      .map((p) => ({ player: p, distance: Math.hypot(p.state.x - s.x, p.state.z - s.z) }))
+      .filter(({ player, distance }) => distance < DRAGON_SIGHT && Math.abs(player.state.y - s.y) <= NAV.targetVerticalRange)
       .sort((a, b) => a.distance - b.distance)[0]?.player ?? null;
   }
 

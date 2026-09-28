@@ -1,0 +1,453 @@
+[
+  {
+    "file": "public/audio/game/wind.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/wind1.wav",
+    "sourcePage": "https://opengameart.org/content/wind1",
+    "author": "Luke.RUSTLTD",
+    "license": "CC0 1.0",
+    "category": "ambience",
+    "loop": true
+  },
+  {
+    "file": "public/audio/game/birds.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/birdchirping071414.wav",
+    "sourcePage": "https://opengameart.org/content/bird-chirping-sounds",
+    "author": "syncopika",
+    "license": "CC0 1.0",
+    "category": "ambience",
+    "loop": true
+  },
+  {
+    "file": "public/audio/game/crickets.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/704/704381_8525021-hq.mp3",
+    "sourcePage": "https://freesound.org/people/ellie.vanderlip/sounds/704381/",
+    "author": "ellie.vanderlip",
+    "license": "CC0 1.0",
+    "category": "ambience",
+    "duration": 35,
+    "loop": true
+  },
+  {
+    "file": "public/audio/game/river.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/687/687056_11532701-hq.mp3",
+    "sourcePage": "https://freesound.org/people/deadrobotmusic/sounds/687056/",
+    "author": "deadrobotmusic",
+    "license": "CC0 1.0",
+    "category": "ambience",
+    "loop": true
+  },
+  {
+    "file": "public/audio/game/waterfall.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/44/44880_227630-hq.mp3",
+    "sourcePage": "https://freesound.org/people/A.Deathy/sounds/44880/",
+    "author": "A.Deathy",
+    "license": "CC0 1.0",
+    "category": "ambience",
+    "loop": true
+  },
+  {
+    "file": "public/audio/game/fortress.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/ghostly_humming.ogg",
+    "sourcePage": "https://opengameart.org/content/ghostly-humming",
+    "author": "Nocturnal_Vanguard / AuraVoice",
+    "license": "CC0 1.0",
+    "category": "ambience",
+    "loop": true,
+    "duration": 24,
+    "filters": [
+      "lowpass=f=280"
+    ]
+  },
+  {
+    "file": "public/audio/game/step-grass.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/footstep_grass_000.ogg"
+  },
+  {
+    "file": "public/audio/game/step-stone.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/footstep_concrete_000.ogg"
+  },
+  {
+    "file": "public/audio/game/step-wood.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/footstep_wood_000.ogg"
+  },
+  {
+    "file": "public/audio/game/step-dirt.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/%5Bkdd%5DDifferentSteps_0.zip",
+    "sourcePage": "https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud",
+    "author": "TinyWorlds / pdsounds.org",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "mud02.ogg"
+  },
+  {
+    "file": "public/audio/game/step-brick.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/%5Bkdd%5DDifferentSteps_0.zip",
+    "sourcePage": "https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud",
+    "author": "TinyWorlds / pdsounds.org",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "stone01.ogg"
+  },
+  {
+    "file": "public/audio/game/step-sand.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/sand_footsteps_0.mp3",
+    "sourcePage": "https://opengameart.org/content/water-splash-and-sand-footsteps",
+    "author": "Peludo",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "start": 0.2,
+    "duration": 0.22
+  },
+  {
+    "file": "public/audio/game/break-grass.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactSoft_heavy_000.ogg"
+  },
+  {
+    "file": "public/audio/game/place-grass.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactSoft_medium_002.ogg"
+  },
+  {
+    "file": "public/audio/game/break-dirt.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactSoft_medium_000.ogg"
+  },
+  {
+    "file": "public/audio/game/place-dirt.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactSoft_medium_003.ogg"
+  },
+  {
+    "file": "public/audio/game/break-stone.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactMining_000.ogg"
+  },
+  {
+    "file": "public/audio/game/place-stone.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactGeneric_light_000.ogg"
+  },
+  {
+    "file": "public/audio/game/break-wood.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactWood_heavy_000.ogg"
+  },
+  {
+    "file": "public/audio/game/place-wood.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactWood_light_000.ogg"
+  },
+  {
+    "file": "public/audio/game/break-sand.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactSoft_medium_001.ogg"
+  },
+  {
+    "file": "public/audio/game/place-sand.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactSoft_medium_004.ogg"
+  },
+  {
+    "file": "public/audio/game/break-brick.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactMining_002.ogg"
+  },
+  {
+    "file": "public/audio/game/place-brick.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactGeneric_light_002.ogg"
+  },
+  {
+    "file": "public/audio/game/landing.ogg",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "sourcePage": "https://kenney.nl/assets/impact-sounds",
+    "author": "Kenney",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Audio/impactPunch_heavy_000.ogg"
+  },
+  {
+    "file": "public/audio/game/splash.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/splash1_0.wav",
+    "sourcePage": "https://opengameart.org/content/water-splash-and-sand-footsteps",
+    "author": "Peludo",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "duration": 1
+  },
+  {
+    "file": "public/audio/game/cow-moo.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/233/233128_4056007-hq.mp3",
+    "sourcePage": "https://freesound.org/people/JarredGibb/sounds/233128/",
+    "author": "JarredGibb",
+    "license": "CC0 1.0",
+    "category": "effects"
+  },
+  {
+    "file": "public/audio/game/cow-hurt.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/233/233128_4056007-hq.mp3",
+    "sourcePage": "https://freesound.org/people/JarredGibb/sounds/233128/",
+    "author": "JarredGibb",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "duration": 0.7,
+    "filters": [
+      "asetrate=50000",
+      "aresample=44100"
+    ],
+    "start": 0.75
+  },
+  {
+    "file": "public/audio/game/cow-death.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/233/233128_4056007-hq.mp3",
+    "sourcePage": "https://freesound.org/people/JarredGibb/sounds/233128/",
+    "author": "JarredGibb",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "asetrate=33075",
+      "aresample=44100"
+    ]
+  },
+  {
+    "file": "public/audio/game/dragon-wing.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/dragonflap.wav",
+    "sourcePage": "https://opengameart.org/content/dragon-flap-0",
+    "author": "VishwaJai",
+    "license": "CC0 1.0",
+    "category": "effects"
+  },
+  {
+    "file": "public/audio/game/dragon-roar.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/beast_or_animal.7z",
+    "sourcePage": "https://opengameart.org/content/animal-or-beast-sounds",
+    "author": "pauliuw",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Beast or Animal/Growl.wav"
+  },
+  {
+    "file": "public/audio/game/dragon-hurt.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/beast_or_animal.7z",
+    "sourcePage": "https://opengameart.org/content/animal-or-beast-sounds",
+    "author": "pauliuw",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Beast or Animal/Growl 1.wav"
+  },
+  {
+    "file": "public/audio/game/dragon-death.ogg",
+    "sourceUrl": "https://opengameart.org/sites/default/files/beast_or_animal.7z",
+    "sourcePage": "https://opengameart.org/content/animal-or-beast-sounds",
+    "author": "pauliuw",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "member": "Beast or Animal/Growl 2.wav"
+  },
+  {
+    "file": "public/audio/game/monkey-grunt-1.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/370/370369_5338586-hq.mp3",
+    "sourcePage": "https://freesound.org/people/zatar/sounds/370369/",
+    "author": "zatar",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "atrim=0.83:3.03",
+      "asetpts=PTS-STARTPTS",
+      "afade=t=in:d=0.02",
+      "areverse",
+      "afade=t=in:d=0.2",
+      "areverse",
+      "asetrate=33075",
+      "aresample=44100"
+    ]
+  },
+  {
+    "file": "public/audio/game/monkey-grunt-2.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/370/370369_5338586-hq.mp3",
+    "sourcePage": "https://freesound.org/people/zatar/sounds/370369/",
+    "author": "zatar",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "atrim=4.34:5.93",
+      "asetpts=PTS-STARTPTS",
+      "afade=t=in:d=0.02",
+      "areverse",
+      "afade=t=in:d=0.2",
+      "areverse",
+      "asetrate=33075",
+      "aresample=44100"
+    ]
+  },
+  {
+    "file": "public/audio/game/monkey-grunt-3.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/370/370369_5338586-hq.mp3",
+    "sourcePage": "https://freesound.org/people/zatar/sounds/370369/",
+    "author": "zatar",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "atrim=6.2:8.02",
+      "asetpts=PTS-STARTPTS",
+      "afade=t=in:d=0.02",
+      "areverse",
+      "afade=t=in:d=0.2",
+      "areverse",
+      "asetrate=33075",
+      "aresample=44100"
+    ]
+  },
+  {
+    "file": "public/audio/game/monkey-huff.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/205/205891_384701-hq.mp3",
+    "sourcePage": "https://freesound.org/people/kfledman/sounds/205891/",
+    "author": "kfledman",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "atrim=0.86:1.4",
+      "asetpts=PTS-STARTPTS",
+      "afade=t=in:d=0.02",
+      "areverse",
+      "afade=t=in:d=0.2",
+      "areverse",
+      "asetrate=30869",
+      "aresample=44100"
+    ]
+  },
+  {
+    "file": "public/audio/game/monkey-rumble.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/178/178188_3085891-hq.mp3",
+    "sourcePage": "https://freesound.org/people/Ihopethisworks/sounds/178188/",
+    "author": "Ihopethisworks",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "atrim=4.62:8.2",
+      "asetpts=PTS-STARTPTS",
+      "afade=t=in:d=0.02",
+      "areverse",
+      "afade=t=in:d=0.2",
+      "areverse",
+      "asetrate=30869",
+      "aresample=44100"
+    ]
+  },
+  {
+    "file": "public/audio/game/monkey-chest-beat.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/367/367821_6104883-hq.mp3",
+    "sourcePage": "https://freesound.org/people/shutup_outcast/sounds/367821/",
+    "author": "shutup_outcast",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "atrim=0:2.6",
+      "asetpts=PTS-STARTPTS",
+      "afade=t=in:d=0.02",
+      "areverse",
+      "afade=t=in:d=0.2",
+      "areverse",
+      "asetrate=35280",
+      "aresample=44100"
+    ]
+  },
+  {
+    "file": "public/audio/game/monkey-roar.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/397/397054_2884295-hq.mp3",
+    "sourcePage": "https://freesound.org/people/J0ck0/sounds/397054/",
+    "author": "J0ck0",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "atrim=0:1.57",
+      "asetpts=PTS-STARTPTS",
+      "afade=t=in:d=0.02",
+      "areverse",
+      "afade=t=in:d=0.2",
+      "areverse",
+      "asetrate=31752",
+      "aresample=44100"
+    ]
+  },
+  {
+    "file": "public/audio/game/thunder.ogg",
+    "sourceUrl": "https://cdn.freesound.org/previews/683/683421_14670263-hq.mp3",
+    "sourcePage": "https://freesound.org/people/SholeColtis/sounds/683421/",
+    "author": "SholeColtis",
+    "license": "CC0 1.0",
+    "category": "effects",
+    "filters": [
+      "atrim=0:4.6",
+      "asetpts=PTS-STARTPTS",
+      "afade=t=in:d=0.02",
+      "areverse",
+      "afade=t=in:d=0.2",
+      "areverse"
+    ]
+  }
+]

@@ -1,0 +1,24 @@
+// Run with the existing browser-URL resolver: checks actual emitted geometry.
+import assert from 'node:assert/strict';
+import { World } from '../shared/world.js';
+import { BLOCK } from '../shared/blocks.js';
+import { TREE_SETTINGS } from '../shared/config.js';
+import { meshChunk } from '../public/js/render/mesher.js';
+const w=new World(1,32,32,{sizeY:32,minY:0});
+w.setBlock(15,8,8,BLOCK.BRANCH);w.setBlock(16,8,8,BLOCK.WOOD);
+const branch=meshChunk(w,w.getChunk(0,0,0)).textured;
+assert.equal(branch.index.count,60,'Branch did not omit core/arm internal faces');
+assert.equal(branch.getAttribute('plantWind'),undefined,'bark carries an unused wind buffer');
+const p=branch.getAttribute('position').array;
+const axes=[[],[],[]];for(let i=0;i<p.length;i++)axes[i%3].push(p[i]);
+assert(Math.abs(Math.min(...axes[0])-(15+(1-TREE_SETTINGS.branchWidth)/2))<1e-5);
+assert.equal(Math.max(...axes[0]),16,'arm did not meet neighbouring chunk log');
+for(const a of [1,2])assert(Math.max(...axes[a])-Math.min(...axes[a])<TREE_SETTINGS.branchWidth+1e-5);
+assert(branch.getAttribute('uv').array.every(Number.isFinite));
+w.setBlock(16,8,8,BLOCK.AIR);
+assert.equal(meshChunk(w,w.getChunk(0,0,0)).textured.index.count,36,'removed neighbour left an arm');
+w.setBlock(2,0,2,BLOCK.GRASS);w.setBlock(2,8,2,BLOCK.LEAVES);
+const opaque=meshChunk(w,w.getChunk(0,0,0)).opaque;
+assert.equal(opaque.getAttribute('plantWind'),undefined,'leaves still have a wind buffer');
+assert(opaque.getAttribute('position').array.every(Number.isFinite));
+console.log('Branch neighbour meshing, bark UVs and static leaf geometry passed');

@@ -17,7 +17,7 @@
 //   texture       - armor: 'scales' draws the pieces with a scaled texture
 
 import { MAX_STACK } from './config.js';
-import { BLOCK, getBlockDef, ladderBlock, doorBlock } from './blocks.js';
+import { BLOCK, getBlockDef, registeredBlockIds, ladderBlock, doorBlock, blockBase, isLadder, isDoor, doorState, isWater } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { ACCESSORIES, RIFT_ORB } from './accessories.js';
 import { MOB_EGGS } from './mobEggs.js';
@@ -97,9 +97,25 @@ export function getItemDef(id) {
   if (!def) {
     const block = getBlockDef(id);
     def = {
-      id, name: block.name, maxStack: MAX_STACK, block: block.id, places: null, tool: null, shape: null, color: block.color,
+      id, name: block.name, maxStack: MAX_STACK, block: block.id, places: block.shape === 'torch' ? 'torch' : null, tool: null, shape: null, color: block.color, icon: block.icon,
     };
     blockItems.set(id, def);
   }
   return def;
+}
+
+export function registeredItemIds() { return [...registeredBlockIds(), ...tools.keys()]; }
+
+// Encoded orientations, door halves/open states and flowing water are runtime
+// blocks, not separate choices in the creative inventory.
+export function creativeItemIds() {
+  const ids = registeredItemIds().map(id => {
+    if (id === BLOCK.AIR) return null;
+    if (id === BLOCK.SAPLING) return ITEM.TREE_SEED;
+    if (isLadder(id)) return ITEM.LADDER;
+    if (isDoor(id)) return doorState(id).reinforced ? ITEM.REINFORCED_DOOR : ITEM.DOOR;
+    if (isWater(id)) return BLOCK.WATER;
+    return id < 256 ? blockBase(id).base : id;
+  });
+  return [...new Set(ids.filter(id => id !== null))];
 }

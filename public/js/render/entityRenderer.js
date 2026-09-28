@@ -6,76 +6,30 @@
 // two server snapshots surrounding that time, which hides network jitter.
 
 import * as THREE from 'three';
-import { ITEM_SIZE, COW_WIDTH, COW_HEIGHT, CRAWLER_WIDTH, CRAWLER_HEIGHT } from '/shared/config.js';
-import { ENTITY_TYPE, GOBLIN_ANIMATION } from '/shared/protocol.js';
+import { updateEntityLight, lightModel, lightUniform } from './entityLighting.js';
+import { sampleSnapshots, resetSnapshots } from './snapshotInterpolation.js';
+import { ITEM_SIZE, COW_WIDTH, COW_HEIGHT, CRAWLER_WIDTH, CRAWLER_HEIGHT, LIGHTING as C } from '/shared/config.js';
+import { ENTITY_TYPE } from '/shared/protocol.js';
 import {
   createPlayerModel, createItemModel, createArrowModel, createCowModel, createDragonModel,
   createCrawlerModel, createEelModel, animatePlayer, animateCow, animateDragon, animateCrawler, animateEel, swingPlayer,
 } from './models.js';
 import { GrappleLine } from './grappleLine.js';
-import { createGoblinModel, animateGoblin, swingGoblin, createTotemModel, animateTotem } from './goblinModels.js';
-import { GOBLINS } from '/shared/goblins.js';
-import { createHoundModel, createSiegeMachine, createSiegeShot, animateSiegeModel } from './siegeModels.js';
+import { createNpcModel, animateMonkey } from './monkeyModels.js';
+import { NPC_DEFS } from '/shared/npcs.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
 const DRAGON_BOX = { halfW: 1.1, height: 2.8 };
 // Punchable mobs and their boxes (feet position and height), as on the server.
 const MOB_BOXES = {
-  ...Object.fromEntries(['hound','brute','catapult','balloon'].map((kind)=>[
-    `goblin${kind[0].toUpperCase()}${kind.slice(1)}`,{halfW:GOBLINS[kind].width/2,height:GOBLINS[kind].height-(kind==='balloon'?GOBLINS.balloon.envelopeOffset:0),
-      offsetY:kind==='balloon'?GOBLINS.balloon.envelopeOffset:0}])),
   [ENTITY_TYPE.COW]: COW_BOX,
   [ENTITY_TYPE.DRAGON]: DRAGON_BOX,
   [ENTITY_TYPE.CRAWLER]: { halfW: CRAWLER_WIDTH / 2, height: CRAWLER_HEIGHT },
   [ENTITY_TYPE.VOID_EEL]: { halfW: 0.6, height: 0.8 },
-  [ENTITY_TYPE.GOBLIN_WORKER]: { halfW: GOBLINS.worker.width / 2, height: GOBLINS.worker.height },
-  [ENTITY_TYPE.GOBLIN_KING]: { halfW: GOBLINS.king.width / 2, height: GOBLINS.king.height },
-  [ENTITY_TYPE.GOBLIN_SOLDIER]: { halfW: GOBLINS.soldier.width / 2, height: GOBLINS.soldier.height },
-  [ENTITY_TYPE.GOBLIN_ARCHER]: { halfW: GOBLINS.archer.width / 2, height: GOBLINS.archer.height },
-  [ENTITY_TYPE.GOBLIN_TOTEM]: { halfW: GOBLINS.totem.width / 2, height: GOBLINS.totem.height },
 };
+// NPC boxes depend on their kind.
+const boxOf = (info) => MOB_BOXES[info.type] ?? (info.type === ENTITY_TYPE.NPC ? NPC_DEFS[info.npc]?.box : undefined);
 
-// A health bar floating over an entity (the Goblin Totem while it's damaged):
-// a sprite redrawn when the HP changes.
-const BAR_WIDTH = 2, BAR_HEIGHT = 0.22;
-function createHealthBar() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 14;
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
-  sprite.scale.set(BAR_WIDTH, BAR_HEIGHT, 1);
-  sprite.renderOrder = 3;
-  sprite.visible = false;
-  sprite.userData.bar = { canvas, texture, shown: null };
-  return sprite;
-}
-
-function drawHealthBar(sprite, hp, maxHp) {
-  const bar = sprite.userData.bar;
-  const fraction = Math.max(0, Math.min(1, hp / maxHp));
-  sprite.visible = fraction < 1;
-  if (bar.shown === hp) return;
-  bar.shown = hp;
-  const ctx = bar.canvas.getContext('2d');
-  ctx.fillStyle = '#111';
-  ctx.fillRect(0, 0, 128, 14);
-  ctx.fillStyle = fraction > 0.5 ? '#6fd14a' : fraction > 0.25 ? '#e0b83a' : '#d8323c';
-  ctx.fillRect(2, 2, 124 * fraction, 10);
-  bar.texture.needsUpdate = true;
-}
-
-function createGoblinTotem() {
-  const group = createTotemModel();
-  const bar = createHealthBar();
-  bar.position.y = GOBLINS.totem.height + 0.6;
-  group.add(bar);
-  group.userData.healthBar = bar;
-  return group;
-}
-
-const INTERP_DELAY_MS = 100;
 const MAX_SNAPSHOTS = 20;
 // Dropped item spin (radians/ms) and bob.
 const ITEM_SPIN_SPEED = 0.002;
@@ -106,14 +60,7 @@ export function createSpriteModel(texture, width, height) {
   return sprite;
 }
 
-function createMachineWithHealth(info) {
-  const group=createSiegeMachine(info),bar=createHealthBar();
-  const cfg=info.type==='goblinBalloon'?GOBLINS.balloon:GOBLINS.catapult;
-  bar.position.y=cfg.height+0.5;group.add(bar);group.userData.healthBar=bar;return group;
-}
 const MODEL_FACTORIES = {
-  goblinHound:createHoundModel, goblinBrute:createGoblinModel,
-  goblinCatapult:createMachineWithHealth, goblinBalloon:createMachineWithHealth, siegeShot:createSiegeShot,
   [ENTITY_TYPE.PLAYER]: createPlayerModel,
   [ENTITY_TYPE.ITEM]: createDroppedItemModel,
   [ENTITY_TYPE.RIFT_ORB]: createDroppedItemModel,
@@ -121,11 +68,7 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.DRAGON]: createDragonModel,
   [ENTITY_TYPE.CRAWLER]: createCrawlerModel,
   [ENTITY_TYPE.VOID_EEL]: createEelModel,
-  [ENTITY_TYPE.GOBLIN_WORKER]: createGoblinModel,
-  [ENTITY_TYPE.GOBLIN_KING]: createGoblinModel,
-  [ENTITY_TYPE.GOBLIN_SOLDIER]: createGoblinModel,
-  [ENTITY_TYPE.GOBLIN_ARCHER]: createGoblinModel,
-  [ENTITY_TYPE.GOBLIN_TOTEM]: createGoblinTotem,
+  [ENTITY_TYPE.NPC]: createNpcModel,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
     const arrow = createArrowModel();
@@ -162,8 +105,7 @@ export class EntityRenderer {
     if (!factory) return;
     const object = factory(info);
     this.scene.add(object);
-    this.entities.set(id, { object, info, snapshots: [], flashUntil: 0, flashing: false,
-      hp: info.hp ?? null, maxHp: info.maxHp ?? null });
+    this.entities.set(id, { object, info, snapshots: [], flashUntil: 0, flashing: false });
     this.pushSnapshot(id, info);
   }
 
@@ -179,27 +121,23 @@ export class EntityRenderer {
   pushSnapshot(id, snap) {
     const entity = this.entities.get(id);
     if (!entity) return;
-    if (snap.hp !== undefined) entity.hp = snap.hp;
     const dead = !!snap.dead;
     // Dying or respawning moves the player instantly; don't interpolate across it.
     const previous = entity.snapshots.at(-1);
-    if (previous && (previous.dead !== dead || Math.hypot(previous.x - snap.x, previous.y - snap.y,
-      previous.z - snap.z) > 8)) entity.snapshots.length = 0;
+    if(resetSnapshots(previous,snap,entity.info.type))entity.snapshots.length=0;
     entity.snapshots.push({
-      time: performance.now(), x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
-      crouching: snap.a === undefined ? !!snap.crouching : !!(snap.a & GOBLIN_ANIMATION.CROUCH), draw: snap.draw ?? 0, armor: snap.armor ?? null,
+      time: performance.now(),u:snap.u ?? 1, x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
+      crouching: !!snap.crouching, draw: snap.draw ?? 0, armor: snap.armor ?? null,
       accessory: snap.accessory ?? null,
       orbActive: !!snap.orbActive,
       slowed: snap.slowTicks > 0, grapple: snap.grapple ?? null,
-      gliding: snap.a === undefined ? !!snap.gliding : !!(snap.a & GOBLIN_ANIMATION.GLIDE), breathing: !!snap.breathing,
-      walking: snap.a === undefined ? !!snap.walking : !!(snap.a & GOBLIN_ANIMATION.WALK),
-      climbing: snap.a === undefined ? !!snap.climbing : !!(snap.a & GOBLIN_ANIMATION.CLIMB),
+      gliding: !!snap.gliding, breathing: !!snap.breathing,
+      walking: !!snap.walking,
+      climbing: !!snap.climbing,
       coiling: !!snap.coiling, lunging: !!snap.lunging, night: !!snap.night, tail: snap.tail ?? null,
       onGround: !!snap.onGround,
-      mining: snap.a === undefined ? !!snap.mining : !!(snap.a & GOBLIN_ANIMATION.WORK),
-      aiming: snap.a === undefined ? !!snap.aiming : !!(snap.a & GOBLIN_ANIMATION.AIM),
-      aboard:!!snap.aboard,phase:snap.phase,cargo:snap.cargo,bombs:snap.bombs,firing:snap.firing,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
+      pose: snap.pose ?? null, look: snap.look ?? 0,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
     if (entity.snapshots.length > MAX_SNAPSHOTS) entity.snapshots.shift();
@@ -209,18 +147,17 @@ export class EntityRenderer {
   swing(id) {
     const entity = this.entities.get(id);
     if (entity?.object.userData.player) swingPlayer(entity.object);
-    if (entity?.object.userData.goblin) swingGoblin(entity.object);
-  }
-
-  // A mob's HP from a DAMAGE message (drives health bars).
-  setHp(id, hp) {
-    const entity = this.entities.get(id);
-    if (entity) entity.hp = hp;
   }
 
   flash(id) {
     const entity = this.entities.get(id);
     if (entity) entity.flashUntil = performance.now() + FLASH_MS;
+  }
+
+  // An NPC speaking to us moves its jaw for this long.
+  talk(id, seconds) {
+    const entity = this.entities.get(id);
+    if (entity) entity.talkUntil = performance.now() + seconds * 1000;
   }
 
   // The model for an entity, or null.
@@ -233,8 +170,8 @@ export class EntityRenderer {
   attackTargets() {
     const targets = this.playerTargets();
     for (const [id, { object, info }] of this.entities) {
-      const box = MOB_BOXES[info.type];
-      if (!box) continue;
+      const box = boxOf(info);
+      if (!box || !object.visible) continue;
       const { x, y, z } = object.position;
       const tail = info.type === ENTITY_TYPE.VOID_EEL ? this.entities.get(id).snapshots.at(-1)?.tail : null;
       targets.push({ id, state: { x, y, z, box },
@@ -255,24 +192,24 @@ export class EntityRenderer {
     return targets;
   }
 
-  update(dt) {
+  update(dt, world, daylight, camera) {
     const now = performance.now();
-    const renderTime = now - INTERP_DELAY_MS;
     for (const entity of this.entities.values()) {
       const { object, snapshots } = entity;
       if (snapshots.length === 0) continue;
-      object.visible = !snapshots.at(-1).dead && !snapshots.at(-1).aboard;
+      object.visible = !snapshots.at(-1).dead;
+      const latest = snapshots.at(-1);
+      if (camera && (latest.x-camera.position.x)**2 + (latest.y-camera.position.y)**2
+        + (latest.z-camera.position.z)**2 > camera.far**2) {
+        object.visible = false;
+        continue;
+      }
       const flashing = now < entity.flashUntil;
       if (flashing !== entity.flashing) {
         entity.flashing = flashing;
         object.traverse((o) => o.material?.emissive?.setHex(flashing ? FLASH_COLOR : 0x000000));
       }
-      // Find the pair of snapshots straddling renderTime; clamp at the ends.
-      let i = snapshots.length - 1;
-      while (i > 0 && snapshots[i - 1].time > renderTime) i--;
-      const b = snapshots[i];
-      const a = snapshots[Math.max(0, i - 1)];
-      const t = b.time === a.time ? 1 : Math.max(0, Math.min(1, (renderTime - a.time) / (b.time - a.time)));
+      const {a,b,t}=sampleSnapshots(snapshots,now);
       object.position.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
       const spin = object.userData.spin;
       if (object.userData.arrow) {
@@ -294,11 +231,8 @@ export class EntityRenderer {
       const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
       if (object.userData.cow) animateCow(object, dt, speed);
       if (object.userData.crawler) animateCrawler(object, dt, speed, b.climbing);
-      if (object.userData.goblin) animateGoblin(object, dt, b.walking ? speed : 0,
-        { mining: b.mining, climbing: b.climbing, aiming: b.aiming, crouching:b.crouching });
-      animateSiegeModel(object,dt,speed,b);
-      if (object.userData.totem) animateTotem(object, dt);
-      if (object.userData.healthBar && entity.maxHp) drawHealthBar(object.userData.healthBar, entity.hp ?? entity.maxHp, entity.maxHp);
+      if (object.userData.monkey) animateMonkey(object, dt, { pose: b.pose ?? 'sit', look: b.look, speed,
+        talking: now < (entity.talkUntil ?? 0) });
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch);
       if (object.userData.player) {
@@ -311,6 +245,22 @@ export class EntityRenderer {
         if (grapple && !entity.grappleLine) entity.grappleLine = new GrappleLine(this.scene);
         const p = object.position;
         entity.grappleLine?.update({ x: p.x, y: p.y + HAND_HEIGHT, z: p.z }, grapple);
+      }
+      if (world && daylight) {
+        entity.light ??= lightUniform();
+        // The dragon's origin sinks below the grass top when it lands. Sample
+        // the model's body, rather than the opaque block around its feet.
+        const height=boxOf(entity.info)?.height;
+        const sampleHeight=height ? height*(height>C.entityTallThreshold?C.entityHeadFraction:0.5)
+          : entity.info.type===ENTITY_TYPE.PLAYER ? C.entityPlayerSample*(b.crouching?C.entityCrouchSampleScale:1)
+          : entity.info.type===ENTITY_TYPE.ITEM||entity.info.type===ENTITY_TYPE.RIFT_ORB ? C.entityItemSample : 0;
+        updateEntityLight(world,object.position,daylight,entity.light,dt,sampleHeight);
+        // Revisit only when equipment changes, since it creates new materials.
+        const equipment = `${b.held}:${b.armor}:${b.accessory}`;
+        if (entity.lightEquipment !== equipment) {
+          lightModel(object, entity.light);
+          entity.lightEquipment = equipment;
+        }
       }
     }
   }

@@ -1,6 +1,7 @@
 import { BLOCK, facedBlock, ladderBlock, doorBlock, isSolid } from './blocks.js';
 import { KEEP_REACH, mulberry32, prepareSurface, surfaceStats } from './structures.js';
-import { BIOME_SETTINGS } from './config.js';
+import { BIOME_SETTINGS, STRUCTURE_GEN } from './config.js';
+import { structureAllowed } from './structures/place.js';
 
 const randInt = (random, min, max) => min + Math.floor(random() * (max - min + 1));
 const chestKey = (x, y, z) => `${x},${y},${z}`;
@@ -19,10 +20,11 @@ function placeChest(world, x, y, z, table, facing = 0) {
 }
 
 function overlaps(world, placed, box) {
+  if(!structureAllowed(world,box,STRUCTURE_GEN.reservationMargin))return true;
   if (world.riverColumns) {
     for (let z = box.z0 - 2; z <= box.z1 + 2; z++) {
       for (let x = box.x0 - 2; x <= box.x1 + 2; x++) {
-        if (world.riverColumns.has(`${x},${z}`)) return true;
+        if (world.riverColumns.has(`${x},${z}`) || world.terrainExclusions?.has(`${x},${z}`)) return true;
       }
     }
   }
@@ -130,6 +132,7 @@ function buildRoost(world, terrain, random) {
   }
   const floor = terrain.getTop(cx, cz);
   if (floor === -32768) return null;
+  if(!structureAllowed(world,{x0:cx-6,x1:cx+6,z0:cz-6,z1:cz+6}))return null;
   const RING_IN = 2.6, RING_OUT = 4.3, SCORCH_OUT = 5.4;
   for (let dz = -6; dz <= 6; dz++) for (let dx = -6; dx <= 6; dx++) {
     const x = cx + dx, z = cz + dz, top = terrain.getTop(x, z);
@@ -281,9 +284,15 @@ function buildHanging(world, site, random) {
 // Structures, chests, dragon roosts (world.roosts) and Crawler spawn points
 // (world.mobSpawns.crawlers), all seeded. Mob spawns use their own random
 // stream so they don't move the structures.
-// `reserved`: boxes already built (the Goblin Fortress) that nothing may overlap.
-export function generateStructures(world, terrains, config, seed, reserved = []) {
-  const placed = [...reserved];
+export function generateStructures(world, terrains, config, seed) {
+  const placed = world.structures.filter(s=>s.box).map(s=>s.box);
+  const village=world.goblinPlan;
+  if(village) {
+    const wall=village.surface.rings.find(r=>r.name==='outer').wall;
+    placed.push({x0:Math.min(...wall.map(p=>p.x)),x1:Math.max(...wall.map(p=>p.x)),
+      z0:Math.min(...wall.map(p=>p.z)),z1:Math.max(...wall.map(p=>p.z)),
+      y0:Math.min(...wall.map(p=>p.y)),y1:Math.max(...wall.map(p=>p.y))+village.settings.wallHeight});
+  }
   const settings = config.structures;
   const crawlers = config.crawlers;
   world.roosts = [];

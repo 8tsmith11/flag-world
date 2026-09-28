@@ -24,7 +24,7 @@ export function canSee(world, from, player) {
 
 // A live, connected player who hasn't been eliminated.
 export function huntable(player) {
-  return !player.dead && player.connected && !player.eliminated;
+  return !player.dead && player.connected && !player.eliminated && !player.invisible;
 }
 
 export class Provocation {

@@ -1,15 +1,16 @@
 // Three.js renderer, camera, lights, sky and distance fog.
 
 import * as THREE from 'three';
+import { SKY_SETTINGS as C, RENDER_SETTINGS } from '/shared/config.js';
 
-export const SKY_COLOR = 0x9fd4ff;
+export const SKY_COLOR = C.dayColor;
 // Fog starts this far into the view distance, so chunks at the edge fade in
 // rather than popping.
-const FOG_START = 0.55;
+const FOG_START = C.fogStart;
 
 export function createScene(viewDistance) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, RENDER_SETTINGS.maxPixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.prepend(renderer.domElement);
 
@@ -42,6 +43,8 @@ export function createScene(viewDistance) {
 export function setViewDistance(scene, camera, distance, scale = 1) {
   scene.fog.near = distance * FOG_START * scale;
   scene.fog.far = distance * scale;
-  camera.far = distance + 64;
-  camera.updateProjectionMatrix();
+  if (camera.far !== distance + 64) {
+    camera.far = distance + 64;
+    camera.updateProjectionMatrix();
+  }
 }

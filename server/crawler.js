@@ -1,3 +1,5 @@
+import { findPath } from './pathfind.js';
+import { MOB_NAVIGATION as NAV } from '../shared/config.js';
 // Crawlers: spider-like mobs in dungeons, underside ruins and dark caverns.
 // They reuse the player physics (collision, gravity, knockback) with a low,
 // wide box and their own walking speed, and climb any wall they walk into.
@@ -35,6 +37,8 @@ export class Crawler {
     this.connected = true;
     this.provocation = new Provocation();
     this.target = null;
+    this.path = [];
+    this.repathTick = 0;
     this.nextAttackTick = 0;
     // Walking into a wall last tick: climb it this tick.
     this.climbing = false;
@@ -53,11 +57,11 @@ export class Crawler {
     const provoked = this.provocation.current(world, this.eye(), tick);
     if (provoked) return provoked;
     const s = this.state;
-    const distance = (p) => Math.hypot(p.state.x - s.x, p.state.y - s.y, p.state.z - s.z);
+    const distance = (p) => Math.hypot(p.state.x - s.x, p.state.z - s.z);
     if (this.target && huntable(this.target) && distance(this.target) <= CRAWLER_GIVE_UP_RANGE) return this.target;
     let best = null;
     for (const player of players) {
-      if (!huntable(player)) continue;
+      if (!huntable(player) || Math.abs(player.state.y - s.y) > NAV.targetVerticalRange) continue;
       const d = distance(player);
       if (d <= CRAWLER_AGGRO_RANGE && (!best || d < best.d) && canSee(world, this.eye(), player)) best = { player, d };
     }
@@ -91,16 +95,26 @@ export class Crawler {
     this.target = this.chooseTarget(world, players, tick);
     const goal = this.target ? { x: this.target.state.x + (this.approachOffset?.x ?? 0),
       z: this.target.state.z + (this.approachOffset?.z ?? 0) } : this.wander();
+    // The target remains a combat target even when its airborne position is
+    // unreachable. Walk toward the closest reachable spot beneath it.
+    if (goal && tick >= this.repathTick) {
+      this.path = findPath(world, { x: Math.floor(s.x), y: Math.floor(s.y + 0.01), z: Math.floor(s.z) },
+        { x: Math.floor(goal.x), z: Math.floor(goal.z) },
+        { height: Math.ceil(CRAWLER_HEIGHT), halfWidth: CRAWLER_BOX.halfW, maxNodes: NAV.maxNodes, maxDrop: 1 });
+      this.repathTick = tick + NAV.repathTicks;
+    }
+    while (this.path.length && Math.hypot(this.path[0].x + 0.5 - s.x, this.path[0].z + 0.5 - s.z) < NAV.waypointReach) this.path.shift();
+    const waypoint = this.path[0];
     let forward = 0;
-    if (goal) {
-      const dx = goal.x - s.x, dz = goal.z - s.z;
+    if (goal && waypoint) {
+      const dx = (waypoint ? waypoint.x + 0.5 : goal.x) - s.x, dz = (waypoint ? waypoint.z + 0.5 : goal.z) - s.z;
       if (Math.hypot(dx, dz) > (this.target ? 0.3 : 0.6)) {
         // Yaw 0 faces -Z; movement is along (-sin yaw, -cos yaw).
         s.yaw = Math.atan2(-dx, -dz);
         forward = this.target ? 1 : 0.5;
       }
     }
-    // Only idle crawlers mind the edge; hunting ones follow you off it.
+    // Keep hunting toward airborne targets without walking into the void.
     s.edgeGuard = true;
     // Climb only toward a player above us. Idle wandering into a ruin wall
     // should choose another stroll, and a roof must stop a climb.
@@ -108,10 +122,11 @@ export class Crawler {
     const ceiling = isSolid(world.getBlock(Math.floor(s.x), Math.floor(s.y + CRAWLER_HEIGHT + 0.1), Math.floor(s.z)));
     if (this.climbing && forward > 0 && above && !ceiling) s.vy = CRAWLER_CLIMB_SPEED + GRAVITY * TICK_DT;
     const { x, z } = s;
-    stepPlayer(s, { forward, strafe: 0, jump: isInWater(s, world), yaw: s.yaw, pitch: 0 }, world);
+    stepPlayer(s, { forward, strafe: 0, jump: isInWater(s, world) || !!waypoint && waypoint.y > Math.floor(s.y + 0.01) && s.onGround, yaw: s.yaw, pitch: 0 }, world);
     const expected = CRAWLER_SPEED * forward * TICK_DT;
     const blocked = forward > 0 && Math.hypot(s.x - x, s.z - z) < expected * 0.25;
     this.climbing = !!above && !ceiling && blocked;
+    if (blocked) this.repathTick = Math.min(this.repathTick, tick + Math.ceil(NAV.repathTicks / 2));
     if (blocked && !this.target) {
       this.wanderGoal = null;
       this.wait = Math.floor((1 + Math.random() * 2) * TICK_RATE);

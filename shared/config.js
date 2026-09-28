@@ -116,19 +116,83 @@ export const BIOME_SETTINGS = {
   plains: { hill: 2.2, offset: 0, trees: 0.35, cows: 1.8 },
   forest: { hill: 4, offset: 1, trees: 1.8, cows: 0.8 },
   mountains: { hill: 27, offset: 8, trees: 0.22, cows: 0.25 },
+  ancientForest: { hill: 4, offset: 1, trees: 1.8, cows: 0.8 },
+  stoneSpires: { hill: 4, offset: 1, trees: 0.05, cows: 0.25 },
   cliffSlope: 5, mountainOreThreshold: 0.54,
   undersideJagAmplitude: 0.07, undersideRootChance: 0.82,
   undersideRootDepth: 8, undersideRootScale: 12,
   treeCell: 7, forestTreeCell: 4, treeChance: 0.45,
   riverSkyClearance: 10,
   forestLargeTreeChance: 0.28, forestLargeTreeExtra: 2,
+  forestDensityMultiplier: 1.4, treeChanceCap: 0.99,
+  forestClusterFraction: 0.14, forestClusterVariation: 0.2,
+  forestClearingThreshold: -0.55, forestClearingBlend: 0.18,
   towerOtherBiomeChance: 0.22,
 };
-export const RIVER_SETTINGS = { width: [3, 5], channelDepth: 2, bankWidth: 2,
-  skyClearance: 10,
-  sourceMinHeight: 10, sourceSearch: 300, pathStep: 2, maxSteps: 250,
-  rimMargin: 4, pondAvoidance: 3, endPoolRadius: 5,
-  placementAttempts: 100, sourceJitter: 20 };
+// Tree species share log/leaf materials; only their seeded silhouettes differ.
+export const TREE_SETTINGS = {
+  seedSalt: 0x19b57c31, minTrunk: 4, maxTrunk: 6, leafRadius: 2,
+  branchBreakTime: 0.5, branchWidth: 1 / 3, collisionSteps: 12,
+  decaySaplingChance: 0.04, decayReach: 32, decayTickBudget: 64, decayNodeBudget: 512, decayEnqueueBudget: 512,
+  species: {
+    oak: { lean: 0.45, fork: 0.5, branches: [3, 5], length: [2, 3], rise: 0.35, crown: 2 },
+    birch: { lean: 0.2, fork: 0.25, branches: [2, 4], length: [1, 3], rise: 0.65, crown: 1 },
+    pine: { lean: 0.1, fork: 0.15, branches: [4, 6], length: [1, 2], rise: 0.25, crown: 1 },
+    ancient: { lean: 0.3, fork: 0.9, branches: [5, 8], length: [6, 10], rise: 0.35, crown: 3 },
+  },
+  crownThinning: 0.2, branchStart: 0.65, upperLeaves: 0.65, forkLength: [1, 3],
+  ancient: { patchScale: 0.23, threshold: 0.28, blend: 0.3, minRadius: 5,
+    spacing: 12, height: [17, 26], trunkWidth: [2, 4], hollowChance: 0.28,
+    hollowWidth: 4, hollowHeight: 4, groundRelief: 3,
+    fallenChance: 0.2, fallenLength: [5, 10], fallenOffset: 7 },
+};
+export const SPIRE_SETTINGS = {
+  seedSalt: 0x617f24a3, patchScale: 0.25, threshold: 0.23, highland: 0.62,
+  cell: 13, chance: 0.8, height: [12, 32], radius: [1, 3], taper: 0.4,
+  archChance: 0.35, archDistance: [9, 24], archRise: 4, archThickness: 2,
+  boulderChance: 0.25, boulderRadius: [1, 2], topTreeChance: 0.25, topTreeHeight: 4,
+  clearance: 3,
+};
+export const WATER_SHIMMER = { strength: 0.13, speed: 0.65, scale: 2.1, sharpness: 8 };
+export const RIVER_SETTINGS = {
+  seedSalt: 0x6d8a437b, countAttempts: 48, sourceRadius: [0.38, 0.6], sourceSpacing: 0.25,
+  minLakeCells: 100, lakeRadius: [7, 11], lakeShapeScale: 12, lakeShapeVariation: 0.22, lakeAspect: [0.75, 1.2],
+  lakeRim: 2, lakeDepth: 3, lakeMaxCut: 24, lakeDepthCurve: 0.7,
+  width: [3.5, 5], downstreamGrowth: 1.6, widthNoiseScale: 35, widthNoise: 0.13,
+  pathStep: 1.5, maxSteps: 450, noiseScale: 48, gradientSample: 4,
+  downhillWeight: 0.7, outwardWeight: 1.4, meanderWeight: 0.9, turnEase: 0.16,
+  maxTurn: 0.16, minOutward: 0.28, bankWidth: 4, shoreWidth: 0.8,
+  channelDepth: 3, depthCurve: 0.65, segmentLength: 14, levelStep: 2,
+  skyClearance: 2, waterfallOverhang: 2, throughLakeChance: 0.5, throughLakeFraction: [0.35, 0.65],
+  clearance: 2, pondRadiusPadding: 1.2,
+};
+// Fractions use the central island's actual radius; angles are radians.
+export const CENTRAL_TERRAIN = {
+  seedSalt: 0x3759ca41, transitionOffset: [-0.08, 0.1], transitionWidth: 0.28,
+  reserveBlend: 0.14, regionWarp: 0.06, regionNoiseScale: 0.4,
+  rangeRadius: [0.59, 0.72], rangeHalfArc: [1.1, 1.65], rangeWidth: 0.14,
+  rangeArcFade: 0.3, rangeHeight: 0.17, rangeVariation: 0.3,
+  highlandHeight: 0.055, highlandRimFalloff: 0.45,
+  lowlandOffset: 0, rollingHeight: 0.012, rollingScale: 0.29,
+  detailHeight: 0.004, detailScale: 0.1, ridgeRoughness: 0.018,
+  forestScale: 0.4, highlandForestScale: 0.22, forestThreshold: 0, forestBlend: 0.18,
+  highlandForestThreshold: 0.2, highlandForestReduction: 0.65,
+  mountainThreshold: 0.5, mountainBlend: 0.3, mountainRegionWeight: 0.55,
+  terraceHeight: 0.027, terraceVariation: 0.27, terraceNoiseScale: 0.22,
+  terraceErosion: 0.55, terraceCliffFraction: 0.16, terraceStrength: 0.88,
+  terracePatchThreshold: -0.3, terracePatchBlend: 0.5, boundsMargin: 8,
+};
+export const GORGE_SETTINGS = {
+  sourceRadius: 0.49, sourceArcFraction: 0.9, sourceAttempts: 12, sourceAngleStep: 0.09,
+  depth: 0.16, downstreamDrop: 0.035, width: 0.115, widthVariation: 0.22,
+  bend: 0.16, bendScale: 0.3, widthScale: 0.19,
+  rimWidth: 0.012, wallCurve: 0.12, valleyFloorWidth: 1.7, valleyFloorFraction: 0.45,
+  constructionMargin: 0.035, lakeCutAllowance: 0.3,
+  caveTurn: 2.2, caveInward: 0.12, caveOutward: 1.35, caveBend: 0.025,
+  caveDrop: 0.018, caveWidth: 0.1, caveHeight: 0.075,
+  caveMinHeight: 6, caveWalkWidth: 3, caveRoofMargin: 4, caveRockMargin: 5,
+  caveFloorRise: 1, caveWallCurve: 0.5,
+};
 export const MOB_SEPARATION = { rangeScale: 1.5, strength: 2.8, minGap: 0.05,
   approachRadius: 2.5, gridSize: 6 };
 // A void or fall death is credited to whoever hit the player within this long before.
@@ -199,6 +263,7 @@ export const COW_FLEE_SPEED = 0.85;
 export const COW_HERD_AREA = 20000;
 export const COW_HERD_SIZE = [3, 6];
 export const COW_PANIC_TIME = 5;
+export const COW_NAVIGATION = { clearance: 0.12, avoidAhead: 0.35, yieldTicks: 12 };
 export const COW_DROPS = { leather: [0, 2], beef: [1, 3] };
 
 // Dragons patrol above the island and dive to breathe fire at nearby players.
@@ -264,8 +329,201 @@ export const RIFT_ORB = { durationSeconds: 10, maxStack: 4, throwSpeed: 13,
 // Day/night: one full cycle in seconds (half day, half night). Time of day is
 // a fraction of the cycle: 0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight.
 // Matches start at DAY_START, in the morning.
-export const DAY_LENGTH = 24 * 60;
+export const DAY_LENGTH = 12 * 60;
 export const DAY_START = 0.04;
 
 // Furnace: seconds to smelt one item.
 export const SMELT_TIME = 5;
+
+// Reusable worldgen structure engine. Distances are in blocks; budgets are
+// total cut + fill volume, not a world-size multiplier.
+export const STRUCTURE_GEN = {
+  keepOutMargin: 3, reservationMargin: 4, puddleCells: 24, grassClearance: 4, treeClearance: 10,
+  siteStride: 4, siteRadius: 24, siteLimit: 320,
+  score: { slope: 4, relief: 0.35, lowland: 28, water: 30, keepOut: 100, edge: -0.5 },
+  maxDepth: 32, maxPieces: 160, retries: 16, connectorStep: 1,
+  outlineGrid: 4, outlineGap: 8, compoundCorners: 24, outerCorners: 48,
+  density: { width: 24, height: 16, stride: 4, maxFill: 0.34 },
+};
+export const GOBLIN_GEN = {
+  seedSalt: 0x41c6ce57, surfaceSiteSalt: 0x2f6e35b9, reservedFraction: 0.25, siteClearanceFraction: 0.36,
+  scale: { surfaceBase: 54, surfacePerRadius: 0.35, surfaceDepthBase: 5,
+    surfaceDepthPerRadius: 0.025, buildingsBase: 5, buildingsPerRadius: 0.018,
+    depthBase: 52, depthPerRadius: 0.08, roomsBase: 12, roomsPerRadius: 0.04,
+    wallMarginBase: 3, wallMarginPerRadius: 0.008 },
+  minDepth: 42, midFraction: 0.45, kingDrop: 8, rockMargin: 3,
+  routeMultiple: 2.5, routeRooms: 8, layoutAttempts: 40, walkChoices: 24,
+  roomWidth: 9, roomHeight: 4, totemWidth: 11, totemHeight: 5,
+  corridorWidth: 3, corridorLength: [7, 17], passageHeight: 2,
+  torchSpacing: 6,
+  descentInterval: 2, branchCountFraction: 0.3, minBranches: 2,
+  cliffBias: 2, protrusionLength: 7, buttressDepth: 6, windowHeight: 2,
+  uniqueRooms: ['barracks', 'storeroom', 'mushroomFarm', 'forge', 'shrine',
+    'prison', 'trophyHall', 'treasureVault'],
+  commonRooms: ['guardroom', 'messHall', 'quarters', 'junction'],
+  buildingWidth: 9, buildingHeight: 4, buildingVariants: 3, variantLengthStep: 2,
+  roofRise: 3, pathLength: 7, pathWidth: 3,
+  weights: { bridge: 1, path: 3, building: 3, tower: 2 },
+  floorPatternPeriod: 3, goblinJumpHeight: 1.5,
+  surfaceStep: 3, earthwork: 600, pathEarthwork: 300, castleEarthwork: 2400,
+  castleWidth: 21, castleWallHeight: 6, castleTowerHeight: 10,
+  castleTowerWidth: 5, castleGalleryHeight: 4,
+  compoundGroup: [2, 4], compoundDistance: 30, compoundFraction: 0.8,
+  innerMargin: 3, ladderSafetyMargin: 1, wallHeight: 4, gateClearance: 3,
+  gatehouseDepth: 3, gatehouseHeight: 5, gatehousePostWidth: 1,
+  roadLength: 12, postSpacing: 16, postWidth: 3, towerHeight: 8,
+  brickHardness: 8, brickBreakTime: 4,
+  loot: { shallow: 'houseCentral', middle: 'caveCentral', deep: 'dungeonCentral', best: 'roost' },
+  map: { overviewStep: 4, margin: 4 },
+};
+export const FORTRESS_TRAP = { cooldown: 2, speed: 24, damage: 2,
+  poisonSeconds: 6, poisonInterval: 1, poisonDamage: 1, triggerHeight: 2 };
+export const MOB_NAVIGATION = { repathTicks: 20, maxNodes: 600, maxDrop: 3,
+  waypointReach: 0.3, targetVerticalRange: 64, collisionPasses: 3,
+  pushPerTick: 0.25 };
+export const BLOCK_TEXTURE = { tileSize: 64, tileStride: 128, atlasColumns: 4 };
+
+// Baked voxel illumination. Runtime edits are bounded by maxLevel.
+export const LIGHTING = {
+  maxLevel: 12, torchEmission: 12, openAirLoss: 3, voidLevel: 5,
+  voidTint: [0.65, 0.77, 1], voidDay: 0.3, voidNight: 0.045, ambientFloor: 0.008, nightSky: 0.035, daySky: 1,
+  faceShades: [0.8, 0.8, 0.55, 1, 0.7, 0.7],
+  blockStrength: 1.25, blockTint: [1, 0.72, 0.4], aoStrength: 0.18,
+  buildsPerFrame: 2, buildBudgetMs: 4, unloadMargin: 32, workerBatch: 4,
+  entitySmoothSeconds: 0.16, entityUpShade: 1, entityDownShade: 0.75,
+  entityPlayerSample: 0.9, entityCrouchSampleScale: 0.85, entityTallThreshold: 2, entityHeadFraction: 0.8,
+  entityItemSample: 0.125,
+  torchCraftCount: 4, torchCraftPlanks: 1,
+  torch: { width: 0.12, height: 0.65, headHeight: 0.18, wallOffset: 0.06, wallHeight: 0.22, wallLean: 0.48 },
+};
+
+export const SKY_SETTINGS = {
+  dayColor: 0x9fd4ff, nightColor: 0x02040a, dawnColor: 0xcdd5ed, duskColor: 0xe9aa68,
+  sunColor: 0xffedc9, moonColor: 0xa6a5e7, nightAmbient: 0x666b9c,
+  ambientDay: 1.1, ambientNight: 0.04, sunDay: 1.5, sunNight: 0.012,
+  nightFog: 0.6, fogStart: 0.55, distance: 300, stars: 4600, starSize: 0.8,
+  tilt: 0.35, daylightRange: [-0.18, 0.2], glowRange: 0.32, glowStrength: 0.75,
+  starFade: 1.2, starOpacity: 0.7, starRotation: 0.12,
+  sunRadius: 18, moonRadius: 11, discSegments: 24, discDistance: 0.9,
+  farScale: 0.85, sunHorizon: -0.15, moonHorizon: 0.15,
+  cloudNightTint: 0.06, cloudGlowTint: 0.32, seed: 0x4172ce,
+};
+export const CLOUD_SEA = {
+  textureSize: 512, overhang: 600, tileSpan: 320, belowLowest: 22,
+  layers: [[0, 0.8, 0.35, 110], [-6, 0.65, 0.55, 90], [-13, 0.5, 0.7, 70]],
+  radius: [18, 56], blobOpacity: 0.85, diagonalDrift: 0.23,
+  overhead: { height: 32, opacity: 0.48, drift: 0.24, blobs: 14 },
+};
+
+export const RENDER_SETTINGS = { maxPixelRatio: 1.5 };
+
+export const GENERATION_PROGRESS = { terrain: [0, 35], caves: [35, 50], ores: [50, 62],
+  structures: [62, 74], village: [74, 88], fortress: [88, 99], complete: [100, 100] };
+export const LOBBY_MEDIA = {
+  image: '/img/lobby.png', music: '/audio/lobby.ogg', musicVolume: 0.35, fadeSeconds: 2,
+  volumeStep: 0.01, fadeTickHz: 30, audioSampleRate: 44100, audioQuality: 4, audioLoudness: -20, audioTruePeak: -2, audioRange: 7,
+  serverProgressWeight: 0.45, localProgressWeight: 0.45, meshProgressWeight: 0.1,
+};
+export const LOBBY_CAPTURE = { seed: 1, teamCount: 2, worldSize: 'large', dayTime: 0.485,
+  viewDistance: 650, width: 1920, height: 1080, cameraOutward: 0.85, cameraHeight: 56,
+  targetHeight: 10, fov: 65, timeoutMs: 180000 };
+
+// Audio distances are world blocks; all intervals are seconds.
+export const AUDIO = {
+  volumes: { master: 0.8, music: 0.35, ambience: 0.5, effects: 0.7, voice: 0.9 },
+  maxVoices: 24, effectsRange: 30, playerRange: 24, cowRange: 32, dragonRange: 110,
+  nightStart: 0.52, nightEnd: 0.98,
+  ambienceInterval: 0.5, ambienceFade: 2, windHeight: 80, windBase: 0.045,
+  windGain: 0.16, birdsGain: 0.13, cricketsGain: 0.11, fortressGain: 0.5,
+  ambienceBursts: { birds: { play: [5, 11], silence: [20, 45], fade: 2.5 } },
+  waterRange: 20, waterfallRange: 38, waterGain: 0.22, waterfallGain: 0.45,
+  waterScanRadius: 18, waterScanStride: 3, waterScanHeight: 5, waterfallDrop: 3,
+  footsteps: { walkInterval: 0.39, sprintInterval: 0.27, gain: 0.23, sprintGain: 0.3, minSpeed: 0.7 },
+  blockGain: { hit: 0.12, break: 0.34, place: 0.22 },
+  splashGain: 0.4, landingGain: 0.32, landingSpeed: 8,
+  mobCallDelay: [8, 20], cowGain: 0.38, dragonGain: 0.65, wingGain: 0.16,
+  wingInterval: 0.8, mobHurtGain: 0.5, mobDeathGain: 0.65,
+  pitchVariation: 0.07, decodeConcurrency: 3,
+  sampleRate: 44100, quality: 4, loudness: { ambience: -26, effects: -20 },
+  truePeak: -2, codecPeakHeadroom: 1.5, loudnessRange: 7, loopCrossfade: 0.5,
+  // Ancient Monkeys: falloff range, gains, idle call spacing while sitting and
+  // the chance a stand-up chest beat ends in a roar. Thunder from the storm cloud.
+  monkeyRange: 45, monkeyGain: 0.6, monkeyBeatGain: 0.7, monkeyRoarGain: 0.8,
+  monkeyCallDelay: [9, 22], monkeyRoarChance: 0.35, monkeyRate: 1,
+  thunderRange: 120, thunderGain: 0.55,
+};
+
+// Reproducible browser review and software-GPU timings.
+export const LOOK_CAPTURE = { seed: 1, teamCount: 2, worldSize: 'small', viewDistance: 112, overviewDistance: 360,
+  width: 960, height: 600, dayTime: 0.3, nightTime: 0.8, timeoutMs: 240000,
+  ancientCanopyHeight: 40, forestStride: 4, forestRadius: 12, canopyHeight: 12, forestOffset: 8, eyeHeight: 2,
+  aboveHeight: 1.4, aboveOffset: 0.35, sideDistance: 1.4, sideHeight: 12, belowDepth: 75,
+  targetDepth: 20, sampleFrames: 60, warmFrames: 12 };
+
+// Continuous terrain/profile controls; no named world-size branches.
+export const ISLAND_SHAPE = {
+  warpScale: 120, warpAmplitude: 23, warpOffset: 317,
+  lobeScale: 0.3, lobeAmplitude: 0.17, lobeFloor: 0.1,
+  tinyDepth: 0.6, tinyRim: 3, rimDepth: 12, depthScale: 0.28,
+  taperPower: 6, taperCurve: 0.6, centerRimFraction: 0.55,
+  shellWidth: 5, sheerDepth: 7, sideTaper: 0.025,
+  sideNoiseScale: 24, sideNoiseAmplitude: 0.16, ledgeScale: 9,
+  ledgeThreshold: 0.65, ledgeAmplitude: 0.25,
+};
+export const WORLD_LOOK = { grass: 0x405f35, leaves: 0x344e32 };
+export const VEGETATION = {
+  seedSalt: 0x471dc963, clusterScale: 19, clusterThreshold: -0.25,
+  density: { forest: 0.2, plains: 0.13, mountains: 0.035 },
+  shadeHeight: 10, glowChance: 0.035, flowerChance: 0.25, bushChance: 0.1,
+  forestMushroomChance: 0.25, mushroomGlowChance: 0.05,
+  surfaceClearance: 2, structureMargin: 1, keepMargin: 6,
+  hangClusterScale: 13, hangClusterThreshold: 0.25, hangChance: 0.18,
+  undersideBand: 0.7, cliffBand: 0.35, hangLength: [2, 9],
+  woodyChance: 0.4, darkRootChance: 0.35, budChance: 0.06,
+  emission: { flower: 2, moss: 1, mushroom: 2, buds: 1 },
+  maxDistance: 80, fadeDistance: 64, alphaTest: 0.45,
+  hangingWidth: 0.45, sway: 0.06, hangingSway: 0.025, windSpeed: 1.3, windScale: 0.22,
+  heights: { tuft: 0.65, fern: 0.8, flower: 0.7, bush: 0.8, mushroom: 0.55, moss: 0.25, hanging: 1 },
+  atlasTile: 64, atlasStride: 128, atlasColumns: 4,
+};
+
+// NPCs (Wise Monkeys, Ancient Monkeys). Distances in blocks, times in seconds.
+// Boxes are feet-anchored like players (half width, height) and used for
+// punching and talking. Ancient Monkeys alternate sitting with a short stand,
+// chest beat and stroll inside walkRadius of their seat.
+export const NPC = {
+  talkReach: 6, talkCooldown: 1.2, lookRange: 14, lookLimit: 1.1, lookStep: 0.05,
+  wiseMonkey: { hp: 160, box: { halfW: 0.95, height: 2.4 } },
+  ancientMonkey: { box: { halfW: 1.5, height: 3.6 }, sitTime: [25, 60], standTime: 2.8,
+    lookTime: [1.8, 3.5], walkSteps: [1, 3], walkRadius: 3.5, walkSpeed: 1.2, arriveDistance: 0.25,
+    groundSearch: 3 },
+};
+
+// Spoken dialogue: chance a Wise Monkey gives a world clue instead of a hint,
+// subtitle timing, and per-voice speech synthesis settings (pitch and rate as
+// the Web Speech API takes them; 1 is normal).
+export const DIALOGUE = {
+  clueChance: 0.25, subtitleBase: 2, subtitlePerChar: 0.065, subtitleMin: 2.5,
+  subtitleMax: 9, subtitleFade: 0.7, soundSubtitle: 2.8,
+  voices: { wiseMonkey: { pitch: 0.4, rate: 0.72 } },
+};
+
+// Wise Monkey shrines on team islands (npcSites.js): the square footprint's
+// half width, roof height, clearance from the keep, how far out on the island
+// (fraction of its radius) and how uneven the ground may be.
+export const SHRINE_GEN = {
+  seedSalt: 0x5a7e1b3d, half: 3, roofHeight: 6, keepDistance: 20, maxRadius: 0.7,
+  maxVariance: 2, attempts: 400, margin: 3,
+};
+
+// The storm cloud off the highland edge of the central island (npcSites.js).
+// Radii in blocks; edgeOffset is how far past the island edge its center sits,
+// as a fraction of its horizontal radius. clearance is its floor's height
+// above the highest terrain nearby. Flashes and thunder are client effects.
+export const STORM_CLOUD = {
+  seedSalt: 0x3c6ef372, radius: [11, 14], height: [7, 8], shell: 2, floorDrop: 2,
+  puffs: [9, 13], puffRadius: [3, 5.5], gaps: [3, 4], gapRadius: 2.3,
+  edgeOffset: 0.85, angleJitter: 0.35, attempts: 16, clearance: 24, sampleRadius: 40, topMargin: 3,
+  flashInterval: [3, 11], flashPulses: [1, 3], flashOpacity: 0.55, flashSize: 14,
+  thunderInterval: [10, 26], thunderDelay: [0.4, 2.5],
+};

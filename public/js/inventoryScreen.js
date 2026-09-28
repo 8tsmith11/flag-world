@@ -33,7 +33,7 @@ export class InventoryScreen {
     this.recipeList = document.getElementById('inv-recipes');
     this.open = false;
     this.creative = false;
-    this.creativeState = { immortal: false, flying: false, totemExists: false };
+    this.creativeState = { immortal: false, flying: false, invisible: false };
     this.creativeControls = document.getElementById('inv-creative-controls');
     for (const button of this.creativeControls.querySelectorAll('[data-creative-action]')) {
       button.addEventListener('click', () => this.conn.send({ type: C2S.CREATIVE_ACTION,
@@ -168,7 +168,7 @@ export class InventoryScreen {
     Object.assign(this.creativeState, state);
     document.getElementById('creative-immortal').textContent = `Immortality: ${this.creativeState.immortal ? 'On' : 'Off'}`;
     document.getElementById('creative-flight').textContent = `Flight: ${this.creativeState.flying ? 'On' : 'Off'}`;
-    document.getElementById('creative-totem').disabled = !this.creativeState.totemExists;
+    document.getElementById('creative-invisible').textContent = `Invisibility: ${this.creativeState.invisible ? 'On' : 'Off'}`;
   }
 
   // view: the server's CONTAINER message ({ kind, slots, ... }).

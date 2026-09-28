@@ -1,6 +1,9 @@
+import { selectWoodedBiomes } from './woodedBiomes.js';
+import { generateStoneSpires } from './stoneSpires.js';
+import { generateFallenTrees } from './fallenTrees.js';
+import { generateGoblinVillage } from './goblins/generate.js';
 // Seeded island planning and terrain. The complete island/keep layout is
 // chosen before any blocks are written, so spacing does not depend on order.
-import { createNoise2D, createNoise3D } from 'simplex-noise';
 import { BLOCK, isSolid } from './blocks.js';
 import { World } from './world.js';
 import { CHUNK_SIZE, KEEP_HEIGHT, CENTRAL_EXTRA_DEPTH, VOID_BELOW_LOWEST_ISLAND,
@@ -8,10 +11,15 @@ import { CHUNK_SIZE, KEEP_HEIGHT, CENTRAL_EXTRA_DEPTH, VOID_BELOW_LOWEST_ISLAND,
 import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores, surfaceStats, growTree } from './structures.js';
 import { generateStructures } from './worldStructures.js';
 import { placeQuarries } from './quarryPlacement.js';
-import { planGoblinFortress, buildGoblinFortress, nearFortress } from './goblinFortressGen.js';
-import { generateRivers } from './rivers.js';
+import { generateRivers, finishRiverBanks } from './rivers.js';
+import { RIVER_SETTINGS } from './config.js';
 import { biomeWeights, biomeParameters, surfaceBiome, biomeCode } from './biomes.js';
-import { BIOME_SETTINGS } from './config.js';
+import { generateVegetation } from './vegetation.js';
+import { attachGeneratedTorches } from './torches.js';
+import { generateNpcSites } from './npcSites.js';
+import { centralRegions, regionalColumn } from './centralTerrain.js';
+import { CENTRAL_TERRAIN, GOBLIN_GEN } from './config.js';
+import { ISLAND_SHAPE as S, BIOME_SETTINGS, SPIRE_SETTINGS } from './config.js';
 
 const EDGE_SHELL = 3;
 const KEEP_CLEARANCE = KEEP_REACH + 6;
@@ -20,12 +28,12 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // Tiny islands hang a tapered, root-like stone underside about this many
 // radii deep below their surface.
-const TINY_ROOT_DEPTH = 0.6;
-// The central island's underside barely tapers (room for the Goblin
-// Fortress to spread, and steep cliff sides): at t of the radius it is
+const TINY_ROOT_DEPTH = S.tinyDepth;
+// The central island's underside barely tapers, forming steep cliff sides:
+// at t of the radius it is
 // edge + (1 - edge) * (1 - t^power)^curve of full depth, so nearly full
 // through most of it and still `edge` of full depth at the rim.
-const CENTER_TAPER = { power: 6, curve: 0.6, edge: 0.55 };
+const CENTER_TAPER = { power: S.taperPower, curve: S.taperCurve, edge: S.centerRimFraction };
 const centerTaper = (t) => CENTER_TAPER.edge + (1 - CENTER_TAPER.edge) * (1 - t ** CENTER_TAPER.power) ** CENTER_TAPER.curve;
 const tinyDepth = (radius) => 1.5 + radius * TINY_ROOT_DEPTH;
 
@@ -34,7 +42,10 @@ function islandBounds(kind, radius, surfaceY) {
     return { topY: Math.ceil(surfaceY + 3),
       bottomY: Math.floor(surfaceY - 2 - tinyDepth(radius) * 1.35) };
   }
-  return { topY: Math.ceil(surfaceY + 24),
+  return { topY: Math.ceil(surfaceY + (kind === 'center' ? radius *
+      (CENTRAL_TERRAIN.highlandHeight + CENTRAL_TERRAIN.rangeHeight * (1 + CENTRAL_TERRAIN.rangeVariation)
+        + CENTRAL_TERRAIN.rollingHeight + CENTRAL_TERRAIN.detailHeight + CENTRAL_TERRAIN.ridgeRoughness)
+      + CENTRAL_TERRAIN.boundsMargin : 24)),
     bottomY: Math.floor(surfaceY - 24 - (12 + radius * 0.28 + (kind === 'center' ? CENTRAL_EXTRA_DEPTH : 0)) * 1.1) };
 }
 
@@ -44,6 +55,7 @@ function planIslands(seed, teamCount, config) {
     ({ kind, x: Math.round(x), z: Math.round(z), radius, surfaceY,
       ...islandBounds(kind, radius, surfaceY), ...extra });
   const center = island('center', 0, 0, config.centralRadius, config.centralSurfaceY);
+  center.regions = centralRegions(seed);
   const islands = [center];
   const keeps = [];
   const teamDistance = config.centralRadius + config.gap + config.teamRadius;
@@ -174,12 +186,10 @@ function tinyColumn(island, x, z, noise, detail) {
   if (distance >= edge) return null;
   const t = distance / edge;
   const yTop = Math.round(island.surfaceY + (1.2 * noise(x / 6 + phase, z / 6) + 0.6 * detail(x / 4, z / 4)) * (1 - 0.5 * t * t));
-  const spur = Math.max(0, detail(x / 6 + 300, z / 6 + 300) - BIOME_SETTINGS.undersideRootChance)
-    * BIOME_SETTINGS.undersideRootDepth * (1 - t);
-  const jag = 1 + BIOME_SETTINGS.undersideJagAmplitude * detail(x / BIOME_SETTINGS.undersideRootScale + 100,
-    z / BIOME_SETTINGS.undersideRootScale + 100);
-  const depth = Math.max(2, Math.round((1.5 + island.radius * TINY_ROOT_DEPTH * (1 - t) ** 1.6 + spur) * jag));
-  return { yTop, yBottom: yTop - depth };
+  const smoothLobe = Math.max(S.lobeFloor, (noise(dx/(island.radius*S.lobeScale)+phase, dz/(island.radius*S.lobeScale)) + 1)/2);
+  const depth = S.tinyRim + island.radius*S.tinyDepth*(1-t)**1.6*(1+smoothLobe*S.lobeAmplitude);
+  return { yTop, yBottom: Math.round(island.surfaceY-depth), edgeDistance: edge-distance };
+
 }
 
 function terrainColumn(island, x, z, noise, detail) {
@@ -193,19 +203,24 @@ function terrainColumn(island, x, z, noise, detail) {
   const distance = Math.hypot(dx, dz);
   if (distance >= edge) return null;
   const t = distance / edge;
-  const weights = biomeWeights(island.kind, x, z, (bx, bz) => noise(bx + 800, bz - 600));
+  const wx=x+S.warpAmplitude*noise(x/S.warpScale+S.warpOffset,z/S.warpScale);
+  const wz=z+S.warpAmplitude*noise(x/S.warpScale,z/S.warpScale-S.warpOffset);
+  let weights = biomeWeights(island.kind, wx, wz, (bx, bz) => noise(bx + 800, bz - 600));
   const biome = biomeParameters(weights);
-  const hill = biome.hill * (noise(x / 48, z / 48) + 0.35 * detail(x / 17, z / 17)
-    + 0.3 * noise(x / 105 + 200, z / 105 + 200));
-  const yTop = Math.round(island.surfaceY + biome.offset + hill * (1 - t * t));
-  const jag = 1 + BIOME_SETTINGS.undersideJagAmplitude * detail(x / BIOME_SETTINGS.undersideRootScale + 100,
-    z / BIOME_SETTINGS.undersideRootScale + 100);
-  const root = Math.max(0, detail(x / 9 + 300, z / 9 + 300) - BIOME_SETTINGS.undersideRootChance)
-    * BIOME_SETTINGS.undersideRootDepth * (1 - t);
-  const depth = Math.round((island.kind === 'center'
-    ? 12 + (island.radius * 0.28 + CENTRAL_EXTRA_DEPTH) * centerTaper(t)
-    : 12 + island.radius * 0.28 * (1 - t) ** 1.4) * jag + root);
-  return { yTop, yBottom: yTop - depth, weights };
+  const hill = biome.hill * (noise(wx / 48, wz / 48) + 0.35 * detail(wx / 17, wz / 17)
+    + 0.3 * noise(wx / 105 + 200, wz / 105 + 200));
+  let height = island.surfaceY + biome.offset + hill * (1 - t * t);
+  let lowland=0;
+  if (island.regions) {
+    const region = regionalColumn(island, x, z, wx, wz, height, weights, noise, detail);
+    height = region.height; weights = region.weights; lowland=region.lowland;
+  }
+  const yTop = Math.round(height);
+  const smoothLobe = Math.max(S.lobeFloor, (noise(dx/(island.radius*S.lobeScale)+phase, dz/(island.radius*S.lobeScale)) + 1)/2);
+  const depth = S.rimDepth + (island.radius*S.depthScale + (island.kind==='center'?CENTRAL_EXTRA_DEPTH:0))
+    * (island.kind==='center'?centerTaper(t):(1-t)**1.4) * (1+S.lobeAmplitude*smoothLobe*(1-t));
+  return { yTop, yBottom: Math.round(island.surfaceY-depth), weights, lowland, edgeDistance: edge-distance };
+
 }
 
 function alignStackedTiny(islands, noise, detail) {
@@ -242,12 +257,13 @@ function alignStackedTiny(islands, noise, detail) {
   });
 }
 
-function terrainFor(world, island, noise, detail) {
+function terrainFor(world, island, noise, detail, noise3) {
   const reach = Math.ceil(island.radius + 8);
   const width = reach * 2 + 1;
   const x0 = island.x - reach, z0 = island.z - reach;
   const top = new Int16Array(width * width).fill(-32768);
   const bottom = new Int16Array(width * width).fill(-32768);
+  const lowland=island.regions?new Float32Array(width*width):null;
   const index = (x, z) => x - x0 + width * (z - z0);
   const getTop = (x, z) => x < x0 || z < z0 || x >= x0 + width || z >= z0 + width
     ? -32768 : top[index(x, z)];
@@ -256,7 +272,18 @@ function terrainFor(world, island, noise, detail) {
   for (let z = z0; z < z0 + width; z++) for (let x = x0; x < x0 + width; x++) {
     const column = terrainColumn(island, x, z, noise, detail);
     if (!column) continue;
-    const { yTop, yBottom } = column;
+    const { yTop } = column;
+    let { yBottom } = column;
+    // Only the narrow outer shell samples 3D noise. Each column remains one
+    // connected run of rock: no arches, holes or undercut surface shelves.
+    if(column.edgeDistance<S.shellWidth) {
+      for(let y=yTop-S.sheerDepth;y>=yBottom;y--) {
+        const depth=yTop-y;
+        const bulge=S.sideNoiseAmplitude*noise3(x/S.sideNoiseScale,y/S.sideNoiseScale,z/S.sideNoiseScale);
+        const ledge=Math.max(0,noise3(x/S.ledgeScale,y/S.ledgeScale,z/S.ledgeScale)-S.ledgeThreshold)*S.ledgeAmplitude;
+        if(column.edgeDistance<depth*S.sideTaper+bulge-ledge){yBottom=y+1;break;}
+      }
+    }
     const weights = island.kind === 'tiny'
       ? { plains: 0, forest: 0, mountains: 0, [island.biomeOverride ?? 'forest']: 1 }
       : column.weights;
@@ -265,6 +292,7 @@ function terrainFor(world, island, noise, detail) {
     const dirt = island.kind === 'tiny' ? 2
       : 3 + Math.floor(2 * (detail(x / 11 + 40, z / 11) + 1));
     top[index(x, z)] = yTop;
+    if(lowland)lowland[index(x,z)]=column.lowland;
     bottom[index(x, z)] = yBottom;
     world.recordNaturalTerrain(x, z, yBottom, yTop);
     for (let y = yBottom; y <= yTop; y++) {
@@ -284,13 +312,12 @@ function terrainFor(world, island, noise, detail) {
       }
     }
   }
-  return { ...island, x0, z0, width, top, bottom, getTop, getBottom,
+  return { ...island, x0, z0, width, top, bottom, lowland, getTop, getBottom,
     bounds: { x0, z0, x1: x0 + width - 1, z1: z0 + width - 1 } };
 }
 
 // Winding root tunnels with tapering branches and occasional round chambers.
-// `reserved(x, y, z)`: blocks caves must leave alone (the Goblin Fortress).
-function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea, reserved = () => false) {
+function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea) {
   const { radius, x: cx, z: cz, getTop, getBottom, bounds } = terrain;
   const inside = (x, y, z, shell = EDGE_SHELL) => {
     if (x < bounds.x0 + shell || z < bounds.z0 + shell
@@ -308,7 +335,6 @@ function carveCaves(world, terrain, rand, noise3, nearKeep, caveArea, reserved =
         for (let y = Math.floor(py - r); y <= Math.ceil(py + r); y++) {
           if ((x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2 > r * r) continue;
           if (!entrance && !inside(x, y, z)) continue;
-          if (reserved(x, y, z)) continue;
           if (world.getBlock(x, y, z) !== BLOCK.AIR) world.setBlock(x, y, z, BLOCK.AIR);
         }
       }
@@ -374,7 +400,8 @@ function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
     const angle = rand() * Math.PI * 2, distance = Math.sqrt(rand()) * radius * (tiny ? 0.3 : 0.72);
     const cx = Math.floor(ix + Math.cos(angle) * distance);
     const cz = Math.floor(iz + Math.sin(angle) * distance);
-    const r = tiny ? 1.7 + rand() * 1.3 : 4 + rand() * 5;
+    const r = Math.max(RIVER_SETTINGS.lakeRadius[0], Math.sqrt(RIVER_SETTINGS.minLakeCells / Math.PI) * RIVER_SETTINGS.pondRadiusPadding)
+      + rand() * (RIVER_SETTINGS.lakeRadius[1] - RIVER_SETTINGS.lakeRadius[0]);
     const reach = Math.ceil(r + (tiny ? 1 : 3));
     if (nearKeep(cx, cz)) continue;
     const cells = [];
@@ -388,9 +415,10 @@ function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
         highest = Math.max(highest, top);
       }
     }
-    if (!valid || highest - level > (tiny ? 2 : 6)
+    if (!valid || cells.length < RIVER_SETTINGS.minLakeCells || highest - level > (tiny ? 2 : 6)
       || cells.some(({ x, z }) => !isSolid(world.getBlock(x, level - (tiny ? 1 : 3), z)))) continue;
     const waterDepth = 1;
+    (world.lakes ??= []).push({ x: cx, z: cz, waterY: level, cells: cells.map(({x,z})=>({x,z})), kind: 'pond' });
     const pondCells = new Set(cells.map(({ x, z }) => `${x},${z}`));
     for (const { x, z, top } of cells) {
       for (let y = level; y <= top + 2; y++) world.setBlock(x, y, z, BLOCK.AIR);
@@ -447,7 +475,9 @@ function plantTinyTrees(world, terrain, rand, { minRadius, count }) {
   }
 }
 
-export function generateIslandWorld(seed, teamCount, config) {
+// Noise functions are injected so browser workers need no page import map.
+export function generateIslandWorld(seed, teamCount, config, { createNoise2D, createNoise3D }, progress = () => {}) {
+  progress('terrain');
   const plan = planIslands(seed, teamCount, config);
   const { islands, keeps } = plan;
   const extent = Math.max(...islands.map((island) => Math.max(Math.abs(island.x), Math.abs(island.z)) + island.radius));
@@ -478,6 +508,8 @@ export function generateIslandWorld(seed, teamCount, config) {
       EEL_BAND.belowIsland + EEL_BAND.aboveVoid + EEL_BAND.minHeight)),
   });
   world.tinyPlacementStats = plan.tinyPlacementStats;
+  const centerIsland=islands.find(i=>i.kind==='center');
+  world.reservedZones=[{x:centerIsland.x,z:centerIsland.z,radius:centerIsland.radius*GOBLIN_GEN.reservedFraction}];
   world.islands = islands.map(({ x, z, radius, surfaceY, topY, bottomY,
     kind, teamIndex, tinyGroup, stackedOn, stackAbove, content, biomeOverride }) =>
     ({ x, z, radius, surfaceY, topY, bottomY, kind, teamIndex, tinyGroup, stackedOn, stackAbove,
@@ -485,10 +517,14 @@ export function generateIslandWorld(seed, teamCount, config) {
   const noise3 = createNoise3D(mulberry32(seed ^ 0x1b873593));
   const nearKeep = (x, z) => keeps.some((site) =>
     Math.abs(x - site.cx) <= KEEP_CLEARANCE && Math.abs(z - site.cz) <= KEEP_CLEARANCE);
-  const terrains = islands.map((island, index) => terrainFor(world, { ...island, index }, noise, detail));
+  const terrains = islands.map((island, index) => {
+    const terrain=terrainFor(world,{...island,index},noise,detail,noise3);
+    progress('terrain',{completed:index+1,total:islands.length});return terrain;
+  });
   world.mainTerrains=terrains.filter(terrain=>terrain.kind!=='tiny').map(({index,x0,z0,width,top})=>({index,x0,z0,width,top}));
   const central=terrains.find(terrain=>terrain.kind==='center');
-  if(central)world.centralTerrain={x0:central.x0,z0:central.z0,width:central.width,top:central.top};
+  world.centralRegions=central.regions;
+  if(central)world.centralTerrain={x0:central.x0,z0:central.z0,width:central.width,top:central.top,lowland:central.lowland};
   for (const terrain of terrains) {
     let actualTop = -Infinity, actualBottom = Infinity;
     for (let i = 0; i < terrain.top.length; i++) {
@@ -520,24 +556,28 @@ export function generateIslandWorld(seed, teamCount, config) {
     }
     if (best) { site.cx = best.cx; site.cz = best.cz; }
   }
-  // The Goblin Fortress: planned before the caves so they go around it.
-  const fortressPlan = planGoblinFortress(world, terrains.find((terrain) => terrain.kind === 'center'), seed);
-  world.goblinFortress = null;
+  progress('caves');
   for (const terrain of terrains) {
     if (terrain.kind === 'tiny') continue;
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x79b9d7f3));
-    carveCaves(world, terrain, rand, noise3, nearKeep, config.caveArea,
-      terrain.kind === 'center' ? (x, y, z) => nearFortress(fortressPlan, x, y, z) : undefined);
+    carveCaves(world, terrain, rand, noise3, nearKeep, config.caveArea);
   }
-  if (fortressPlan) buildGoblinFortress(world, fortressPlan);
 
+  selectWoodedBiomes(world,terrains,noise);
+  progress('ores');
   // One pass over the terrain's chunks keeps ore cost linear in world blocks.
   for (const chunk of world.chunks.values()) {
     for (let ly = 0; ly < CHUNK_SIZE; ly++) for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       if (chunk.get(lx, ly, lz) !== BLOCK.STONE) continue;
       const x = chunk.cx * CHUNK_SIZE + lx, y = chunk.cy * CHUNK_SIZE + ly, z = chunk.cz * CHUNK_SIZE + lz;
-      const exposed = HORIZONTAL.some(([dx, dz]) => world.getBlock(x + dx, y, z + dz) === BLOCK.AIR)
-        || world.getBlock(x, y - 1, z) === BLOCK.AIR || world.getBlock(x, y + 1, z) === BLOCK.AIR;
+      // Most neighbours share this chunk. Only boundary cells need a world
+      // lookup; exposure and noise-call order stay identical to the old pass.
+      const exposed = (lx + 1 < CHUNK_SIZE ? chunk.get(lx + 1, ly, lz) : world.getBlock(x + 1, y, z)) === BLOCK.AIR
+        || (lx > 0 ? chunk.get(lx - 1, ly, lz) : world.getBlock(x - 1, y, z)) === BLOCK.AIR
+        || (lz + 1 < CHUNK_SIZE ? chunk.get(lx, ly, lz + 1) : world.getBlock(x, y, z + 1)) === BLOCK.AIR
+        || (lz > 0 ? chunk.get(lx, ly, lz - 1) : world.getBlock(x, y, z - 1)) === BLOCK.AIR
+        || (ly > 0 ? chunk.get(lx, ly - 1, lz) : world.getBlock(x, y - 1, z)) === BLOCK.AIR
+        || (ly + 1 < CHUNK_SIZE ? chunk.get(lx, ly + 1, lz) : world.getBlock(x, y + 1, z)) === BLOCK.AIR;
       const threshold = exposed && world.biomeAt(x, z) === 'mountains'
         ? BIOME_SETTINGS.mountainOreThreshold : exposed ? 0.69 : 0.83;
       if (noise3(x / 5 + 2000, y / 5, z / 5 + 2000) > threshold) {
@@ -546,6 +586,7 @@ export function generateIslandWorld(seed, teamCount, config) {
     }
   }
 
+  progress('structures');
   world.keeps = keeps.map((site) => {
     const terrain = terrains[islands.indexOf(site.island)];
     const stats = surfaceStats(terrain.getTop, site.cx - 3, site.cz - 3, site.cx + 3, site.cz + 3);
@@ -555,21 +596,37 @@ export function generateIslandWorld(seed, teamCount, config) {
     return keep;
   });
   for (const terrain of terrains) {
+    if (terrain.kind === 'center') continue;
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x68bc21eb));
     addPonds(world, terrain, rand, noise, nearKeep, config.pondArea);
   }
-  generateRivers(world, terrains[0], seed, config.rivers);
-  
-  const fortressBoxes = fortressPlan ? fortressPlan.boxes : [];
-  world.structures.push(...fortressBoxes.map((box) => ({ kind: 'goblinFortress', islandKind: 'center',
-    teamIndex: null, x: Math.floor((box.x0 + box.x1) / 2), y: box.y0, z: Math.floor((box.z0 + box.z1) / 2), box })));
-  generateStructures(world, terrains, config, seed, fortressBoxes);
+  generateRivers(world, central, seed, config.rivers, noise);
+  // Required civilization gets its site before optional scattered structures.
+  progress('village');
+  generateGoblinVillage(world, central, progress);
+  // Monkey shrines, the storm cloud and NPC seats claim their space first.
+  generateNpcSites(world, terrains, seed);
+  generateStructures(world, terrains, config, seed);
   placeQuarries(world, terrains, seed, config.quarry);
+  const spires=generateStoneSpires(world,central);
+  world.treeObstacles=world.structures.slice();
+  const treeStart=performance.now();
   for (const terrain of terrains) {
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x68bc21eb));
     if (terrain.kind === 'tiny') plantTinyTrees(world, terrain, rand, config.tinyTrees);
     else plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
-      { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop });
+      { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop,
+        noise, clusterScale:terrain.radius*BIOME_SETTINGS.forestClusterFraction });
   }
+  const topRandom=mulberry32(seed^SPIRE_SETTINGS.seedSalt);
+  for(const p of spires)if(topRandom()<SPIRE_SETTINGS.topTreeChance)growTree(world,p.x,p.top,p.z,p.top+Math.round(SPIRE_SETTINGS.topTreeHeight),{seed,species:'birch'});
+  generateFallenTrees(world,terrains);
+  world.treeGenerationMs=performance.now()-treeStart;
+  finishRiverBanks(world);
+  delete world.plantClearance;
+  delete world.treeObstacles;
+  attachGeneratedTorches(world);
+  generateVegetation(world,terrains,noise);
+  progress('complete');
   return world;
 }

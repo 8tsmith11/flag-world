@@ -4,18 +4,10 @@ import { ITEM } from './itemIds.js';
 import { ENTITY_TYPE } from './protocol.js';
 
 export const MOB_EGGS = [
-  ...['HOUND', 'BRUTE', 'CATAPULT', 'BALLOON'].map((kind) => ({
-    item: ITEM[`GOBLIN_${kind}_EGG`], type: ENTITY_TYPE[`GOBLIN_${kind}`],
-    name: `Goblin ${kind[0]}${kind.slice(1).toLowerCase()}`, color: 0x5f8a33, spots: 0x6b4520,
-  })),
   { item: ITEM.COW_EGG, type: ENTITY_TYPE.COW, name: 'Cow', color: 0xe9e4d7, spots: 0x25272b },
   { item: ITEM.DRAGON_EGG, type: ENTITY_TYPE.DRAGON, name: 'Dragon', color: 0xb84f45, spots: 0x713027 },
   { item: ITEM.CRAWLER_EGG, type: ENTITY_TYPE.CRAWLER, name: 'Crawler', color: 0x59675e, spots: 0x242e29 },
   { item: ITEM.VOID_EEL_EGG, type: ENTITY_TYPE.VOID_EEL, name: 'Void Eel', color: 0x5a6dac, spots: 0x23315b },
-  { item: ITEM.GOBLIN_WORKER_EGG, type: ENTITY_TYPE.GOBLIN_WORKER, name: 'Goblin Worker', color: 0x5f8a3a, spots: 0x7a5a32 },
-  { item: ITEM.GOBLIN_SOLDIER_EGG, type: ENTITY_TYPE.GOBLIN_SOLDIER, name: 'Goblin Soldier', color: 0x4f7a30, spots: 0x7d8288 },
-  { item: ITEM.GOBLIN_ARCHER_EGG, type: ENTITY_TYPE.GOBLIN_ARCHER, name: 'Goblin Archer', color: 0x6a8f3a, spots: 0x3f5a2a },
-  { item: ITEM.GOBLIN_KING_EGG, type: ENTITY_TYPE.GOBLIN_KING, name: 'Goblin King', color: 0x3f6a2a, spots: 0xe0b83a },
 ];
 
 export function eggForItem(item) {

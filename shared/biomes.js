@@ -1,7 +1,8 @@
 import { BIOME_SETTINGS } from './config.js';
 
 export const BIOME_NAMES = ['plains', 'forest', 'mountains'];
-const CODE = Object.fromEntries(BIOME_NAMES.map((name, index) => [name, index + 1]));
+export const ALL_BIOME_NAMES = [...BIOME_NAMES, 'ancientForest', 'stoneSpires'];
+const CODE = Object.fromEntries(ALL_BIOME_NAMES.map((name, index) => [name, index + 1]));
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 
 export function biomeWeights(kind, x, z, noise) {
@@ -41,4 +42,4 @@ export function surfaceBiome(weights, x, z, detail) {
 }
 
 export function biomeCode(name) { return CODE[name] ?? 0; }
-export function biomeName(code) { return BIOME_NAMES[code - 1] ?? 'plains'; }
+export function biomeName(code) { return ALL_BIOME_NAMES[code - 1] ?? 'plains'; }

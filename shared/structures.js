@@ -2,8 +2,10 @@
 // the flag on a pedestal in the middle), sand shores and trees. Also the
 // seeded PRNG all world gen uses.
 
-import { KEEP_SIZE, KEEP_HEIGHT, KEEP_MARGIN, BIOME_SETTINGS } from './config.js';
+import { KEEP_SIZE, KEEP_HEIGHT, KEEP_MARGIN, BIOME_SETTINGS, TREE_SETTINGS as T } from './config.js';
 import { BLOCK, isSolid, isWater } from './blocks.js';
+import { growTree } from './trees.js';
+export { canGrowTree, growTree } from './trees.js';
 
 // mulberry32: tiny seeded PRNG so world gen matches across machines.
 export function mulberry32(seed) {
@@ -115,78 +117,69 @@ export function sandShores(world, noise, x0, z0, x1, z1, surfaceAt = (x, z) => w
 // on grass, clear of keeps (with their margin) and the world edge.
 // requireFooting: also need solid ground two blocks out on every side, so
 // trees don't grow on bridges or hang off island edges.
-const TREE_MIN_TRUNK = 4;
-const TREE_MAX_TRUNK = 6;
-const LEAF_RADIUS = 2;
+const TREE_MIN_TRUNK = T.minTrunk;
+const TREE_MAX_TRUNK = T.maxTrunk;
+const LEAF_RADIUS = T.leafRadius;
 
 export function plantTrees(world, seed, { requireFooting = false,
+  noise=()=>0, clusterScale=BIOME_SETTINGS.treeCell,
   bounds = { x0: 0, z0: 0, x1: world.sizeX - 1, z1: world.sizeZ - 1 },
   surfaceAt = (x, z) => world.getSurfaceY(x, z, isSolid) } = {}) {
   // A separate stream from the terrain, so trees don't shift the terrain.
   const random = mulberry32(seed ^ 0x5bd1e995);
   const clearOfKeeps = KEEP_REACH + LEAF_RADIUS;
   const TREE_CELL = BIOME_SETTINGS.forestTreeCell;
+  const candidates=[], giantCells=new Set();
   for (let cz = Math.floor(bounds.z0 / TREE_CELL) * TREE_CELL; cz <= bounds.z1; cz += TREE_CELL) {
     for (let cx = Math.floor(bounds.x0 / TREE_CELL) * TREE_CELL; cx <= bounds.x1; cx += TREE_CELL) {
       // Always draw every number so each cell uses the same amount of the stream.
       const roll = random(), ox = random(), oz = random(), trunkRoll = random();
       const x = cx + Math.floor(ox * TREE_CELL), z = cz + Math.floor(oz * TREE_CELL);
-      const biome = world.biomeAt(x, z);
+      const actualBiome = world.biomeAt(x, z);
+      const biome = actualBiome === 'ancientForest' ? 'forest' : actualBiome;
       const density = biome === 'forest' ? 1 : (TREE_CELL / BIOME_SETTINGS.treeCell) ** 2;
-      if (roll >= Math.min(0.95, BIOME_SETTINGS.treeChance * BIOME_SETTINGS[biome].trees * density)) continue;
+      let forestDensity=1;
+      if(biome==='forest') {
+        const cluster=noise(x/clusterScale,z/clusterScale);
+        const t=Math.max(0,Math.min(1,(cluster-BIOME_SETTINGS.forestClearingThreshold)/BIOME_SETTINGS.forestClearingBlend));
+        forestDensity=BIOME_SETTINGS.forestDensityMultiplier*(1+cluster*BIOME_SETTINGS.forestClusterVariation)*t*t*(3-2*t);
+      }
+      if (roll >= Math.min(BIOME_SETTINGS.treeChanceCap, BIOME_SETTINGS.treeChance * BIOME_SETTINGS[biome].trees * density*forestDensity)) continue;
       if (x < bounds.x0 || x > bounds.x1 || z < bounds.z0 || z > bounds.z1) continue;
       if (x < LEAF_RADIUS || z < LEAF_RADIUS || x >= world.sizeX - LEAF_RADIUS || z >= world.sizeZ - LEAF_RADIUS) continue;
       if (world.keeps.some((k) => Math.abs(x - k.cx) <= clearOfKeeps && Math.abs(z - k.cz) <= clearOfKeeps)) continue;
-      const ground = surfaceAt(x, z);
+      let ground = surfaceAt(x, z);
       if (ground < 0 || world.getBlock(x, ground, z) !== BLOCK.GRASS) continue;
-      if (world.structures.some(({ box }) => box && x >= box.x0 - LEAF_RADIUS && x <= box.x1 + LEAF_RADIUS
+      if ((world.treeObstacles??world.structures).some(({ box, kind }) => kind !== 'tree' && box && box.y1>ground && x >= box.x0 - LEAF_RADIUS && x <= box.x1 + LEAF_RADIUS
         && z >= box.z0 - LEAF_RADIUS && z <= box.z1 + LEAF_RADIUS)) continue;
       if (Array.from({ length: LEAF_RADIUS * 2 + 1 }, (_, i) => i - LEAF_RADIUS).some((dx) =>
         Array.from({ length: LEAF_RADIUS * 2 + 1 }, (_, i) => i - LEAF_RADIUS).some((dz) =>
           isWater(world.getBlock(x + dx, surfaceAt(x + dx, z + dz), z + dz))
           || world.riverColumns?.has(`${x + dx},${z + dz}`)))) continue;
       if (requireFooting && [[2, 0], [-2, 0], [0, 2], [0, -2]].some(([dx, dz]) => !isSolid(world.getBlock(x + dx, ground, z + dz)))) continue;
-      const trunk = TREE_MIN_TRUNK + Math.floor(trunkRoll * (TREE_MAX_TRUNK - TREE_MIN_TRUNK + 1))
+      let trunk = TREE_MIN_TRUNK + Math.floor(trunkRoll * (TREE_MAX_TRUNK - TREE_MIN_TRUNK + 1))
         + (biome === 'forest' && trunkRoll < BIOME_SETTINGS.forestLargeTreeChance
           ? BIOME_SETTINGS.forestLargeTreeExtra : 0);
-      const top = ground + trunk;
-      if (top + 2 >= world.sizeY) continue;
-      growTree(world, x, ground, z, top);
-    }
-  }
-}
-
-// Trunk from ground + 1 to top; leaves: two wide layers around the top of the
-// trunk, then a narrow cap. Leaves only fill air.
-export function canGrowTree(world, x, ground, z, top) {
-  if (top + 2 >= world.sizeY) return false;
-  const soil = world.getBlock(x, ground, z);
-  if (soil !== BLOCK.GRASS && soil !== BLOCK.DIRT) return false;
-  for (let dx = -LEAF_RADIUS; dx <= LEAF_RADIUS; dx++) for (let dz = -LEAF_RADIUS; dz <= LEAF_RADIUS; dz++) {
-    const sx = x + dx, sz = z + dz;
-    if (world.riverColumns?.has(`${sx},${sz}`)) return false;
-    for (let y = Math.max(world.minY, ground - 3); y <= ground + 2; y++) {
-      if (isWater(world.getBlock(sx, y, sz))) return false;
-    }
-  }
-  for (let y = ground + 1; y <= top; y++) {
-    const block = world.getBlock(x, y, z);
-    if (block !== BLOCK.AIR && !(y === ground + 1 && block === BLOCK.SAPLING)) return false;
-  }
-  return true;
-}
-
-export function growTree(world, x, ground, z, top) {
-  if (!canGrowTree(world, x, ground, z, top)) return false;
-  for (let y = ground + 1; y <= top; y++) world.setBlock(x, y, z, BLOCK.WOOD);
-  const layers = [[top - 1, LEAF_RADIUS], [top, LEAF_RADIUS], [top + 1, 1], [top + 2, 0]];
-  for (const [y, r] of layers) {
-    for (let dz = -r; dz <= r; dz++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (r > 0 && Math.abs(dx) === r && Math.abs(dz) === r) continue;
-        if (world.getBlock(x + dx, y, z + dz) === BLOCK.AIR) world.setBlock(x + dx, y, z + dz, BLOCK.LEAVES);
+      const weight=world.ancientWeights?.[x+world.sizeX*z]??0;
+      const treeRandom=mulberry32(seed^Math.imul(x,73856093)^Math.imul(z,19349663));
+      let species=['oak','birch','pine'][Math.floor(treeRandom()*3)],width=1,hollow=false;
+      if(weight>0) {
+        const cell=`${Math.floor(x/T.ancient.spacing)},${Math.floor(z/T.ancient.spacing)}`;
+        if(!giantCells.has(cell)) {
+          species='ancient';
+          trunk=Math.round(trunk+weight*(T.ancient.height[0]+treeRandom()*(T.ancient.height[1]-T.ancient.height[0])-trunk));
+          width=1+Math.round(weight*(T.ancient.trunkWidth[0]+treeRandom()*(T.ancient.trunkWidth[1]-T.ancient.trunkWidth[0])-1));
+          hollow=width>=T.ancient.hollowWidth&&treeRandom()<T.ancient.hollowChance;
+          const heights=[];for(let dx=0;dx<width;dx++)for(let dz=0;dz<width;dz++)heights.push(surfaceAt(x+dx,z+dz));
+          if(Math.max(...heights)-Math.min(...heights)>T.ancient.groundRelief)continue;
+          ground=Math.max(...heights);giantCells.add(cell);
+        }
       }
+      const top=ground+trunk;if(top+T.species[species].crown>=world.sizeY)continue;
+      candidates.push({x,ground,z,top,seed,species,width,hollow,maturity:weight});
     }
   }
-  return true;
+  // Giants reserve their trunks before regular understorey trees.
+  candidates.sort((a,b)=>(b.species==='ancient')-(a.species==='ancient'));
+  for(const p of candidates)growTree(world,p.x,p.ground,p.z,p.top,p);
 }

@@ -90,7 +90,6 @@ function tooltipDetails(stack) {
     if (accessory.regenDelay) effects.push(`Regeneration begins after ${accessory.regenDelay}s`, `Heals every ${accessory.regenInterval}s`);
     if (accessory.rescueHp) effects.push(`Survive one lethal hit with ${accessory.rescueHp} HP`, `Invulnerable for ${accessory.invulnerableSeconds}s; consumed on use`);
   }
-  if (stack.item === BLOCK.GOBLIN_BRICKS) effects.push('Requires tool strength 8 to break');
   if (stack.item === BLOCK.QUARRY_STONE) effects.push(`Each open face regrows stone every ${QUARRY_REGROW_TIME}s`, 'Requires tool strength 8 to break');
   if (def.mobType) effects.push(`Right click a block to spawn a ${def.name.replace(' spawn egg', '')}`);
   if (stack.item === ITEM.RIFT_ORB) effects.push(`Throw to create a ${RIFT_ORB.durationSeconds}s portal where it lands`,
@@ -117,7 +116,11 @@ export function itemIcon(item) {
   const def = getItemDef(item);
   const icon = document.createElement('div');
   icon.className = 'icon';
-  if (def.tool === 'hammer') {
+  if (def.icon) {
+    const image = document.createElement('img'); image.src = def.icon; image.alt = def.name;
+    image.style.cssText = 'width:100%;height:100%;object-fit:contain;image-rendering:pixelated';
+    icon.append(image);
+  } else if (def.tool === 'hammer') {
     icon.classList.add('hammer');
     const handle = document.createElement('div');
     handle.className = 'handle';
@@ -198,7 +201,6 @@ export function itemIcon(item) {
     icon.style.background = cssColor(def.color);
   } else {
     icon.classList.add('block');
-    if (item === BLOCK.GOBLIN_BRICKS) icon.classList.add('goblin-bricks');
     if (item === BLOCK.QUARRY_STONE) icon.classList.add('quarry');
     icon.style.background = cssColor(def.color);
   }

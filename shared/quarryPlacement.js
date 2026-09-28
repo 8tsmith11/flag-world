@@ -2,10 +2,12 @@
 // helper can also be used by a later island type with its own counts.
 import { BLOCK } from './blocks.js';
 import { KEEP_REACH, mulberry32 } from './structures.js';
+import { structureAllowed } from './structures/place.js';
 
 const DIRS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
 function clearOfBuiltArea(world, x, y, z) {
+  if(!structureAllowed(world,{x0:x,x1:x,z0:z,z1:z}))return false;
   if (world.keeps.some((keep) => Math.abs(x - keep.cx) <= KEEP_REACH + 6
     && Math.abs(z - keep.cz) <= KEEP_REACH + 6)) return false;
   return !world.structures.some(({ box }) => box && x >= box.x0 - 2 && x <= box.x1 + 2

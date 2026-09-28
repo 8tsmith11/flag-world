@@ -1,9 +1,9 @@
-import { TICK_RATE, ARROW_GRAVITY, ARROW_DRAG, TURRET } from '../shared/config.js';
-import { isSolid } from '../shared/blocks.js';
+import { TICK_RATE, TURRET } from '../shared/config.js';
 import { turretType } from '../shared/turrets.js';
-import { raycastBlock } from '../shared/raycast.js';
+import { ballisticAim, ballisticClear } from '../shared/ballistics.js';
 import { playerBoxOf } from '../shared/physics.js';
 import { S2C } from '../shared/protocol.js';
+import { huntable } from './provocation.js';
 import { Arrow } from './arrow.js';
 
 const keyOf = (x, y, z) => `${x},${y},${z}`;
@@ -36,7 +36,7 @@ export class TurretController {
     const targetable = [...this.game.players.values(), ...this.game.mobs.values(), ...this.game.dragons.values()];
     const cell = TURRET.spatialCell;
     for (const target of targetable) {
-      if (target.dead || !target.connected) continue;
+      if (!huntable(target)) continue;
       const { x, z } = target.state;
       const key = `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
       if (!this.grid.has(key)) this.grid.set(key, []);
@@ -51,7 +51,8 @@ export class TurretController {
     const result = [];
     for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
       for (const target of this.grid.get(`${cx + dx},${cz + dz}`) ?? []) {
-        if (target.team === turret.team || (!target.goblin && target.type !== 'crawler'
+        if (!huntable(target)) continue;
+        if (target.team === turret.team || (target.type !== 'crawler'
           && target.type !== 'voidEel' && target.type !== 'dragon' && target.team === undefined)) continue;
         const s = target.state;
         const distance = Math.hypot(s.x - turret.x - 0.5, s.y - turret.y - 1.5, s.z - turret.z - 0.5);
@@ -65,66 +66,14 @@ export class TurretController {
     const from = { x: turret.x + 0.5, y: turret.y + 1.6, z: turret.z + 0.5 };
     const s = target.state;
     const box = playerBoxOf(s);
-    const aim = { x: s.x, y: s.y + (box.offsetY ?? 0) + box.height * 0.6, z: s.z };
-    const dx = aim.x - from.x, dz = aim.z - from.z, dy = aim.y - from.y;
-    const d = Math.hypot(dx, dz);
-    if (d < 0.1) return null;
-    // Solve against the same per-tick drag and gravity as Arrow.step. A
-    // continuous parabola would aim too low at longer ranges.
-    const heightAt = (pitch) => {
-      let distance = 0, height = 0;
-      let vx = type.arrowSpeed * Math.cos(pitch), vy = type.arrowSpeed * Math.sin(pitch);
-      for (let i = 0; i < TICK_RATE * 3 && distance < d; i++) {
-        vx *= ARROW_DRAG;
-        vy = vy * ARROW_DRAG - ARROW_GRAVITY / TICK_RATE;
-        const step = vx / TICK_RATE;
-        if (distance + step >= d) return height + vy / TICK_RATE * (d - distance) / step;
-        distance += step;
-        height += vy / TICK_RATE;
-      }
-      return -Infinity;
-    };
-    let low = -0.55, high = 0.8;
-    if (heightAt(high) < dy || heightAt(low) > dy) return null;
-    for (let i = 0; i < 18; i++) {
-      const middle = (low + high) / 2;
-      if (heightAt(middle) < dy) low = middle;
-      else high = middle;
-    }
-    const pitch = (low + high) / 2;
-    const yaw = Math.atan2(dz, dx);
-    return { from, yaw, pitch, horizontal: d, speed: type.arrowSpeed };
+    const aim = { x: s.x, y: s.y + box.height * 0.6, z: s.z };
+    return ballisticAim(from,aim,type.arrowSpeed);
   }
 
-  arcClear(turret, target, path, type, tick, fresh = false) {
-    const cached = turret.sight.get(target.id);
-    const expires = Math.round(type.sightCacheSeconds * TICK_RATE);
-    if (!fresh && cached && tick - cached.tick < expires) return cached.clear;
-    let vx = Math.cos(path.yaw) * path.speed * Math.cos(path.pitch);
-    let vz = Math.sin(path.yaw) * path.speed * Math.cos(path.pitch);
-    let vy = path.speed * Math.sin(path.pitch);
-    let previous = path.from, clear = true;
-    for (let i = 0; i < TICK_RATE * 3; i++) {
-      vx *= ARROW_DRAG; vz *= ARROW_DRAG;
-      vy = vy * ARROW_DRAG - ARROW_GRAVITY / TICK_RATE;
-      const point = { x: previous.x + vx / TICK_RATE, y: previous.y + vy / TICK_RATE,
-        z: previous.z + vz / TICK_RATE };
-      const delta = { x: point.x - previous.x, y: point.y - previous.y, z: point.z - previous.z };
-      const traveled = Math.hypot(previous.x - path.from.x, previous.z - path.from.z);
-      const horizontalStep = Math.hypot(delta.x, delta.z);
-      const fraction = Math.min(1, (path.horizontal - traveled) / horizontalStep);
-      const length = Math.hypot(delta.x, delta.y, delta.z) * fraction;
-      if (raycastBlock(this.game.world, previous,
-        { x: delta.x / Math.hypot(delta.x, delta.y, delta.z),
-          y: delta.y / Math.hypot(delta.x, delta.y, delta.z),
-          z: delta.z / Math.hypot(delta.x, delta.y, delta.z) }, length, isSolid)) {
-        clear = false; break;
-      }
-      previous = point;
-      if (Math.hypot(point.x - path.from.x, point.z - path.from.z) >= path.horizontal) break;
-    }
-    turret.sight.set(target.id, { tick, clear });
-    return clear;
+  arcClear(turret,target,path,type,tick,fresh=false) {
+    const cached=turret.sight.get(target.id),expires=Math.round(type.sightCacheSeconds*TICK_RATE);
+    if(!fresh && cached && tick-cached.tick<expires)return cached.clear;
+    const clear=ballisticClear(this.game.world,path);turret.sight.set(target.id,{tick,clear});return clear;
   }
 
   step(tick) {

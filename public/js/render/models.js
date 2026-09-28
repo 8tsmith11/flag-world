@@ -3,11 +3,12 @@
 // the item in hand) and item models (block cubes and tools).
 
 import * as THREE from 'three';
-import { PLAYER_HEIGHT } from '/shared/config.js';
+import { PLAYER_HEIGHT, LIGHTING, VEGETATION, TREE_SETTINGS } from '/shared/config.js';
 import { getItemDef } from '/shared/items.js';
 import { getBlockDef } from '/shared/blocks.js';
 import { ITEM } from '/shared/itemIds.js';
 
+const plantItemTextures=new Map();
 const BODY_RADIUS = 0.26;
 const BODY_HEIGHT = 1.25;
 const HEAD_SIZE = 0.5;
@@ -738,6 +739,28 @@ function createFlatItem(kind, color, size) {
 // blocks as a small cube of the block's color.
 export function createItemModel(item, blockSize = 0.25) {
   const def = getItemDef(item);
+  if(def.block!==null&&getBlockDef(def.block).shape==='branch') {
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(blockSize*TREE_SETTINGS.branchWidth,blockSize*TREE_SETTINGS.branchWidth,blockSize*TREE_SETTINGS.branchWidth),lambert(def.color));
+    mesh.position.y=blockSize*TREE_SETTINGS.branchWidth/2;return mesh;
+  }
+  if(def.block!==null&&getBlockDef(def.block).shape==='plant') {
+    const group=new THREE.Group();
+    let texture=plantItemTextures.get(item);
+    if(!texture){texture=new THREE.TextureLoader().load(def.icon);texture.colorSpace=THREE.SRGBColorSpace;
+      texture.magFilter=THREE.NearestFilter;texture.minFilter=THREE.LinearMipmapLinearFilter;plantItemTextures.set(item,texture);}
+    const material=new THREE.MeshLambertMaterial({map:texture,alphaTest:VEGETATION.alphaTest,side:THREE.DoubleSide});
+    for(const angle of [0,Math.PI/2]) {
+      const mesh=new THREE.Mesh(new THREE.PlaneGeometry(blockSize,blockSize),material);
+      mesh.position.y=blockSize/2;mesh.rotation.y=angle;group.add(mesh);
+    }
+    return group;
+  }
+  if(def.places==='torch') {
+    const group=new THREE.Group(),t=LIGHTING.torch;
+    const handle=new THREE.Mesh(new THREE.BoxGeometry(t.width,t.height,t.width),lambert(0x9a6837));handle.position.y=t.height/2;
+    const head=new THREE.Mesh(new THREE.BoxGeometry(t.width*2,t.headHeight*2,t.width*2),new THREE.MeshBasicMaterial({color:0xffdfa0}));head.position.y=t.height;
+    group.add(handle,head);return group;
+  }
   if (def.tool === 'hammer') return createHammer(def.color);
   if (def.tool === 'sword') return createSword(def.color);
   if (def.tool === 'bow') return createBow(def.color);

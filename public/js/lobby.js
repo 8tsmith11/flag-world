@@ -1,8 +1,9 @@
 // Pregame screens: the lobby (name, color, ready, host start) and the
 // "match in progress" screen shown to players who connect after the start.
 
+import { enterFullscreen } from './fullscreen.js';
 import { C2S, TEAMS } from '/shared/protocol.js';
-import { WORLD_SIZES } from '/shared/worldgen.js';
+import { WORLD_SIZES } from '/shared/worldSizes.js';
 
 const NAME_KEY = 'flagWorld.name';
 
@@ -75,13 +76,17 @@ export class LobbyScreen {
     this.teamSelect.addEventListener('change', () => {
       this.conn.send({ type: C2S.LOBBY_UPDATE, team: Number(this.teamSelect.value) });
     });
-    this.readyButton.addEventListener('click', () => {
+    this.readyButton.addEventListener('click', async () => {
+      if (this.me && !this.me.ready && !await enterFullscreen()) {this.showError('Click Play to enter fullscreen.');return;}
       if (this.me) this.conn.send({ type: C2S.LOBBY_UPDATE, ready: !this.me.ready });
     });
     this.sizeSelect.addEventListener('change', () => {
       this.conn.send({ type: C2S.LOBBY_UPDATE, worldSize: this.sizeSelect.value });
     });
-    this.startButton.addEventListener('click', () => {
+    this.startButton.addEventListener('click', async () => {
+      if(!await enterFullscreen()){this.showError('Click Play to enter fullscreen.');return;}
+      this.startButton.disabled = true;
+      this.onStart?.();
       this.conn.send({ type: C2S.START_MATCH, seed: this.seedInput.value });
     });
   }
@@ -95,7 +100,7 @@ export class LobbyScreen {
     // Don't overwrite what the player is in the middle of typing or picking.
     if (document.activeElement !== this.nameInput) this.nameInput.value = this.me.name;
     if (document.activeElement !== this.teamSelect) this.teamSelect.value = String(this.me.team);
-    this.readyButton.textContent = this.me.ready ? 'Ready ✓' : 'Ready';
+    this.readyButton.textContent = this.me.ready ? 'Ready ✓' : 'Play';
     this.readyButton.classList.toggle('on', this.me.ready);
 
     const list = this.el('lobby-players');
@@ -132,7 +137,8 @@ export class MatchScreen {
         const button = document.createElement('button');
         button.type = 'button';
         button.textContent = 'Reclaim';
-        button.addEventListener('click', () => {
+        button.addEventListener('click', async () => {
+          if(!await enterFullscreen()){this.error.textContent='Click Reclaim to enter fullscreen.';return;}
           this.error.textContent = '';
           saveName(p.name);
           this.conn.send({ type: C2S.RECLAIM, name: p.name });

@@ -7,8 +7,7 @@ import {
   EEL_LOSE_RANGE, EEL_WANDER_RADIUS, EEL_ATTACK_COOLDOWN,
   EEL_LUNGE_DURATION, EEL_TURN_RATE,
 } from '../shared/config.js';
-import { isSolid } from '../shared/blocks.js';
-import { playerBoxOf } from '../shared/physics.js';
+import { playerBoxOf, playerFitsAt } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { Provocation, huntable } from './provocation.js';
 
@@ -149,12 +148,7 @@ export class VoidEel {
   clear(world, x, y, z) {
     if (x < 1 || z < 1 || x >= world.sizeX - 1 || z >= world.sizeZ - 1
       || y < world.voidY + 1 || y >= world.sizeY - EEL_BOX.height) return false;
-    for (const dx of [-EEL_BOX.halfW, EEL_BOX.halfW]) for (const dz of [-EEL_BOX.halfW, EEL_BOX.halfW]) {
-      for (const dy of [0.1, EEL_BOX.height - 0.1]) {
-        if (isSolid(world.getBlock(Math.floor(x + dx), Math.floor(y + dy), Math.floor(z + dz)))) return false;
-      }
-    }
-    return true;
+    return playerFitsAt(world, {x,y,z,box:EEL_BOX}, y);
   }
 
   swim(world, goal, speed, night) {

@@ -15,7 +15,8 @@ export const C2S = {
   OPEN_CONTAINER: 'openContainer',
   ANVIL_REROLL: 'anvilReroll',
   CREATIVE_TOGGLE: 'creativeToggle',
-  CREATIVE_ACTION: 'creativeAction',
+  CREATIVE_ACTION: 'creativeAction', // {action}
+  TALK: 'talk', // {id}: right click on an NPC
 };
 
 // Server -> client
@@ -23,8 +24,9 @@ export const S2C = {
   LOBBY: 'lobby',
   MATCH_IN_PROGRESS: 'matchInProgress',
   ERROR: 'error',
+  GENERATION: 'generation', // { percent: 0..100 }, monotonically increasing
+  CAPTURE_LOBBY: 'captureLobby', // Authorized local creative capture acknowledgement
   WELCOME: 'welcome',
-  // Player-specific; goblins use quantized {id,x,y,z,yaw,hp,a} updates.
   STATE: 'state',
   BLOCK_CHANGE: 'blockChange',
   BLOCK_CHANGES: 'blockChanges',
@@ -43,26 +45,16 @@ export const S2C = {
   PORTAL_DESPAWN: 'portalDespawn',
   EMBER_BURST: 'emberBurst',
   QUARRY_PUFF: 'quarryPuff',
-  CREATIVE: 'creative',
+  CREATIVE: 'creative', // {enabled,immortal,flying,invisible}
   DAY_TIME: 'dayTime',
-  // A line for everyone's chat/event feed (e.g. the Goblin Totem falling).
-  CHAT: 'chat',
-  GOBLIN_TOTEM_DESTROYED: 'goblinTotemDestroyed',
-  GOBLIN_SIEGE_DECLARED: 'goblinSiegeDeclared',
-  SIEGE_EXPLOSION: 'siegeExplosion',
-  // Creative players only: the Goblin Fortress's state, for the totem inspector.
-  GOBLIN_STATUS: 'goblinStatus',
+  SPEAK: 'speak', // {id,name,voice,text,sound}: private NPC line with a subtitle
 };
-
-// Compact goblin STATE animation flags. Full spawn descriptions keep booleans.
-export const GOBLIN_ANIMATION = { WALK: 1, CLIMB: 2, WORK: 4, AIM: 8, CROUCH: 16, GLIDE: 32 };
 
 // Where a flag is, in FlagState.
 export const FLAG_STATE = {
   HOME: 'home',
   CARRIED: 'carried',
   DROPPED: 'dropped',
-  HELD: 'held', // Goblin pedestal: no timer; owner returns by touching.
   // Captured by another player; gone for good and its owner is flagless.
   CAPTURED: 'captured',
 };
@@ -80,7 +72,7 @@ export const DEATH_CAUSE = {
   PLAYER: 'player',
   VOID: 'void',
   FALL: 'fall',
-  // A dragon, Crawler, Void Eel or goblin.
+  // A dragon, Crawler or Void Eel.
   MOB: 'mob',
 };
 
@@ -108,14 +100,10 @@ export const ENTITY_TYPE = {
   DRAGON: 'dragon',
   CRAWLER: 'crawler',
   VOID_EEL: 'voidEel',
-  GOBLIN_WORKER: 'goblinWorker',
-  GOBLIN_KING: 'goblinKing',
-  GOBLIN_TOTEM: 'goblinTotem',
-  GOBLIN_SOLDIER: 'goblinSoldier',
-  GOBLIN_ARCHER: 'goblinArcher',
-  GOBLIN_HOUND: 'goblinHound',
-  GOBLIN_BRUTE: 'goblinBrute',
-  GOBLIN_CATAPULT: 'goblinCatapult',
-  GOBLIN_BALLOON: 'goblinBalloon',
-  SIEGE_SHOT: 'siegeShot',
+  // Wise and Ancient Monkeys; `npc` names the kind in shared/npcs.js.
+  NPC: 'npc',
 };
+
+// Goblin worldgen plans remain server-side. Fortress poison shooters use the
+// existing ARROW entitySpawn/state/entityDespawn and DAMAGE wire formats;
+// sensors and poison timers add no protocol fields.

@@ -24,6 +24,9 @@ export class Chunk {
     this.blocks = new Uint8Array(CHUNK_VOLUME);
     // Bumped on every change; renderers compare against it to know when to remesh.
     this.version = 0;
+    // Client worker fills these lazily when the chunk first enters view.
+    this.light = null;
+    this.skylight = null;
   }
 
   static index(lx, ly, lz) {
@@ -41,6 +44,25 @@ export class Chunk {
 }
 
 export class World {
+  // Worker messages preserve maps and typed arrays, but omit prototypes.
+  // Restore methods without allocating a second set of terrain/chunk buffers.
+  static fromData(data) {
+    const world = Object.assign(Object.create(World.prototype), data);
+    for (const chunk of world.chunks.values()) Object.setPrototypeOf(chunk, Chunk.prototype);
+    return world;
+  }
+
+  transferables() {
+    return [...new Set([
+      ...[...this.chunks.values()].map(chunk => chunk.blocks.buffer),
+      this.naturalBottom.buffer, this.naturalTop.buffer, this.biomeCodes.buffer,
+      ...(this.regularForest ? [this.regularForest.buffer, this.ancientWeights.buffer] : []),
+      ...(this.mainTerrains ?? []).map(terrain => terrain.top.buffer),
+      ...(this.centralTerrain ? [this.centralTerrain.top.buffer] : []),
+      ...(this.centralTerrain?.lowland ? [this.centralTerrain.lowland.buffer] : []),
+    ])];
+  }
+
   // Sizes in blocks. The world is open void below its floating island.
   constructor(seed, sizeX, sizeZ, { sizeY = WORLD_SIZE_Y, minY = VOID_Y } = {}) {
     this.seed = seed;

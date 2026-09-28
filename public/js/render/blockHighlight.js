@@ -1,36 +1,28 @@
-// Outline drawn around the block under the crosshair, plus a darkening overlay
-// that fills in as the block is being broken.
-
+// Reused box outlines and break overlays also fit neighbour-shaped branches.
 import * as THREE from 'three';
-
-// Slightly larger than a block so the lines don't z-fight with its faces.
-const SIZE = 1.004;
-const MAX_BREAK_OPACITY = 0.6;
-
+const SIZE=1.004, MAX_BREAK_OPACITY=0.6;
+const CUBE=[[0,0,0,1,1,1]];
 export class BlockHighlight {
   constructor(scene) {
-    const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(SIZE, SIZE, SIZE));
-    const material = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 });
-    this.mesh = new THREE.LineSegments(edges, material);
-    this.mesh.visible = false;
-    scene.add(this.mesh);
-
-    this.overlay = new THREE.Mesh(
-      new THREE.BoxGeometry(SIZE, SIZE, SIZE),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthWrite: false }),
-    );
-    this.overlay.visible = false;
-    scene.add(this.overlay);
+    this.mesh=new THREE.Group();this.overlay=new THREE.Group();
+    const edges=new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1));
+    const lines=new THREE.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.6});
+    const overlay=new THREE.MeshBasicMaterial({color:0x000000,transparent:true,depthWrite:false});
+    const cube=new THREE.BoxGeometry(1,1,1);
+    // Core and six arms: all geometry/materials are shared and created once.
+    for(let i=0;i<7;i++){this.mesh.add(new THREE.LineSegments(edges,lines));this.overlay.add(new THREE.Mesh(cube,overlay));}
+    this.mesh.visible=this.overlay.visible=false;scene.add(this.mesh,this.overlay);
   }
-
-  // target: { x, y, z } block coordinates, or null to hide.
-  // progress: 0..1 of the way through breaking the target.
-  update(target, progress = 0) {
-    this.mesh.visible = !!target;
-    this.overlay.visible = !!target && progress > 0;
-    if (!target) return;
-    this.mesh.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
-    this.overlay.position.copy(this.mesh.position);
-    this.overlay.material.opacity = progress * MAX_BREAK_OPACITY;
+  update(target,progress=0) {
+    this.mesh.visible=!!target;this.overlay.visible=!!target&&progress>0;if(!target)return;
+    const boxes=target.boxes??CUBE;
+    this.mesh.position.set(target.x,target.y,target.z);this.overlay.position.copy(this.mesh.position);
+    for(let i=0;i<7;i++) {
+      const line=this.mesh.children[i],overlay=this.overlay.children[i],box=boxes[i];
+      line.visible=overlay.visible=!!box;if(!box)continue;
+      line.position.set((box[0]+box[3])/2,(box[1]+box[4])/2,(box[2]+box[5])/2);
+      line.scale.set(box[3]-box[0]+SIZE-1,box[4]-box[1]+SIZE-1,box[5]-box[2]+SIZE-1);
+      overlay.position.copy(line.position);overlay.scale.copy(line.scale);overlay.material.opacity=progress*MAX_BREAK_OPACITY;
+    }
   }
 }

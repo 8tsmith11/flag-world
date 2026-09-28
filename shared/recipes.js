@@ -5,12 +5,15 @@
 // the inventory screen or a workbench) or 'workbench' (only at a workbench).
 // `id` is what the client sends to craft it.
 
-import { BLOCK, creativeBlockIds } from './blocks.js';
+import { LIGHTING } from './config.js';
+import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
+import { creativeItemIds } from './items.js';
 
 const needs = (...pairs) => pairs.map(([item, count]) => ({ item, count }));
 
 export const RECIPES = [
+  { id: 'torch', station: null, output: BLOCK.TORCH, count: LIGHTING.torchCraftCount, inputs: needs([BLOCK.PLANKS, LIGHTING.torchCraftPlanks]) },
   { id: 'planks', station: null, output: BLOCK.PLANKS, count: 4, inputs: needs([BLOCK.WOOD, 1]) },
   { id: 'stone_bricks', station: null, output: BLOCK.STONE_BRICKS, count: 1, inputs: needs([BLOCK.STONE, 1]) },
   { id: 'ladder', station: null, output: ITEM.LADDER, count: 2, inputs: needs([BLOCK.PLANKS, 1]) },
@@ -38,10 +41,10 @@ export const RECIPES = [
 ];
 
 // Server checks creative permission before accepting these ids. The client
-// shows the full catalogue even when the player has no dirt yet.
-export const CREATIVE_RECIPES = [...new Set([...creativeBlockIds(), ...Object.values(ITEM)])]
+// shows the full catalogue without requiring or consuming any ingredients.
+export const CREATIVE_RECIPES = creativeItemIds()
   .map((item) => ({ id: `creative:${item}`, creative: true, station: null,
-    output: item, count: 1, inputs: needs([BLOCK.DIRT, 1]) }));
+    output: item, count: 1, inputs: [] }));
 const creativeById = new Map(CREATIVE_RECIPES.map((recipe) => [recipe.id, recipe]));
 
 // Rerolling an item's modifiers at an anvil costs this, from the inventory.

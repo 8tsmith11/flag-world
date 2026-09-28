@@ -42,14 +42,6 @@ export const ITEM = {
   DRAGON_EGG: 292,
   CRAWLER_EGG: 293,
   VOID_EEL_EGG: 294,
-  GOBLIN_WORKER_EGG: 295,
-  GOBLIN_KING_EGG: 296,
-  // ID 297 was the Builder egg; reserved.
-  GOBLIN_SOLDIER_EGG: 298,
-  GOBLIN_ARCHER_EGG: 299,
+  // IDs 295–299 and 301–304 are unused; keep remaining ids stable.
   REINFORCED_DOOR: 300,
-  GOBLIN_HOUND_EGG: 301,
-  GOBLIN_BRUTE_EGG: 302,
-  GOBLIN_CATAPULT_EGG: 303,
-  GOBLIN_BALLOON_EGG: 304,
 };

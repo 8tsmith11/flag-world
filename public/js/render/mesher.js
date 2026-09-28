@@ -1,10 +1,13 @@
+import { plantUV } from './plantMaterial.js';
+import { atlasUV } from '/shared/blockTextures.js';
 // Builds vertex buffers for one chunk, emitting only faces that border a
 // transparent block of a different type. Opaque and transparent (water) blocks
 // go into separate buffers so they can use different materials.
 
 import * as THREE from 'three';
-import { CHUNK_SIZE } from '/shared/config.js';
-import { BLOCK, getBlockDef, ladderFacing, doorState, blockBase, isWater, waterLevel, isSolid } from '/shared/blocks.js';
+import { chunkKey, Chunk } from '/shared/world.js';
+import { CHUNK_SIZE, LIGHTING as C, VEGETATION as P } from '/shared/config.js';
+import { BLOCK, getBlockDef, LADDER_DEPTH, ladderFacing, doorState, blockBase, isWater, waterLevel, isSolid, branchBoxes } from '/shared/blocks.js';
 import { ANVIL_PARTS } from './models.js';
 
 // Corner offsets are wound counter-clockwise when viewed from outside.
@@ -17,6 +20,7 @@ const FACES = [
   { dir: [0, 0, -1], shade: 0.7, corners: [[1, 0, 0], [0, 0, 0], [1, 1, 0], [0, 1, 0]] },
   { dir: [0, 0, 1], shade: 0.7, corners: [[0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]] },
 ];
+FACES.forEach((face,i)=>{face.shade=C.faceShades[i];});
 
 // Linear-space colors per block id, converted once.
 const colorCache = new Map();
@@ -49,19 +53,66 @@ function jitter(x, y, z) {
   return 0.94 + (((h ^ (h >>> 16)) & 0xff) / 255) * 0.12;
 }
 
-function createBuffers() {
-  return { positions: [], normals: [], colors: [], uvs: [], indices: [] };
+function createBuffers(animated=false) {
+  return { animated, positions: [], normals: [], colors: [], uvs: [], lights: [], wind: [], indices: [] };
 }
 
-function pushFace(buf, face, x, y, z, color, light) {
-  const base = buf.positions.length / 3;
-  for (const [cx, cy, cz] of face.corners) {
-    buf.positions.push(x + cx, y + cy, z + cz);
-    buf.normals.push(face.dir[0], face.dir[1], face.dir[2]);
-    buf.colors.push(color.r * light, color.g * light, color.b * light);
-    buf.uvs.push(face.dir[0] ? cz : cx, face.dir[1] ? cz : cy);
-  }
-  buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+// Face samples are outside the solid cell. Never average illumination across
+// an opaque side/corner, which would visibly leak through thin walls.
+let lightingWorld;
+let lightSamples, lightBlocks, lightOrigin;
+const LIGHT_SPAN = CHUNK_SIZE + 2;
+const lightIndex = (x,y,z) => x-lightOrigin.x + LIGHT_SPAN*(z-lightOrigin.z + LIGHT_SPAN*(y-lightOrigin.y));
+function lightingBlock(x,y,z) {
+  const i = lightIndex(x,y,z);
+  if (lightBlocks[i] < 0) lightBlocks[i] = lightingWorld.getBlock(x,y,z);
+  return getBlockDef(lightBlocks[i]);
+}
+const local = n => (n % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+function sampleLight(x,y,z) {
+  const key = lightIndex(x,y,z);
+  const cached = lightSamples[key];
+  if (cached) return cached;
+  const def=lightingBlock(x,y,z);
+  if(def.lightOpaque)return lightSamples[key] = [0,0,0];
+  const data=lightingWorld.lightChunks?.get(chunkKey(Math.floor(x/CHUNK_SIZE),Math.floor(y/CHUNK_SIZE),Math.floor(z/CHUNK_SIZE)));
+  const i=Chunk.index(local(x),local(y),local(z));
+  const value = [Math.min(C.maxLevel,Math.max(def.emission, data?.light[i]??0))/C.maxLevel,(data?.sky[i]??0)/255,(data?.void[i]??0)/255];
+  lightSamples[key] = value;
+  return value;
+}
+function faceLighting(face,x,y,z) {
+  const normal=face.dir, axes=[0,1,2].filter(i=>normal[i]===0);
+  const origin=[x+normal[0],y+normal[1],z+normal[2]];
+  const center=sampleLight(...origin);
+  return face.corners.map(corner=>{
+    const a=[...origin],b=[...origin],d=[...origin];
+    a[axes[0]]+=corner[axes[0]]?1:-1;b[axes[1]]+=corner[axes[1]]?1:-1;
+    d[axes[0]]=a[axes[0]];d[axes[1]]=b[axes[1]];
+    const opaque=p=>lightingBlock(...p).lightOpaque;
+    const sideA=opaque(a),sideB=opaque(b), diagonal=opaque(d);
+    const occupied=sideA&&sideB?3:Number(sideA)+Number(sideB)+Number(diagonal);
+    const ao=1-occupied*C.aoStrength;
+    const samples=[center];if(!sideA)samples.push(sampleLight(...a));if(!sideB)samples.push(sampleLight(...b));
+    if(!sideA&&!sideB&&!diagonal)samples.push(sampleLight(...d));
+    return {ao,block:samples.reduce((n,s)=>n+s[0],0)/samples.length,sky:samples.reduce((n,s)=>n+s[1],0)/samples.length,void:samples.reduce((n,s)=>n+s[2],0)/samples.length};
+  });
+}
+function finishQuad(buf,base,values) {
+  if(values[0].ao+values[3].ao > values[1].ao+values[2].ao)
+    buf.indices.push(base,base+1,base+3,base,base+3,base+2);
+  else buf.indices.push(base,base+1,base+2,base+2,base+1,base+3);
+}
+function pushFace(buf, face, x, y, z, color, light, tile = null) {
+  const base=buf.positions.length/3, values=faceLighting(face,x,y,z);
+  face.corners.forEach(([cx,cy,cz],i)=>{
+    buf.positions.push(x+cx,y+cy,z+cz);buf.normals.push(...face.dir);
+    const v=values[i],shade=light*v.ao;buf.colors.push(color.r*shade,color.g*shade,color.b*shade);
+    buf.lights.push(v.block,v.sky,v.void);
+    const u=face.dir[0]?cz:cx,vv=face.dir[1]?cz:cy;
+    buf.uvs.push(...(tile?atlasUV(tile,u,vv):[u,vv]));
+  });
+  finishQuad(buf,base,values);
 }
 
 function pushFaceRect(buf, face, x, y, z, u0, v0, u1, v1, color, light, offset = 0.002) {
@@ -77,6 +128,7 @@ function pushFaceRect(buf, face, x, y, z, u0, v0, u1, v1, color, light, offset =
       buf.normals.push(face.dir[axis]);
     }
     buf.colors.push(color.r * light, color.g * light, color.b * light);
+    buf.lights.push(...sampleLight(x + face.dir[0], y + face.dir[1], z + face.dir[2]));
   }
   buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
 }
@@ -155,6 +207,7 @@ function pushWaterFace(buf, face, x, y, z, color, light, heights) {
     buf.positions.push(x + cx, y + (cy ? heights[cx + 2 * cz] : 0), z + cz);
     buf.normals.push(...face.dir);
     buf.colors.push(color.r * light, color.g * light, color.b * light);
+    buf.lights.push(...sampleLight(x + face.dir[0], y + face.dir[1], z + face.dir[2]));
   }
   buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
 }
@@ -184,13 +237,18 @@ function waterCornerHeight(world, x, y, z, cx, cz) {
 }
 
 // A box from (x0, y0, z0) to (x1, y1, z1) in block-local units, all six faces.
-function pushBox(buf, [x0, y0, z0, x1, y1, z1], x, y, z, color, light) {
-  for (const face of FACES) {
+function pushBox(buf, [x0, y0, z0, x1, y1, z1], x, y, z, color, light, tile = null, hiddenFaces = 0) {
+  for (let fi=0;fi<FACES.length;fi++) {
+    if(hiddenFaces&(1<<fi))continue;
+    const face=FACES[fi];
     const base = buf.positions.length / 3;
     for (const [cx, cy, cz] of face.corners) {
       buf.positions.push(x + (cx ? x1 : x0), y + (cy ? y1 : y0), z + (cz ? z1 : z0));
       buf.normals.push(face.dir[0], face.dir[1], face.dir[2]);
       buf.colors.push(color.r * face.shade * light, color.g * face.shade * light, color.b * face.shade * light);
+      buf.lights.push(...(getBlockDef(lightingWorld.getBlock(x,y,z)).lightOpaque
+        ? sampleLight(x+face.dir[0],y+face.dir[1],z+face.dir[2]) : sampleLight(x,y,z)));
+      const u=face.dir[0]?cz:cx,v=face.dir[1]?cz:cy;buf.uvs.push(...(tile?atlasUV(tile,u,v):[u,v]));
     }
     buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
   }
@@ -210,7 +268,6 @@ function rotateBox([x0, y0, z0, x1, y1, z1], facing) {
 // Shaped blocks are lists of boxes in block-local units, laid out facing
 // north (front toward -Z) and turned to the block's facing. Each box has an
 // optional color (else the block's).
-const LADDER_DEPTH = 0.07;
 // Ladder against the north side of its cell: two rails and four rungs.
 const LADDER = [
   [0.1, 0, 0, 0.22, 1, LADDER_DEPTH],
@@ -287,13 +344,19 @@ const ROPE = [
 // in dark iron with a worn, lighter face (the same boxes as its item model).
 const ANVIL = ANVIL_PARTS.map(({ box, light }, i) => ({ box, color: light ? 0x5c5f66 : i % 2 ? 0x34363b : 0x3b3d42 }));
 
-const POISON_TRAP = [{box:[0,0,0,1,1,1]},
-  ...[0.25,0.5,0.75].map((x)=>({box:[x-0.045,0.45,-0.005,x+0.045,0.55,0.01],color:0x10130d}))];
-const SHAPES = { poisonTrap:POISON_TRAP, workbench: WORKBENCH, furnace: FURNACE, chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL };
+const MUSHROOM = [{ box: [0.4, 0, 0.4, 0.6, 0.4, 0.6], color: 0xc8bb92 },
+  { box: [0.15, 0.35, 0.15, 0.85, 0.55, 0.85], color: 0x9f705c }];
+const SHAPES = { mushroom: MUSHROOM, workbench: WORKBENCH, furnace: FURNACE, chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL };
 
 // [{ box, color }] for a shaped block, turned to its facing.
 function shapeBoxes(id, def) {
   const turn = (parts, facing) => parts.map(({ box, color }) => ({ box: rotateBox(box, facing), color }));
+  if (def.shape === 'torch') {
+    const {width:w,height:h,headHeight:hh,wallOffset:o}=C.torch;
+    const wall=id!==BLOCK.TORCH, centerZ=wall?o:0.5;
+    return turn([{box:[0.5-w/2,0,centerZ-w/2,0.5+w/2,h,centerZ+w/2]},
+      {box:[0.5-w, h-hh,centerZ-w,0.5+w,h+hh,centerZ+w],color:0xffe8aa}],wall?blockBase(id).facing:0);
+  }
   if (def.shape === 'ladder') return turn(LADDER, ladderFacing(id));
   if (def.shape === 'door') {
     const { facing, open, upper } = doorState(id);
@@ -308,30 +371,65 @@ function toGeometry(buf) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.positions, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(buf.normals, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(buf.colors, 3));
+  geo.setAttribute('voxelLight', new THREE.Float32BufferAttribute(buf.lights, 3));
+  if(buf.wind.length)geo.setAttribute('plantWind',new THREE.Float32BufferAttribute(buf.wind,1));
   geo.setIndex(buf.indices);
   if (buf.uvs.length === buf.positions.length / 3 * 2) {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uvs, 2));
   }
   geo.computeBoundingSphere();
+  if(buf.animated)geo.boundingSphere.radius+=Math.max(P.sway,P.hangingSway);
   return geo;
+}
+
+// Two crossed quads share one alpha-tested chunk draw call. Wind is pinned
+// at the soil for plants and at the upper attachment for hanging strands.
+function pushPlant(buf,id,def,x,y,z,j) {
+  const light=sampleLight(x,y,z),h=def.plantHeight;
+  for(const plane of [[[0,0],[1,1]],[[0,1],[1,0]]]) {
+    const base=buf.positions.length/3;
+    for(const [u,v] of [[0,0],[0,1],[1,0],[1,1]]) {
+      const width=def.hanging?P.hangingWidth:1;
+      const [px,pz]=plane[u].map(p=>0.5+(p-0.5)*width);buf.positions.push(x+px,y+v*h,z+pz);
+      buf.normals.push(0,1,0);buf.colors.push(j,j,j);buf.lights.push(...light);
+      buf.uvs.push(...plantUV(id,u,v));buf.wind.push((def.hanging?1-v:v)*(def.hanging?P.hangingSway:P.sway));
+    }
+    buf.indices.push(base,base+1,base+2,base+2,base+1,base+3);
+  }
+}
+// A rigid tilt about the wall attachment, followed by the facing rotation.
+function pushTorch(buf,id,def,x,y,z,j) {
+  const wall=id!==BLOCK.TORCH,parts=shapeBoxes(BLOCK.TORCH,def);
+  for(const part of parts) {
+    const begin=buf.positions.length/3;
+    pushBox(buf,part.box,x,y,z,part.color===undefined?WHITE:hexColor(part.color),j,'torch');
+    if(!wall)continue;
+    const angle=C.torch.wallLean,c=Math.cos(angle),s=Math.sin(angle),facing=blockBase(id).facing;
+    for(let i=begin;i<buf.positions.length/3;i++) {
+      let px=buf.positions[i*3]-x,py=buf.positions[i*3+1]-y,pz=buf.positions[i*3+2]-z-0.5;
+      [py,pz]=[C.torch.wallHeight+py*c-pz*s,C.torch.wallOffset+py*s+pz*c];
+      let nx=buf.normals[i*3],ny=buf.normals[i*3+1],nz=buf.normals[i*3+2];
+      [ny,nz]=[ny*c-nz*s,ny*s+nz*c];
+      for(let t=0;t<facing;t++){[px,pz]=[1-pz,px];[nx,nz]=[-nz,nx];}
+      buf.positions.splice(i*3,3,x+px,y+py,z+pz);buf.normals.splice(i*3,3,nx,ny,nz);
+    }
+  }
 }
 
 // Returns { opaque, transparent } BufferGeometries (either may be null).
 // Vertex positions are in world space.
 export function meshChunk(world, chunk) {
+  lightingWorld=world;
+  lightSamples=new Array(LIGHT_SPAN ** 3);
+  lightBlocks=new Int16Array(LIGHT_SPAN ** 3).fill(-1);
+  lightOrigin={x:chunk.cx*CHUNK_SIZE-1,y:chunk.cy*CHUNK_SIZE-1,z:chunk.cz*CHUNK_SIZE-1};
   const opaque = createBuffers();
   const transparent = createBuffers();
-  const ore = createBuffers();
-  const glow = createBuffers();
-  // Goblin Bricks: textured (chunkRenderer's goblinBrickTexture), tinted by light only.
-  const goblin = createBuffers();
-  const bricks = createBuffers();
-  const mossyBricks = createBuffers();
-  const crackedBricks = createBuffers();
-  const planks = createBuffers();
-  const woodSides = createBuffers();
-  const woodEnds = createBuffers();
-  const quarry = createBuffers();
+  // Every atlas tile shares one buffer and one draw call per chunk.
+  const textured = createBuffers(), glow = createBuffers(), plants=createBuffers(true);
+  const ore = textured, bricks = textured, goblinBricks = textured,
+    mossyBricks = textured, crackedBricks = textured, planks = textured,
+    woodSides = textured, woodEnds = textured, quarry = textured;
   const ox = chunk.cx * CHUNK_SIZE, oy = chunk.cy * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
 
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
@@ -344,9 +442,12 @@ export function meshChunk(world, chunk) {
         const color = blockColor(id);
         const j = jitter(x, y, z);
         // Thin shapes (ladders, doors) are drawn whole; nothing culls them.
+        if(def.shape==='plant'){pushPlant(plants,id,def,x,y,z,j);continue;}
+        if(def.shape==='torch'){pushTorch(textured,id,def,x,y,z,j);continue;}
+        if(id===BLOCK.BRANCH){for(const box of branchBoxes(world,x,y,z))pushBox(textured,box,x,y,z,WHITE,j,'woodSides',box.hiddenFaces);continue;}
         if (def.shape) {
           for (const part of shapeBoxes(id, def)) {
-            pushBox(opaque, part.box, x, y, z, part.color === undefined ? color : hexColor(part.color), j);
+            pushBox(def.shape === 'torch' ? planks : opaque, part.box, x, y, z, part.color === undefined ? (def.shape === 'torch' ? WHITE : color) : hexColor(part.color), j, def.shape === 'torch' ? 'torch' : null);
           }
           continue;
         }
@@ -368,22 +469,16 @@ export function meshChunk(world, chunk) {
           continue;
         }
 
-        if (id === BLOCK.GOBLIN_BRICKS) {
-          for (const face of FACES) {
-            const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
-            if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
-            pushFace(goblin, face, x, y, z, WHITE, face.shade * j);
-          }
-          continue;
-        }
-
-        if (id === BLOCK.STONE_BRICKS || id === BLOCK.MOSSY_STONE_BRICKS || id === BLOCK.CRACKED_STONE_BRICKS) {
-          const textureBuffer = id === BLOCK.MOSSY_STONE_BRICKS ? mossyBricks
+        if (id === BLOCK.STONE_BRICKS || id === BLOCK.MOSSY_STONE_BRICKS || id === BLOCK.CRACKED_STONE_BRICKS
+          || id === BLOCK.GOBLIN_BRICKS || blockBase(id).base === BLOCK.POISON_TRAP) {
+          const goblin = id === BLOCK.GOBLIN_BRICKS || blockBase(id).base === BLOCK.POISON_TRAP;
+          const tile = goblin ? 'goblinBricks' : id === BLOCK.MOSSY_STONE_BRICKS ? 'mossyBricks' : id === BLOCK.CRACKED_STONE_BRICKS ? 'crackedBricks' : 'bricks';
+          const textureBuffer = goblin ? goblinBricks : id === BLOCK.MOSSY_STONE_BRICKS ? mossyBricks
             : id === BLOCK.CRACKED_STONE_BRICKS ? crackedBricks : bricks;
           for (const face of FACES) {
             const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
             if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
-            pushFace(textureBuffer, face, x, y, z, WHITE, face.shade * j);
+            pushFace(textureBuffer, face, x, y, z, WHITE, face.shade * j, tile);
           }
           continue;
         }
@@ -392,7 +487,7 @@ export function meshChunk(world, chunk) {
           for (const face of FACES) {
             const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
             if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
-            pushFace(quarry, face, x, y, z, WHITE, face.shade * j);
+            pushFace(quarry, face, x, y, z, WHITE, face.shade * j, 'quarry');
           }
           continue;
         }
@@ -402,7 +497,7 @@ export function meshChunk(world, chunk) {
             const neighbour = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
             if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
             pushFace(id === BLOCK.PLANKS ? planks : face.dir[1] ? woodEnds : woodSides,
-              face, x, y, z, WHITE, face.shade * j);
+              face, x, y, z, WHITE, face.shade * j, id === BLOCK.PLANKS ? 'planks' : face.dir[1] ? 'woodEnds' : 'woodSides');
           }
           continue;
         }
@@ -410,15 +505,12 @@ export function meshChunk(world, chunk) {
         for (const face of FACES) {
           const n = world.getBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
           if (n === id || !getBlockDef(n).transparent) continue;
-          pushFace(buf, face, x, y, z, color, face.shade * j);
+          pushFace(buf, face, x, y, z, id === BLOCK.IRON_ORE ? WHITE : color, face.shade * j, id === BLOCK.IRON_ORE ? 'ore' : null);
         }
       }
     }
   }
 
-  return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), ore: toGeometry(ore),
-    glow: toGeometry(glow), goblin: toGeometry(goblin), bricks: toGeometry(bricks),
-    mossyBricks: toGeometry(mossyBricks), crackedBricks: toGeometry(crackedBricks),
-    planks: toGeometry(planks), woodSides: toGeometry(woodSides), woodEnds: toGeometry(woodEnds),
-    quarry: toGeometry(quarry) };
+  return { opaque: toGeometry(opaque), transparent: toGeometry(transparent),
+    textured: toGeometry(textured), glow: toGeometry(glow), plants: toGeometry(plants) };
 }
