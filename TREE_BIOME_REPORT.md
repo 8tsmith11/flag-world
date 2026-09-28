@@ -1,14 +1,15 @@
 # Trees and biomes
 
 Implemented Branch (new block/item ID 102), seeded branching oak/birch/pine
-trees, Ancient Forests with large crowns, hollow bases and fallen logs, and
-grounded Stone Spires with arches and grassy caps. Spires appear exclusively
-in central-island highlands, never on team islands or in the reserved center.
+trees, Ancient Forests with large crowns, hollow bases and fallen logs.
+Stone Spires were removed in the subsequent cleanup; highlands retain their
+ordinary terrain and biome selection.
 Branch collision, ray hits and selection outlines follow its neighbor-derived
 core and arms. Natural branches and dependent leaves use the shared decay
 queue; player-placed foliage is protected and logs never decay.
 
-Water retains subtle shader shimmer. Leaf sway was removed at the user's
+Water uses its original transparent voxel-lit material with no shimmer.
+Leaf sway was removed at the user's
 request; leaves are static. Existing plant sway remains. AGENTS.md documents
 the new modules and checks. Historical block and item IDs are unchanged.
 
@@ -50,7 +51,7 @@ seeds 1–3, actual Branch mesh/static-leaf checks, and existing lighting,
 world-look, river and central-island checks (including village validation).
 Acceptance covers every generated Branch's branch-only path to a log, leaf
 support, severed natural foliage decay, placed-foliage protection, original
-forest containment, reserve exclusions, hollow entry, grounded spires/arches,
+forest containment, reserve exclusions, hollow entry,
 and determinism. Browser imports and NPC hints also pass.
 
 No known defects remain on the tested seeds. Gameplay and appearance review
