@@ -22,7 +22,7 @@ export function canStand(world, x, y, z, height) {
 }
 
 // Min-heap of [priority, key].
-class Heap {
+export class Heap {
   constructor() {
     this.items = [];
   }

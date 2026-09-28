@@ -8,7 +8,7 @@ import { World } from '../shared/world.js';
 import { BLOCK, TREE_SIDES, branchBoxes, isSolid, isTargetable, getBlockDef } from '../shared/blocks.js';
 import { creativeItemIds,getItemDef } from '../shared/items.js';
 import { CREATIVE_RECIPES } from '../shared/recipes.js';
-import { CHUNK_SIZE, TREE_SETTINGS as C, SPIRE_SETTINGS as S } from '../shared/config.js';
+import { CHUNK_SIZE, TREE_SETTINGS as C } from '../shared/config.js';
 import { Game } from '../server/game.js';
 import { VoidEel } from '../server/eel.js';
 import { Inventory } from '../server/inventory.js';
@@ -107,27 +107,16 @@ for(const seed of [1,2,3]) {
     for(const k of cells.keys())assert(reached.has(k),`seed ${seed}: tree cell ${k} lacks a log within decay reach`);
   }
   connected(branches);connected(foliage);assert(branches.size>0,'no branches generated');
-  let ancientCells=0,spireCells=0;
+  let ancientCells=0;
   for(let z=0;z<w.sizeZ;z++)for(let x=0;x<w.sizeX;x++) {
     const biome=w.biomeAt(x,z);
     if(biome==='ancientForest'){ancientCells++;assert.equal(w.regularForest[x+w.sizeX*z],1,'ancient forest has no regular forest host');}
-    if(biome==='stoneSpires'){spireCells++;const t=w.centralTerrain;assert(x>=t.x0&&x<t.x0+t.width&&z>=t.z0&&z<t.z0+t.width);assert(1-t.lowland[x-t.x0+t.width*(z-t.z0)]>=S.highland,'spires outside highlands');}
-    if(biome==='ancientForest'||biome==='stoneSpires')assert(structureAllowed(w,{x0:x,x1:x,z0:z,z1:z}),'biome in reserve');
+    if(biome==='ancientForest')assert(structureAllowed(w,{x0:x,x1:x,z0:z,z1:z}),'biome in reserve');
   }
-  // Flood rock features from their terrain anchors through face neighbours.
-  // A separate island or an arch touching only at a corner cannot pass.
-  const rocks=new Map(),queue=[],reached=new Set();
-  for(const f of w.stoneFeatures)for(const b of f.blocks) {assert(isSolid(w.getBlock(b.x,b.y,b.z)),'feature lost a rock cell');rocks.set(key(b.x,b.y,b.z),b);}
-  for(const f of w.stoneFeatures)for(const a of f.anchors) {
-    assert(isSolid(w.getBlock(a.x,a.y,a.z)),'unsupported rock anchor');
-    for(const [dx,dy,dz]of [[0,0,0],...TREE_SIDES]){const k=key(a.x+dx,a.y+dy,a.z+dz),p=rocks.get(k);if(p&&!reached.has(k)){reached.add(k);queue.push(p);}}
-  }
-  for(let head=0;head<queue.length;head++){const p=queue[head];for(const [dx,dy,dz]of TREE_SIDES){const k=key(p.x+dx,p.y+dy,p.z+dz),next=rocks.get(k);if(next&&!reached.has(k)){reached.add(k);queue.push(next);}}}
-  assert.equal(reached.size,rocks.size,'floating spire/arch blocks');
-  assert(ancientCells>0&&spireCells>0,'missing new biome');
+  assert(ancientCells>0,'missing ancient biome');
   const digest=hash(w);assert.equal(digest,hash(generateWorld(seed,teams,size)),'repeat seed differs');
   const before=baseline?.find(r=>r.seed===seed)?.ms,ratio=before?ms/before:null;
-  const result={seed,size,teams,ms,baselineMs:before,ratio,branches:branches.size,ancientCells,spireCells,treeMs:w.treeGenerationMs,stoneMs:w.stoneGenerationMs,trees:w.trees.length,ancientTrees:w.trees.filter(t=>t.species==='ancient').length,hollow:w.trees.filter(t=>t.hollow).length,features:w.stoneFeatures.reduce((a,f)=>(a[f.kind]=(a[f.kind]??0)+1,a),{}),hash:digest};
+  const result={seed,size,teams,ms,baselineMs:before,ratio,branches:branches.size,ancientCells,treeMs:w.treeGenerationMs,trees:w.trees.length,ancientTrees:w.trees.filter(t=>t.species==='ancient').length,hollow:w.trees.filter(t=>t.hollow).length,hash:digest};
   results.push(result);console.log(JSON.stringify(result));
   if(ratio)assert(ratio<=1.2,`seed ${seed}: generation exceeds 20% budget (${ratio})`);
 }

@@ -10,7 +10,7 @@ export function gatehouses(ring, roads, map, C) {
       const k = cellKey(group[i].x + dx, group[i].z + dz), g = remaining.get(k);
       if (g) { group.push(g); remaining.delete(k); }
     }
-    const alongX = group.every(g => g.z === group[0].z), alongZ = group.every(g => g.x === group[0].x);
+    const alongX = group[0].axis !== 'z' && group.every(g => g.z === group[0].z), alongZ = group.every(g => g.x === group[0].x);
     if (!alongX && !alongZ) return null;
     const cx = Math.round(group.reduce((n, g) => n + g.x, 0) / group.length), cz = Math.round(group.reduce((n, g) => n + g.z, 0) / group.length);
     const y = Math.max(...group.map(g => g.y)), blocks = [];

@@ -1,3 +1,7 @@
+import { createGoblinModel, createTotemModel, animateGoblin, animateTotem } from './goblinModels.js';
+import { GoblinInstances } from './goblinInstances.js';
+import { GOBLINS, roleOf, boxOf as goblinBox } from '/shared/goblins/life.js';
+import { GOBLIN_STATE } from '/shared/protocol.js';
 // Renders non-local entities. Each entity type maps to a model factory; a model
 // is either a 3D block model (a THREE.Group of boxes/shapes) or a camera-facing
 // sprite (THREE.Sprite) for things like dropped items.
@@ -28,7 +32,7 @@ const MOB_BOXES = {
   [ENTITY_TYPE.VOID_EEL]: { halfW: 0.6, height: 0.8 },
 };
 // NPC boxes depend on their kind.
-const boxOf = (info) => MOB_BOXES[info.type] ?? (info.type === ENTITY_TYPE.NPC ? NPC_DEFS[info.npc]?.box : undefined);
+const boxOf = (info) => MOB_BOXES[info.type] ?? (GOBLINS[roleOf(info.type)] ? goblinBox(roleOf(info.type)) : null) ?? (info.type === ENTITY_TYPE.NPC ? NPC_DEFS[info.npc]?.box : undefined);
 
 const MAX_SNAPSHOTS = 20;
 // Dropped item spin (radians/ms) and bob.
@@ -61,6 +65,8 @@ export function createSpriteModel(texture, width, height) {
 }
 
 const MODEL_FACTORIES = {
+  ...Object.fromEntries(['worker','soldier','archer','brute','king'].map(role => [`goblin${role[0].toUpperCase()}${role.slice(1)}`, createGoblinModel])),
+  goblinTotem: createTotemModel,
   [ENTITY_TYPE.PLAYER]: createPlayerModel,
   [ENTITY_TYPE.ITEM]: createDroppedItemModel,
   [ENTITY_TYPE.RIFT_ORB]: createDroppedItemModel,
@@ -96,6 +102,7 @@ export class EntityRenderer {
     this.scene = scene;
     // id -> { object, info, snapshots: [{ time, x, y, z, yaw, pitch, held, dead }], flashUntil, flashing }
     this.entities = new Map();
+    this.goblinInstances = new GoblinInstances(scene);
   }
 
   // `info` holds static fields (type, color, ...) from WELCOME / ENTITY_SPAWN.
@@ -106,12 +113,14 @@ export class EntityRenderer {
     const object = factory(info);
     this.scene.add(object);
     this.entities.set(id, { object, info, snapshots: [], flashUntil: 0, flashing: false });
+    if (object.userData.goblin) this.goblinInstances.add(this.entities.get(id));
     this.pushSnapshot(id, info);
   }
 
   remove(id) {
     const entity = this.entities.get(id);
     if (!entity) return;
+    this.goblinInstances.remove(entity);
     this.scene.remove(entity.object);
     disposeObject(entity.object);
     entity.grappleLine?.dispose();
@@ -132,7 +141,7 @@ export class EntityRenderer {
       orbActive: !!snap.orbActive,
       slowed: snap.slowTicks > 0, grapple: snap.grapple ?? null,
       gliding: !!snap.gliding, breathing: !!snap.breathing,
-      walking: !!snap.walking,
+      walking: !!snap.walking, g: snap.g ?? GOBLIN_STATE.IDLE,
       climbing: !!snap.climbing,
       coiling: !!snap.coiling, lunging: !!snap.lunging, night: !!snap.night, tail: snap.tail ?? null,
       onGround: !!snap.onGround,
@@ -229,6 +238,8 @@ export class EntityRenderer {
       }
       const span = (b.time - a.time) / 1000;
       const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
+      if (object.userData.goblin) animateGoblin(object, dt, b.g === GOBLIN_STATE.WALK ? Math.max(speed, 1.5) : 0, { climbing: b.g === GOBLIN_STATE.CLIMB });
+      if (object.userData.totem) animateTotem(object, dt);
       if (object.userData.cow) animateCow(object, dt, speed);
       if (object.userData.crawler) animateCrawler(object, dt, speed, b.climbing);
       if (object.userData.monkey) animateMonkey(object, dt, { pose: b.pose ?? 'sit', look: b.look, speed,
@@ -257,12 +268,13 @@ export class EntityRenderer {
         updateEntityLight(world,object.position,daylight,entity.light,dt,sampleHeight);
         // Revisit only when equipment changes, since it creates new materials.
         const equipment = `${b.held}:${b.armor}:${b.accessory}`;
-        if (entity.lightEquipment !== equipment) {
+        if (!object.userData.goblin && entity.lightEquipment !== equipment) {
           lightModel(object, entity.light);
           entity.lightEquipment = equipment;
         }
       }
     }
+    this.goblinInstances.update();
   }
 
   get count() {

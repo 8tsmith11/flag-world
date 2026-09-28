@@ -117,7 +117,6 @@ export const BIOME_SETTINGS = {
   forest: { hill: 4, offset: 1, trees: 1.8, cows: 0.8 },
   mountains: { hill: 27, offset: 8, trees: 0.22, cows: 0.25 },
   ancientForest: { hill: 4, offset: 1, trees: 1.8, cows: 0.8 },
-  stoneSpires: { hill: 4, offset: 1, trees: 0.05, cows: 0.25 },
   cliffSlope: 5, mountainOreThreshold: 0.54,
   undersideJagAmplitude: 0.07, undersideRootChance: 0.82,
   undersideRootDepth: 8, undersideRootScale: 12,
@@ -146,14 +145,6 @@ export const TREE_SETTINGS = {
     hollowWidth: 4, hollowHeight: 4, groundRelief: 3,
     fallenChance: 0.2, fallenLength: [5, 10], fallenOffset: 7 },
 };
-export const SPIRE_SETTINGS = {
-  seedSalt: 0x617f24a3, patchScale: 0.25, threshold: 0.23, highland: 0.62,
-  cell: 13, chance: 0.8, height: [12, 32], radius: [1, 3], taper: 0.4,
-  archChance: 0.35, archDistance: [9, 24], archRise: 4, archThickness: 2,
-  boulderChance: 0.25, boulderRadius: [1, 2], topTreeChance: 0.25, topTreeHeight: 4,
-  clearance: 3,
-};
-export const WATER_SHIMMER = { strength: 0.13, speed: 0.65, scale: 2.1, sharpness: 8 };
 export const RIVER_SETTINGS = {
   seedSalt: 0x6d8a437b, countAttempts: 48, sourceRadius: [0.38, 0.6], sourceSpacing: 0.25,
   minLakeCells: 100, lakeRadius: [7, 11], lakeShapeScale: 12, lakeShapeVariation: 0.22, lakeAspect: [0.75, 1.2],

@@ -1,7 +1,7 @@
 import { BIOME_SETTINGS } from './config.js';
 
 export const BIOME_NAMES = ['plains', 'forest', 'mountains'];
-export const ALL_BIOME_NAMES = [...BIOME_NAMES, 'ancientForest', 'stoneSpires'];
+export const ALL_BIOME_NAMES = [...BIOME_NAMES, 'ancientForest'];
 const CODE = Object.fromEntries(ALL_BIOME_NAMES.map((name, index) => [name, index + 1]));
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 

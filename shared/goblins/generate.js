@@ -1,3 +1,4 @@
+import { computeAreas } from './areas.js';
 import { BLOCK, ladderBlock, isSolid, isDoor, FACING_DIRS } from '../blocks.js';
 import { STRUCTURE_GEN as E, WALK_SPEED, SPRINT_SPEED_SCALE, JUMP_VELOCITY, GRAVITY } from '../config.js';
 import { buildability, cellKey } from '../structures/buildability.js';
@@ -218,6 +219,8 @@ export function generateGoblinVillage(world, terrain, progress = () => {}) {
     world.structures.push({ kind: upperShaft.type, civilization: 'goblin', box: { ...upperShaft.box } });
     for (const p of village.gatehouses) world.structures.push({ kind: 'gatehouse', civilization: 'goblin', box: p.box });
     world.goblinPlan = { seed, site, settings: C, reserved, buildability: map, surface: village, fortress };
+    village.gatehouses.forEach((p, i) => { p.id = `gatehouse:${i}`; p.padHeight = p.y; });
+    computeAreas(world, world.goblinPlan);
     return world.goblinPlan;
   }
   throw new Error(`No complete goblin village/fortress fits seed ${world.seed}: ${JSON.stringify(audit)}`);

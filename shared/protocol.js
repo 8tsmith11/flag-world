@@ -102,8 +102,17 @@ export const ENTITY_TYPE = {
   VOID_EEL: 'voidEel',
   // Wise and Ancient Monkeys; `npc` names the kind in shared/npcs.js.
   NPC: 'npc',
+  GOBLIN_WORKER: 'goblinWorker',
+  GOBLIN_SOLDIER: 'goblinSoldier',
+  GOBLIN_ARCHER: 'goblinArcher',
+  GOBLIN_BRUTE: 'goblinBrute',
+  GOBLIN_KING: 'goblinKing',
+  GOBLIN_TOTEM: 'goblinTotem',
 };
 
 // Goblin worldgen plans remain server-side. Fortress poison shooters use the
 // existing ARROW entitySpawn/state/entityDespawn and DAMAGE wire formats;
 // sensors and poison timers add no protocol fields.
+
+// Compact goblin snapshot animation state; later states reserved.
+export const GOBLIN_STATE = { IDLE: 0, WALK: 1, CLIMB: 2, WORK: 3, FIGHT: 4, FLEE: 5 };

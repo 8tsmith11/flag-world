@@ -22,11 +22,11 @@ export function fortressContent(C = GOBLIN_GEN) {
     const details = { barracks: BLOCK.PLANKS, storeroom: BLOCK.CHEST, mushroomFarm: BLOCK.MUSHROOM,
       forge: BLOCK.FURNACE, shrine: BLOCK.WOOD, prison: BLOCK.STONE_BRICKS,
       trophyHall: BLOCK.IRON_ORE, treasureVault: BLOCK.ANVIL, totemHall: BLOCK.WOOD,
-      kingsRoom: BLOCK.ANVIL, midRoom: BLOCK.PLANKS, messHall: BLOCK.WORKBENCH };
+      royalVault: BLOCK.ANVIL, midRoom: BLOCK.PLANKS, messHall: BLOCK.WORKBENCH };
     for (const [x, z] of [[-half + 1, -half + 1], [half - 1, half - 1]]) {
       put(p, x, 1, z, details[type] ?? BLOCK.PLANKS);
     }
-    if (['shrine', 'totemHall', 'kingsRoom'].includes(type)) for (let y = 2; y < height; y++) {
+    if (['shrine', 'totemHall', 'royalVault'].includes(type)) for (let y = 2; y < height; y++) {
       put(p, -half + 1, y, -half + 1, BLOCK.WOOD); put(p, half - 1, y, half - 1, BLOCK.WOOD);
     }
     if (type === 'barracks' || type === 'quarters') for (const z of [-half + 1, half - 1]) {
@@ -91,7 +91,7 @@ export function fortressContent(C = GOBLIN_GEN) {
     }
     shafts.set(key, p); return p;
   }
-  const rooms = Object.fromEntries([...C.uniqueRooms, ...C.commonRooms, 'midRoom', 'totemHall', 'kingsRoom'].map(type => [type,
+  const rooms = Object.fromEntries([...C.uniqueRooms, ...C.commonRooms, 'midRoom', 'totemHall', 'royalVault'].map(type => [type,
     room(type, type === 'treasureVault' ? C.loot.best : C.loot.middle,
       type === 'totemHall' ? C.totemWidth : C.roomWidth, type === 'totemHall' ? C.totemHeight : C.roomHeight)]));
   const pools = { rooms: { entries: [...C.uniqueRooms.map(id => ({ id, weight: 1, unique: true })),

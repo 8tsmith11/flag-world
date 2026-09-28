@@ -71,7 +71,7 @@ export function checkVillage(world) {
   assert(destination.distance >= C.directDepth * C.routeMultiple, `Route too short: ${destination.distance}`);
   const visitedRooms = new Set();
   for (let n = destination; n; n = n.parent) for (const p of f.pieces) {
-    if (!p.tags.includes('room') || ['midRoom', 'totemHall', 'kingsRoom'].includes(p.type)) continue;
+    if (!p.tags.includes('room') || ['midRoom', 'totemHall', 'royalVault'].includes(p.type)) continue;
     if (n.x > p.box.x0 && n.x < p.box.x1 && n.z > p.box.z0 && n.z < p.box.z1 && n.y > p.box.y0 && n.y < p.box.y1) visitedRooms.add(p.id);
   }
   assert(visitedRooms.size >= C.routeRooms, `Route only visits ${visitedRooms.size} rooms`);
@@ -194,7 +194,7 @@ export function checkVillage(world) {
   }
   const column = { ...f.shaft.box, y0: totem.box.y1 + 1 };
   assert(densityFits([...prefix, column], E.density, column), 'Shaft column exceeds fill limit');
-  const king = f.pieces.find(p => p.type === 'kingsRoom');
+  const king = f.pieces.find(p => p.type === 'royalVault');
   assert(king && f.pieces.filter(p => p.tags.includes('room')).every(p => p === king || p.box.y0 > king.box.y0), 'King room is not deepest');
   assert(graph.has(key({ x: king.position.x, y: king.position.y + 1, z: king.position.z })), 'King room unreachable');
   for (const type of C.uniqueRooms) assert(f.pieces.filter(p => p.type === type).length <= 1, `Unique room repeated: ${type}`);

@@ -88,3 +88,49 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const world = generateWorld(parseSeed(args[0] ?? '1'), 2, args[1] ?? 'small');
   console.log(structureMap(world, !process.argv.includes('--surface-only')));
 }
+
+// Life overlay samples actual graph regions. The full-resolution map remains
+// available above for door/ladder inspection; this compact map labels areas.
+export function lifeMap(world, step = 4) {
+  const p = world.goblinPlan, areas = [...p.areas, ...p.outskirts];
+  const nodes = areas.flatMap(a => [...a.nodes].map(k => ({ ...p.graph.get(k), id: a.id, kind: a.kind })));
+  const surface = nodes.filter(n => n.kind !== 'underground' && Number.isFinite(n.x));
+  const x0 = Math.min(...surface.map(n => n.x)), x1 = Math.max(...surface.map(n => n.x));
+  const z0 = Math.min(...surface.map(n => n.z)), z1 = Math.max(...surface.map(n => n.z));
+  const cells = new Map(surface.map(n => [cellKey(n.x, n.z), n.id]));
+  const walls = new Set(p.surface.rings.flatMap(r => r.wall.map(n => cellKey(n.x, n.z))));
+  const gates = new Set(p.gates.filter(g => g.kind !== 'underground' && g.kind !== 'shaft').flatMap(g => g.cells.map(n => cellKey(n.x, n.z))));
+  const lines = [`Seed ${world.seed}; ${step} blocks/cell; surface areas uppercase, outskirts lowercase; # wall, + gate`];
+  const glyph = id => String.fromCharCode((id.startsWith('O') ? 97 : 65) + areas.filter(a => a.kind === (id.startsWith('O') ? 'outskirts' : 'surface')).findIndex(a => a.id === id));
+  for (let z = z0; z <= z1; z += step) {
+    let row = '';
+    for (let x = x0; x <= x1; x += step) {
+      const keys = []; for (let dz = 0; dz < step; dz++) for (let dx = 0; dx < step; dx++) keys.push(cellKey(x + dx, z + dz));
+      const ids = keys.map(k => cells.get(k)).filter(Boolean);
+      row += gates.has(cellKey(x, z)) || keys.some(k => gates.has(k)) ? '+'
+        : keys.some(k => walls.has(k)) ? '#' : ids.length ? glyph(ids.sort((a,b) => ids.filter(id=>id===b).length-ids.filter(id=>id===a).length)[0]) : ' ';
+    }
+    lines.push(row.trimEnd());
+  }
+  lines.push(areas.filter(a => a.kind !== 'underground').map(a => `${glyph(a.id)}=${a.id} (${a.nodes.size} cells)`).join(' '));
+  const underground = nodes.filter(n => n.kind === 'underground' && Number.isFinite(n.x));
+  const ux0 = Math.min(...underground.map(n => n.x)), ux1 = Math.max(...underground.map(n => n.x));
+  const uz0 = Math.min(...underground.map(n => n.z)), uz1 = Math.max(...underground.map(n => n.z));
+  for (const y of [...new Set(p.fortress.pieces.filter(room => room.tags.includes('room')).map(room => room.position.y + 1))].sort((a,b) => b-a)) {
+    const floor = new Map(underground.filter(n => n.y === y).map(n => [cellKey(n.x, n.z), n.id.slice(1)]));
+    const doors = new Set(p.gates.filter(g => g.kind === 'underground').flatMap(g => g.cells.filter(n => n.y === y).map(n => cellKey(n.x, n.z))));
+    lines.push(`Underground feet level ${y}; digits label U1..U8, + gate; ${step} blocks/cell`);
+    for (let z = uz0; z <= uz1; z += step) {
+      let row = '';
+      for (let x = ux0; x <= ux1; x += step) {
+        const keys = []; for (let dz = 0; dz < step; dz++) for (let dx = 0; dx < step; dx++) keys.push(cellKey(x + dx, z + dz));
+        const ids = keys.map(k => floor.get(k)).filter(Boolean);
+        row += keys.some(k => doors.has(k)) ? '+' : ids.length ? ids.sort((a,b) => ids.filter(id=>id===b).length-ids.filter(id=>id===a).length)[0] : ' ';
+      }
+      lines.push(row.trimEnd());
+    }
+  }
+  lines.push('Underground: ' + p.areas.filter(a => a.kind === 'underground').map(a => `${a.id}: ${a.nodes.size} cells; spawns ${a.spawns.map(s=>s.id).join(',')}`).join(' | '));
+  lines.push('Gates: ' + p.gates.map(g => `${g.id} ${g.areas.join('<->')}`).join('; '));
+  return lines.join('\n');
+}

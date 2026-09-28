@@ -1,7 +1,7 @@
 import { selectWoodedBiomes } from './woodedBiomes.js';
-import { generateStoneSpires } from './stoneSpires.js';
 import { generateFallenTrees } from './fallenTrees.js';
 import { generateGoblinVillage } from './goblins/generate.js';
+import { recomputeOutskirts } from './goblins/outskirts.js';
 // Seeded island planning and terrain. The complete island/keep layout is
 // chosen before any blocks are written, so spacing does not depend on order.
 import { BLOCK, isSolid } from './blocks.js';
@@ -19,7 +19,7 @@ import { attachGeneratedTorches } from './torches.js';
 import { generateNpcSites } from './npcSites.js';
 import { centralRegions, regionalColumn } from './centralTerrain.js';
 import { CENTRAL_TERRAIN, GOBLIN_GEN } from './config.js';
-import { ISLAND_SHAPE as S, BIOME_SETTINGS, SPIRE_SETTINGS } from './config.js';
+import { ISLAND_SHAPE as S, BIOME_SETTINGS } from './config.js';
 
 const EDGE_SHELL = 3;
 const KEEP_CLEARANCE = KEEP_REACH + 6;
@@ -608,7 +608,6 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
   generateNpcSites(world, terrains, seed);
   generateStructures(world, terrains, config, seed);
   placeQuarries(world, terrains, seed, config.quarry);
-  const spires=generateStoneSpires(world,central);
   world.treeObstacles=world.structures.slice();
   const treeStart=performance.now();
   for (const terrain of terrains) {
@@ -618,8 +617,6 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
       { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop,
         noise, clusterScale:terrain.radius*BIOME_SETTINGS.forestClusterFraction });
   }
-  const topRandom=mulberry32(seed^SPIRE_SETTINGS.seedSalt);
-  for(const p of spires)if(topRandom()<SPIRE_SETTINGS.topTreeChance)growTree(world,p.x,p.top,p.z,p.top+Math.round(SPIRE_SETTINGS.topTreeHeight),{seed,species:'birch'});
   generateFallenTrees(world,terrains);
   world.treeGenerationMs=performance.now()-treeStart;
   finishRiverBanks(world);
@@ -627,6 +624,8 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
   delete world.treeObstacles;
   attachGeneratedTorches(world);
   generateVegetation(world,terrains,noise);
+  // Perimeter navigation must see the final trees and other ground obstacles.
+  recomputeOutskirts(world);
   progress('complete');
   return world;
 }

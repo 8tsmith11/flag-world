@@ -1,4 +1,3 @@
-import { animateWater } from './terrainAnimation.js';
 import { BLOCK_TEXTURE as TEXTURES } from '/shared/config.js';
 import { plantMaterial } from './plantMaterial.js';
 import { TEXTURE_TILES, ATLAS_ROWS } from '/shared/blockTextures.js';
@@ -239,13 +238,13 @@ export class ChunkRenderer {
     this.texturedMaterial = textured;
     this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
       opacity: 0.75, depthWrite: false });
-    this.transparentMaterial = animateWater(litMaterial(new THREE.MeshBasicMaterial({
+    this.transparentMaterial = litMaterial(new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
       opacity: 0.7,
       depthWrite: false,
       side: THREE.DoubleSide,
-    }),this.daylight),this.windTime);
+    }),this.daylight);
     const plants=plantMaterial(this.daylight,this.windTime,renderer);this.plantMaterial=plants.material;this.plantReady=plants.ready;
     this.lighting=new LightingClient(world,this.dirty);
     this.lastRemeshMs=0;this.buildCount=0;

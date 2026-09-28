@@ -263,7 +263,7 @@ export function stepPlayer(state, input, world) {
   // On a ladder S climbs down rather than walking you off it. Rope hangs
   // free, with no wall to lean into, so there W doesn't walk you off either
   // (strafe to step off, or climb past the top).
-  const climb = input.forward > 0 || input.jump ? 1 : input.forward < 0 ? -1 : 0;
+  const climb = input.climb ?? (input.forward > 0 || input.jump ? 1 : input.forward < 0 ? -1 : 0);
   if (onLadder && fwd < 0) fwd = 0;
   if (climbing === 'rope') fwd = 0;
   let strafe = Math.max(-1, Math.min(1, input.strafe));

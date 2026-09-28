@@ -1,3 +1,5 @@
+import { Garrison } from './goblins/garrison.js';
+import { GOBLINS, roleOf, boxOf as goblinBox } from '../shared/goblins/life.js';
 import { generationProgress } from '../shared/generationProgress.js';
 import { FortressTraps, isGoblin } from './fortressTraps.js';
 // Authoritative game state. Two phases: a lobby where players pick a name and
@@ -411,6 +413,7 @@ export class Game {
       const team = door?.reinforced ? this.world.doorTeams.get(`${x},${door.upper ? y - 1 : y},${z}`) ?? null : undefined;
       this.pendingBlockChanges.set(`${x},${y},${z}`, { x, y, z, id,
         ...(team !== undefined ? { team } : {}) });
+      this.garrison?.nav.changed(x, y, z);
       this.water.enqueueAround(x, y, z);
       this.leafDecay.changed(x, y, z, id, oldId);
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
@@ -454,6 +457,8 @@ export class Game {
     this.spawnCrawlers();
     this.spawnEels();
     this.spawnNpcs();
+    this.garrison = new Garrison(this);
+    this.garrison.update(this.tick);
     for (const player of this.players.values()) this.sendWelcome(player);
   }
 
@@ -874,7 +879,9 @@ export class Game {
     if (!egg || !pos || !this.inReach(player, pos) || !isSolid(this.world.getBlock(pos.x, pos.y, pos.z))) return;
     const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
     const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX };
-    const box = boxes[egg.type];
+    const role = roleOf(egg.type);
+    if (GOBLINS[role] && !player.creative) return;
+    const box = boxes[egg.type] ?? (GOBLINS[role] ? goblinBox(role) : null);
     if (!box || !playerFitsAt(this.world, { x, y, z, box }, y)) return;
     const island = this.world.islands?.length ? this.world.islands.reduce((best, candidate) =>
       Math.hypot(x - candidate.x, z - candidate.z) < Math.hypot(x - best.x, z - best.z) ? candidate : best)
@@ -901,7 +908,11 @@ export class Game {
         this.mobs.set(mob.id, mob);
         break;
       }
-      default: return;
+      default:
+        if (!GOBLINS[role]) return;
+        mob = this.garrison.hatch(egg.type, x, y, z);
+        if (!mob) return;
+        this.mobs.set(mob.id, mob);
     }
     player.inventory.takeOne(slot);
     player.inventoryDirty = true;
@@ -1498,6 +1509,7 @@ export class Game {
     if (mob.dead) return;
     mob.dead = true;
     this.mobs.delete(mob.id);
+    if (mob.goblin) this.garrison.removed(mob);
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: mob.id });
   }
 
@@ -1521,7 +1533,7 @@ export class Game {
     if (mob.dead) return;
     mob.hp = Math.max(0, mob.hp - amount);
     this.broadcast({ type: S2C.DAMAGE, id: mob.id, attackerId: attacker?.id ?? null, hp: mob.hp });
-    if (attacker instanceof Player) mob.provocation.provoke(attacker, this.tick);
+    if (attacker instanceof Player) mob.provocation?.provoke(attacker, this.tick);
     if (mob.hp > 0) return;
     if (mob instanceof Crawler) {
       const silk = CRAWLER_DROPS.silk[0] + Math.floor(Math.random() * (CRAWLER_DROPS.silk[1] - CRAWLER_DROPS.silk[0] + 1));
@@ -1540,7 +1552,7 @@ export class Game {
   hurt(target, amount, attacker, cause = DEATH_CAUSE.PLAYER) {
     if (target instanceof Cow) this.hurtCow(target, amount, attacker);
     else if (target instanceof Dragon) this.hurtDragon(target, amount, attacker);
-    else if (target instanceof Crawler || target instanceof VoidEel) this.hurtMob(target, amount, attacker);
+    else if (target instanceof Crawler || target instanceof VoidEel || target.goblin) this.hurtMob(target, amount, attacker);
     else if (target instanceof Npc) this.hurtNpc(target, amount, attacker);
     else this.damage(target, amount, attacker, cause);
   }
@@ -2011,7 +2023,8 @@ export class Game {
     this.updateNpcs();
     this.updateContainers();
 
-    const livingMobs = [...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()];
+    this.garrison.update(this.tick);
+    const livingMobs = [...this.cows.values(), ...this.dragons.values(), ...this.mobs.values(), ...this.npcs.values()];
     // Climbers aren't shoved off their walls.
     assignMobSteering(livingMobs);
     const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateRiftOrbs(), ...this.updateCows(), ...this.updateDragons(),

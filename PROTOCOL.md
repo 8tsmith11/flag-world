@@ -1183,3 +1183,24 @@ shortcuts through that API. Browser/OS permissions still govern key capture.
   looking around within `NPC.ancientMonkey.walkRadius` of their seat. Their
   idle grunts, the chest beat and the storm cloud's flashes and thunder are
   client-side.
+
+
+### Goblins (slice 1a)
+
+The existing `entitySpawn`, `welcome.entities` and `state.entities` messages
+also carry `goblinWorker`, `goblinSoldier`, `goblinArcher`, `goblinBrute`,
+`goblinKing` and `goblinTotem`. Spawn descriptions include `hp` and `maxHp`.
+Per-tick snapshots contain `{id,type,x,y,z,yaw,g}`. Positions and yaw are
+rounded to two decimal places. `g` is the `GOBLIN_STATE` enum from
+`shared/protocol.js`: 0 idle, 1 walk, 2 climb; 3 work, 4 fight and 5 flee are
+reserved. Behavior decisions and paths remain server-owned; animations need
+no per-action messages.
+
+These entities use the existing changed-only distance cadence (`u`: 1, 3 or
+6 ticks) and snapshot interpolation. Existing `damage` and `entityDespawn`
+messages confirm hits and deaths. Slots respawn Workers after 15 seconds,
+Soldiers/Archers after 20 seconds, and Brutes after 45 seconds; the King and
+Totem never respawn. Goblins do not attack, repair, construct or siege in this
+slice. Existing `input.spawnEgg` hatches the five goblin egg items only for a
+creative player (creative is granted only to the local host); no new message
+is introduced. Historical item ids are unchanged.

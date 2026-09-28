@@ -21,7 +21,7 @@ export function generateVegetation(world,terrains,noise) {
   for(const t of terrains)for(let z=t.z0;z<t.z0+t.width;z++)for(let x=t.x0;x<t.x0+t.width;x++) {
     const top=t.getTop(x,z);if(top===-32768||reserved[x+world.sizeX*z])continue;
     const biome=world.biomeAt(x,z),cluster=noise(x/C.clusterScale,z/C.clusterScale);
-    if(cluster>C.clusterThreshold&&random()<C.density[biome==='ancientForest'?'forest':biome==='stoneSpires'?'plains':biome]) {
+    if(cluster>C.clusterThreshold&&random()<C.density[biome==='ancientForest'?'forest':biome]) {
       const ground=world.getBlock(x,top,z);
       if((ground===BLOCK.GRASS||ground===BLOCK.DIRT)&&Array.from({length:C.surfaceClearance},(_,i)=>world.getBlock(x,top+1+i,z)).every(id=>id===BLOCK.AIR)) {
         let shade=false;for(let dy=C.surfaceClearance+1;dy<=C.shadeHeight;dy++)if(world.getBlock(x,top+dy,z)===BLOCK.LEAVES){shade=true;break;}

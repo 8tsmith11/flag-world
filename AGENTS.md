@@ -235,9 +235,8 @@ PROTOCOL.md                  WebSocket message reference
   The final stage is placed; `fortress.stages.initial` retains the direct
   ladder shaft and Totem Hall for later construction. The final stage plugs
   that lower shaft and winds through random rooms, level hallways and lined
-  1×1 ladder shafts into the hall from the side. A separate King's room is
-  connected to the hall and is the deepest chamber. Named King/Totem spawn
-  points remain data for later slices. The Castle's shaft mouth is flush with
+  1×1 ladder shafts into the hall from the side. The former King's room is
+  an ordinary unique royal vault; King and Totem occupy the Totem Hall. The Castle's shaft mouth is flush with
   its ground floor. Towers use central hatch ladders, compounds contain small
   seeded building clusters, and wall-post ladders stay on the inside. Raised platforms outside a compound
   must exceed the normal sprint-jump range to its wall. Enclosure outlines
@@ -246,7 +245,7 @@ PROTOCOL.md                  WebSocket message reference
   `world.goblinPlan.settings` retains scaled constraints; `reserved` marks a
   circular future-use center zone. Cliff galleries have single-block slits
   and brick buttresses. Tree plots, stairs underground, colony AI,
-  construction, sieges and creative overlays are absent.
+  construction, sieges and creative overlays are absent. Goblin life is described below.
 - Goblin Bricks retain historical block ID 60 (hardness 8); hidden poison
   shooters retain IDs 79–82. IDs 59 and 61 stay reserved. Mushroom decoration
   uses new block ID 83. Never reuse deleted IDs.
@@ -451,7 +450,7 @@ PROTOCOL.md                  WebSocket message reference
   three entity appearance checks. Run `npm run check`; compare generation with
   the same Large seeds and team count, and measure the actual dense-forest view.
 
-## Branching forests and stone spires
+## Branching forests
 
 - Branch is new block ID 102; all historical and reserved IDs remain intact.
   `branchBoxes` in `shared/blocks.js` caches the 64 six-neighbour shapes: a
@@ -461,8 +460,7 @@ PROTOCOL.md                  WebSocket message reference
   selection overlays.
   Branches are solid but light-transparent. Meshing reuses the bark atlas;
   `public/textures/branch.svg` supplies their unique automatic creative icon.
-- `TREE_SETTINGS`, `SPIRE_SETTINGS` and `WATER_SHIMMER` in
-  `shared/config.js` hold tuning. `shared/trees.js` creates seeded oak, birch,
+- `TREE_SETTINGS` in `shared/config.js` holds tree tuning. `shared/trees.js` creates seeded oak, birch,
   pine and ancient skeletons with face-connected diagonal steps, leaning full
   log trunks, forks and leaf clusters. It validates the complete plan before
   writing, respecting keeps, construction headroom, water and the center reserve.
@@ -476,14 +474,9 @@ PROTOCOL.md                  WebSocket message reference
 - `shared/woodedBiomes.js` overlays Ancient Forest only on the original forest
   mask, retained as `world.regularForest`; `world.ancientWeights` gives a smooth
   transition in trunk height/width, limb length and crown radius. `shared/biomes.js` retains the original
-  terrain-weight names and adds two surface biome codes. Stone Spires are
-  exclusively central-island highlands, never team islands or the reserve.
-- `shared/stoneSpires.js` writes individually grounded tapered pillars, grassy
-  caps, connected stone arch strips and boulders after rivers and construction,
-  avoiding their occupied footprints. It updates the surface map and registers feature boxes while
-  preserving natural terrain masks. `world.stoneFeatures` records anchors and
-  resolved cells for stability checks. Small top trees follow forest growth.
-  `shared/fallenTrees.js` places a few supported ground-following old-growth
+  terrain-weight names and adds the Ancient Forest surface biome code.
+  Highlands retain their original terrain and biome selection.
+- `shared/fallenTrees.js` places a few supported ground-following old-growth
   logs. Hollow giant bases have a walk-in entrance and short rooted foundations.
 - `server/leafDecay.js` handles natural Branches and leaves in the same bounded,
   event-driven queue. Branch support paths traverse only Branches to a log;
@@ -492,15 +485,12 @@ PROTOCOL.md                  WebSocket message reference
   and support searches charge the tick budget by visited nodes. Logs never decay.
   `Game.stepPlace` marks placed
   foliage so it never decays; replacements/removals clear that protection.
-- `render/terrainAnimation.js` patches the existing voxel-lit materials:
-  water shine uses world position/time and an upward-face mask. It shares
-  the plant time uniform, without CPU block updates, refraction or remeshing.
-  Leaves remain static; only the existing plants and hanging vegetation sway.
-  Shine passes through voxel illumination, so it does not light dark water.
+- Water uses the original transparent voxel-lit material, with no shimmer
+  shader or animation time. Plants retain their existing wind animation.
 - `node scripts/tree-biome-check.js` checks Branch geometry/rays/physics,
   creative coverage, hollow entry, natural versus placed decay, all generated
-  Branch/leaf support paths, original-forest containment, central highland-only
-  spires, grounded rock components and repeat-seed voxel/biome hashes.
+  Branch/leaf support paths, original-forest containment and repeat-seed
+  voxel/biome hashes.
   `--large` uses seeds 1–3 and four teams and compares generation against
   `/tmp/trees-before.json` when present, or an explicit `--baseline=PATH`.
   `scripts/look-capture.js LABEL 1 --forests-only
@@ -545,3 +535,80 @@ PROTOCOL.md                  WebSocket message reference
   `SHRINE_GEN`, `STORM_CLOUD` and the monkey/thunder entries of `AUDIO`.
 - Monkey and thunder sounds are CC0 recordings in `ASSETS.md`, converted by
   `scripts/prepare-audio.py` (`FLAG_AUDIO_ONLY` limits it to matching files).
+
+
+## Goblin life, slice 1a
+
+- `shared/goblins/life.js` holds body dimensions recovered from commit
+  `5be99f1`, role/duty data, slot scaling, area bounds and timers. Roles do
+  not own separate AI implementations. Historical egg ids are restored:
+  Worker 295, King 296, Soldier 298, Archer 299, Brute 302; other retired ids
+  remain reserved. Creative status is still granted only to the local host.
+- `shared/goblins/areas.js` builds a bounded walkable graph from placed plan
+  floors, platforms and ladders. Connected components excluding doorways are
+  active 3D areas; small components merge through gates, oversized courtyards
+  receive brick partitions, and fortress hall cuts scale within configured
+  bounds. Added guard rooms provide missing spawn sites. `positionRegion`
+  is the single volume query for areas, outskirts and creative egg homes.
+  Wall columns are forbidden at their actual surface heights; explicit
+  shooting platforms use inside ladder access and never cross the wall.
+  Volume footprints also include solid wall, building and shaft columns;
+  position queries and block-edit invalidation aren't limited to feet cells.
+- `shared/goblins/outskirts.js` builds a band outside active development,
+  excludes protected/void/non-walkable ground and follows perimeter arc length
+  for sections. Disconnected walkable perimeter components receive physical
+  outer gates and correctly oriented timber gatehouses. Isolated patches too
+  small for a section, or without a safe gate approach, are excluded.
+  `recomputeOutskirts(world)` replaces section data and increments its version;
+  garrison removes obsolete section units/slots and creates fresh slots.
+  `shared/islands.js` calls it after trees/vegetation finish, so ground routes
+  see the final obstacles rather than tree-free intermediate terrain.
+- `world.goblinPlan` retains `areas`, `outskirts`, `gates`, graph nodes and
+  volume/column memberships. Gates connect exactly two regions. All generated
+  areas start active. A future construction caller must set area states then
+  call `recomputeOutskirts`; planned regions receive no spawns. Client workers
+  continue to discard construction plans before transferring world buffers.
+- `server/goblins/garrison.js` owns fixed slots, building release times and
+  role-based respawns; no population counters, economy, repairs or building
+  AI. Spawn selection uses nearest in-area buildings, then the fewest gate
+  crossings to another active area. King/Totem never respawn. Eggs outside
+  the village create a small local navigation volume, separate from village
+  development; egg units do not respawn.
+- `server/goblins/unit.js` is one state machine (idle/work/patrol/post/fight/
+  flee/return). Only idle, patrol, post and return run in this slice. All path
+  steering goes through `shared/mobMovement.js` and the existing `stepPlayer`
+  gravity/collision/step/jump/ladder physics. `input.climb` is an optional
+  server-side mob direction; normal player inputs retain their original
+  deterministic behavior. Waypoints advance every physics tick; collinear
+  runs are collapsed. Posts pace and look around, workers visit interests,
+  and section patrols traverse a graph diameter and retrace it.
+- `server/goblins/nav.js` caches surface flow fields and underground
+  room-cross/hall-center/shaft waypoint graphs. Local attachments and
+  cross-area searches share a per-tick node budget; ladder edges cost more
+  and role data can prohibit them. Changed blocks invalidate only containing
+  volumes, bump their revisions and re-route affected units. Graph refreshes
+  coalesce edits per affected region at the next tick. Stuck recovery
+  re-routes first, then permits a short body-clear advance only out of every
+  player's line of sight at both endpoints.
+- `server/mobSteering.js` retains target approach offsets and applies one
+  quadratic soft overlap push after movement for cows, dragons, crawlers,
+  eels, goblins and monkeys. It reuses `SpatialHash`; bodies aren't solid to
+  each other, pushes obey terrain and never change yaw. Flying destinations
+  and ground path steering receive no second separation force. If hallway
+  sides block separation, the same pressure tries the length of the hallway.
+- `public/js/render/goblinModels.js` restores Worker/Soldier/Archer/Brute/
+  King/Totem models and animation from `5be99f1`, with only import adaptation,
+  removal of siege gliders and the climbing pose priority fix.
+  `goblinInstances.js` batches repeated rig parts by role while retaining the
+  historical joint animation. It uses existing entity light samples and
+  `instanceLight` shader support. The Totem keeps its original separate model.
+- Existing `EntityInterest` supplies distance cadence and changed-only
+  snapshots; `sampleSnapshots` handles interpolation. Goblins use compact
+  `g` animation state in existing spawn/state messages; see `PROTOCOL.md`.
+  No connection or voice-chat flow was added or changed.
+- Run `npm run check` and `node scripts/goblin-life-check.js 1`. The latter
+  generates one Small world, validates spawn sites, gate endpoints, all slot
+  routes, home patrol/interest routes, wall restrictions and King's ladder
+  prohibition, and writes labeled ASCII and full geometry maps to `/tmp`.
+  Cross-area spawn travel is explicitly checked against the gate-chain
+  volumes; home patrol/working routes must remain inside their home volume.

@@ -57,7 +57,7 @@ export function generateFortress(map, site, floor, seed, C) {
     const roomTemplate = (type, y) => {
       const template = content.rooms[type];
       const depth = (midY - y) / (midY - goal.y);
-      const table = type === 'treasureVault' || type === 'kingsRoom' ? C.loot.best : depth > 0.65 ? C.loot.deep : depth > 0.2 ? C.loot.middle : C.loot.shallow;
+      const table = type === 'treasureVault' || type === 'royalVault' ? C.loot.best : depth > 0.65 ? C.loot.deep : depth > 0.2 ? C.loot.middle : C.loot.shallow;
       return { ...template, loot: template.loot.map(l => ({ ...l, table })) };
     };
     const facingBetween = (a, b) => a.x === b.x ? b.z > a.z ? 2 : 0 : b.x > a.x ? 1 : 3;
@@ -154,11 +154,12 @@ export function generateFortress(map, site, floor, seed, C) {
       engine.rollback(n, l); last.connectors = old;
     }
     if (!totem) continue;
-    // The King's room is connected to the hall and is the deepest chamber.
+    // An ordinary unique royal vault is the deepest chamber. The King stays
+    // in the Totem Hall; the historic side chamber has no royal AI role.
     let king = null;
     for (const facing of [toward, (toward + 1) % 4, (toward + 3) % 4, (toward + 2) % 4]) {
       const [dx, dz] = FACING_DIRS[facing], distance = (C.totemWidth + C.roomWidth) / 2 + C.corridorLength[1];
-      king = addRoom({ x: goal.x + dx * distance, z: goal.z + dz * distance, y: goal.y - C.kingDrop }, 'kingsRoom', totem);
+      king = addRoom({ x: goal.x + dx * distance, z: goal.z + dz * distance, y: goal.y - C.kingDrop }, 'royalVault', totem);
       if (king) break;
     }
     if (!king) continue;
@@ -203,7 +204,7 @@ export function generateFortress(map, site, floor, seed, C) {
       }
     }
     plan.spawnPoints = { goblinTotem: { x: goal.x + 0.5, y: goal.y + 1, z: goal.z + 0.5 },
-      goblinKing: { x: king.position.x + 0.5, y: king.position.y + 1, z: king.position.z + 0.5 } };
+      goblinKing: { x: goal.x + 2.5, y: goal.y + 1, z: goal.z + 0.5 } };
     plan.attempt = attempt; return plan;
   }
   return null;
