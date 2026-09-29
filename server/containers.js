@@ -1,6 +1,7 @@
 // Blocks with their own inventory, kept by the server as tile entities in
 // world.tileEntities ("x,y,z" -> container). Every container has:
-//   kind         'furnace', 'chest' or 'anvil' (the block's tileEntity)
+//   kind         the block's tileEntity type (chest, furnace, alloyFurnace,
+//                anvil, tank, boiler, or crusher)
 //   slots        its stacks (null = empty)
 //   click()      an inventory-screen click on one of its slots
 //   insert()     shift-click from the player's inventory: take what fits
@@ -10,11 +11,13 @@
 // Any number of players can have one open; every click goes through the
 // server one at a time, so two players can never take the same items.
 
-import { TICK_RATE, SMELT_TIME } from '../shared/config.js';
+import { TICK_RATE, SMELT_TIME, METALS } from '../shared/config.js';
 import { SMELTING, FUEL } from '../shared/recipes.js';
+import { ITEM } from '../shared/itemIds.js';
 import { clickSlot, maxStack } from './inventory.js';
 import { rollLoot } from '../shared/loot.js';
 import { canHaveMods, rollMods, sameKind } from '../shared/modifiers.js';
+import { FluidTank, Boiler, Crusher } from './machines.js';
 
 // Moves as much of `stack` as fits into slots[index] (empty, or the same item
 // with room). Returns whether anything moved.
@@ -165,6 +168,87 @@ export class Furnace {
   }
 }
 
+// Two ingredients, one shared fuel supply and a take-only output.
+const ALLOY_FUEL = 2, ALLOY_OUTPUT = 3;
+const ALLOY_TICKS = Math.round(METALS.alloy.seconds * TICK_RATE);
+const ALLOY_SLOTS = [
+  { accepts: item => item === ITEM.COPPER_INGOT || item === ITEM.TIN_INGOT },
+  { accepts: item => item === ITEM.COPPER_INGOT || item === ITEM.TIN_INGOT },
+  { accepts: item => item in FUEL },
+  { takeOnly: true },
+];
+
+export class AlloyFurnace extends Furnace {
+  constructor() {
+    super();
+    this.kind = 'alloyFurnace';
+    this.slots = [null, null, null, null];
+  }
+
+  ingredients() {
+    const a = this.slots[0], b = this.slots[1];
+    if (!a || !b || a.item === b.item) return null;
+    const copper = a.item === ITEM.COPPER_INGOT ? a : b;
+    const tin = a.item === ITEM.TIN_INGOT ? a : b;
+    return copper.item === ITEM.COPPER_INGOT && copper.count >= METALS.alloy.copper
+      && tin.item === ITEM.TIN_INGOT && tin.count >= METALS.alloy.tin ? { copper, tin } : null;
+  }
+
+  canSmelt() {
+    const output = this.slots[ALLOY_OUTPUT];
+    return !!this.ingredients() && (!output || (output.item === ITEM.BRONZE_INGOT
+      && output.count + METALS.alloy.output <= maxStack(ITEM.BRONZE_INGOT)));
+  }
+
+  tick() {
+    const before = `${this.burn},${this.progress}`;
+    const ready = this.canSmelt();
+    if (!this.burn && ready && this.slots[ALLOY_FUEL]) {
+      const fuel = this.slots[ALLOY_FUEL];
+      this.burnTotal = this.burn = FUEL[fuel.item] * ALLOY_TICKS;
+      if (--fuel.count === 0) this.slots[ALLOY_FUEL] = null;
+    }
+    if (this.burn > 0) {
+      this.burn--;
+      if (ready && ++this.progress >= ALLOY_TICKS) {
+        this.progress = 0;
+        const { copper, tin } = this.ingredients();
+        copper.count -= METALS.alloy.copper;
+        tin.count -= METALS.alloy.tin;
+        for (let i = 0; i < 2; i++) if (this.slots[i]?.count === 0) this.slots[i] = null;
+        if (this.slots[ALLOY_OUTPUT]) this.slots[ALLOY_OUTPUT].count += METALS.alloy.output;
+        else this.slots[ALLOY_OUTPUT] = { item: ITEM.BRONZE_INGOT, count: METALS.alloy.output };
+        return true;
+      }
+    }
+    if (!ready || !this.burn) this.progress = 0;
+    return `${this.burn},${this.progress}` !== before;
+  }
+
+  click(slot, button, holder) {
+    return clickSlot(this.slots, slot, holder, button, ALLOY_SLOTS[slot]);
+  }
+
+  insert(stack) {
+    if (stack.item in FUEL && mergeInto(this.slots, ALLOY_FUEL, stack)) return true;
+    if (stack.item !== ITEM.COPPER_INGOT && stack.item !== ITEM.TIN_INGOT) return false;
+    for (let i = 0; i < 2; i++) if ((!this.slots[i] || this.slots[i].item === stack.item)
+      && mergeInto(this.slots, i, stack)) return true;
+    return false;
+  }
+
+  view() {
+    return { kind: this.kind, slots: this.slots,
+      burn: this.burnTotal ? this.burn / this.burnTotal : 0, progress: this.progress / ALLOY_TICKS };
+  }
+
+  takeAll() {
+    const stacks = this.slots.filter(Boolean);
+    this.slots.fill(null);
+    return stacks;
+  }
+}
+
 // Anvil: one slot, for a moddable item only. reroll() gives it a fresh roll
 // of modifiers (the game charges the cost). Anyone at the anvil sees the
 // same slot, like a chest.
@@ -209,6 +293,10 @@ export class Anvil {
 
 export function createContainer(kind) {
   if (kind === 'furnace') return new Furnace();
+  if (kind === 'alloyFurnace') return new AlloyFurnace();
+  if (kind === 'tank') return new FluidTank();
+  if (kind === 'boiler') return new Boiler();
+  if (kind === 'crusher') return new Crusher();
   if (kind === 'chest') return new Chest();
   if (kind === 'anvil') return new Anvil();
   return null;

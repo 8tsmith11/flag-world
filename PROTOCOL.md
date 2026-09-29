@@ -85,12 +85,12 @@ north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
 | 52 | rope | Hung by a Rope Bundle. Not solid, climbable like a ladder, breaks in one tick and drops nothing |
 | 57 | scorched earth | The ground inside a dragon roost's nest; drops dirt |
 | 58 | Quarry Stone | Glowing cracked stone; hardness 8, regrows stone on each open face |
-| 62–77 | reinforced door | `62 + facing + 4·open + 8·upper`; hardness 4, iron texture, opens only for its placer's team |
+| 62–77 | reinforced door | `62 + facing + 4·open + 8·upper`; hardness 5, iron texture, opens only for its placer's team |
 | 78 | arrow turret | Solid base; the cell above is reserved for its rotating head |
 
 Ids 59 and 61 are reserved after removal of Snow and fences.
 
-Other blocks added with crafting: 30 iron ore (hardness 3), 31 sand, 32
+Other blocks added with crafting: 30 iron ore (hardness 4), 31 sand, 32
 workbench (right click: crafting screen).
 
 Furnaces and chests have their own inventory (see `openContainer`) and a
@@ -102,6 +102,17 @@ front that faces the player who placed them. They have one id per facing
 | 33, 38, 39, 40 | furnace (hardness 2) | 33, 38, 39, 40 |
 | 34–37 | chest (hardness 1) | 34, 35, 36, 37 |
 | 53–56 | anvil (hardness 2) | 53, 54, 55, 56. The horn is at the east end when it faces north |
+| 124–127 | alloy furnace (hardness 2) | 124, 125, 126, 127 |
+| 130–133 | water pump (hardness 3) | 130, 131, 132, 133 |
+
+Blocks 128–129 are Bronze Pipe and Fluid Tank; 134–135 are Boiler and Crusher.
+The tank is a translucent frame. Pumps face the placer; their front port starts
+in output mode. Face modes of tanks, pumps, boilers and crushers are server-owned.
+
+Block 122 is copper ore and 123 is tin ore (both hardness 3). Team islands
+contain common copper and rare tin, with no iron. Tiny island stone contains
+common tin and a little iron. The central island contains all three at higher
+densities. The weights and assigned ids are in `METALS` in `shared/config.js`.
 
 **ItemStack** — `{ item, count, mods? }`. `mods`, only on weapons, tools,
 armor and accessories, is at most one modifier `[{ id, value }]` (see
@@ -122,6 +133,10 @@ loot-only Wind Axe, Ice Sword, crossbow, Rope Bundle (stack size 8) and
 grappling hook. `287` Dragon Scale (dropped by dragons), `288` Silk (dropped by
 Crawlers, no use yet) and `289` Dragonscale Armor. Block `53` (anvil) is also
 its item.
+Items 311–315 are copper ingot, tin ingot, bronze ingot, bronze hammer and
+bronze armor. Bronze hammer strength is 4, between stone (3) and iron (5);
+bronze armor gives 5 armor points. Both accept their normal modifier pools.
+Items 316–318 are Iron Dust, Copper Dust and Tin Dust.
 `290` is reserved after removal of the Flight Orb. `291`–`294` are Cow,
 Dragon, Crawler and Void Eel spawn eggs; `295`–`299` and `301`–`304` are unused.
 Active egg definitions live in `shared/mobEggs.js`. All egg types are
@@ -320,8 +335,8 @@ gets the stack and the second finds the slot empty.
 | `container` | bool? | true: a slot of the container you opened (it must still exist and be in reach). Otherwise your inventory |
 | `armor` | bool? | true: the single armor slot. It accepts only armor; shift-click removes worn armor to inventory |
 | `accessory` | bool? | true: the single accessory slot. It accepts only accessories; shift-click removes it to inventory |
-| `slot`   | int    | Your inventory: 0..35. Chest: 0..26. Furnace: 0 input (smeltables only), 1 fuel (fuels only), 2 output (take only; a left click can add it to a matching cursor stack). Anvil: 0 (weapons, tools, armor and accessories only) |
-| `shift`  | bool?  | Shift-click: move the whole stack across instead, as much as fits. Container slot → your inventory. Inventory slot → the open container (a furnace takes smeltables into the input and fuel into the fuel slot). With no container open, armor equips if the slot is free; otherwise hotbar ↔ main grid. `button` is ignored |
+| `slot`   | int    | Your inventory: 0..35. Chest: 0..26. Furnace: 0 input (smeltables only), 1 fuel (fuels only), 2 output (take only). Alloy furnace: 0–1 copper/tin inputs, 2 fuel, 3 output (take only). Tank: no slots. Boiler: 0 fuel. Crusher: 0 input, 1 output (take only). Anvil: 0 (weapons, tools, armor and accessories only) |
+| `shift`  | bool?  | Shift-click: move the whole stack across instead, as much as fits. Container slot → your inventory. Inventory slot → the open container (machines route ingredients and fuel to their allowed slots). With no container open, armor equips if the slot is free; otherwise hotbar ↔ main grid. `button` is ignored |
 | `button` | string | `"left"`: pick up the whole stack, or put the cursor down (merging into the same item up to its max, or swapping with a different one). `"right"`: pick up half (rounded up), or put one item from the cursor down |
 
 ### `inventoryClose`
@@ -332,14 +347,15 @@ goes back into the slots; whatever doesn't fit drops at your feet. Also stops
 
 ### `openContainer`
 
-Right click on a chest, furnace or anvil within reach: the server starts sending you
+Right click on a chest, furnace, alloy furnace, tank, boiler, crusher or anvil
+within reach: the server starts sending you
 its state (`container`) until you close the screen, walk out of reach, or it's
 broken (`containerClose`). Anyone can open any container, and any number of
 players can have the same one open.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `x`,`y`,`z` | int | The chest or furnace block |
+| `x`,`y`,`z` | int | The container block |
 
 ### `anvilReroll`
 
@@ -365,10 +381,20 @@ items). Inputs come out of the main grid before the hotbar.
 | `at`     | BlockPos? | A workbench in reach. Required for recipes with `station: "workbench"`; ignored otherwise |
 
 Recipes with `station: null` (planks, ladder, workbench) work anywhere; the
-rest only at a workbench. New recipes include an empty bucket (1 iron ingot),
+rest only at a workbench. New recipes include an empty bucket (1 copper ingot),
 leather armor (3 leather), iron armor (10 iron ingots), a glider
 (3 leather and 2 wood), an anvil (6 iron ingots) and Dragonscale Armor (8
 Dragon Scales). Crafted items have no modifiers. Furnaces smelt raw beef into cooked beef in 5 s.
+Furnaces also smelt copper and tin ores into their ingots. A workbench crafts
+an alloy furnace from a furnace and 4 copper ingots, a bronze hammer from 3
+bronze ingots and 2 wood, and bronze armor from 10 bronze ingots. The alloy
+furnace combines 3 copper and 1 tin ingot in either input order into 4 bronze
+ingots in 5 s, using the furnace fuel rules.
+Further workbench recipes: 1 Bronze Ingot → 4 Bronze Pipes; Fluid Tank from 4
+Bronze Ingots and 4 Glass; Water Pump from 3 Bronze Ingots and 1 pipe; Boiler
+from 1 Furnace and 4 Bronze Ingots; Crusher from 4 Bronze Ingots, 2 Stone and
+1 pipe. Crusher recipes are Stone → Sand and each iron/copper/tin ore → 2
+matching Dust. A furnace smelts each Dust into one matching ingot.
 While creative mode is enabled, `creative:<itemId>` recipes provide every
 canonical block and non-block item for free, without a station or
 modifiers. The server rejects those recipe ids for other players.
@@ -476,7 +502,7 @@ Match players only. Sent once per simulation tick (20 per wall-clock second). Ea
 | `slot`    | int    | Selected hotbar slot, 0..8: the item in hand (tool strength, placing, dropping, `held`) |
 | `breaking`| BlockPos \| null | Block the player is holding the break button on this tick, or `null` |
 | `place`   | `{ x, y, z, nx, ny, nz }` \| null | Place the selected item in cell x, y, z this tick (right click), or `null`. `n` is the normal of the face that was clicked (one axis ±1), pointing into this cell |
-| `use`     | BlockPos \| null | Right click on a door to toggle it, or on a water source with an empty bucket to collect it (instead of `place`) |
+| `use`     | `{x,y,z,nx,ny,nz}` \| null | Right click on a door or water source, or crouch-right-click a fluid block face with an empty hand. The normal names the clicked face. The server checks the raycast before cycling `none → input → output → none` |
 | `drop`    | bool   | Throw one of the selected item this tick (Q) |
 | `attack`  | bool   | Punch this tick (a left click with a player under the crosshair) |
 
@@ -486,7 +512,7 @@ the same block and replaces it with air once the count reaches
 `breaking` changes or is `null`, the block is out of reach
 (`REACH_DISTANCE` from the eyes, plus slack), or the strength of the item in
 `slot` is below the block's `hardness`. Hammers are the only breaking tools
-(`shared/tools.js`): wood 2, stone 3, iron 4; anything else (swords included)
+(`shared/tools.js`): wood 2, stone 3, bronze 4, iron 5; anything else (swords included)
 breaks like bare hands, strength 1. The break time is the block's `breakTime`
 divided by the hammer's speed (wood 1, stone 1.5, iron 2). The result arrives as a `blockChange`. The block's `drops` item
 (usually itself; manually broken leaves drop nothing) pops out as an item entity
@@ -728,6 +754,8 @@ reclaim.
 | `doorTeams` | `{key,team}[]` | Reinforced door ownership by lower-half block coordinate key |
 | `turrets` | `{x,y,z,id,team,yaw,pitch}[]` | Current turret bases and head angles |
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
+| `fluidNodes` | FluidNode[] | Current pipes, face modes and tank contents; see `fluidState` |
+| `litBoilers` | `{x,y,z}[]` | Boilers currently converting water to steam; restore their plumes |
 | `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Orb portals; `expiresTick` is a server tick |
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
 | `flags`   | FlagInfo[]    | One flag per occupied team |
@@ -872,8 +900,11 @@ assigns team ownership and opens configuration for all viewers; other teams
 receive a read-only view. `state` NPC snapshots additionally carry `role`
 and `tamed` for working monkeys; `team` changes after taming.
 
-Collectors ignore drops on their own target. Couriers extract furnace output
-only and fill destination fuel before input. Lumberjacks require a reserved
+Collectors ignore drops on their own target. Couriers extract furnace, alloy
+furnace and crusher output only; they can fuel a boiler but take nothing from
+it. They put fuel into furnace and boiler fuel slots before inputs. Alloy furnace
+inputs accept copper/tin in either slot, filling a matching stack or empty
+slot. Crushers accept stone and ores in their input slot. Lumberjacks require a reserved
 sapling, supplied by a teammate or taken from their delivery target, and only
 cut wood/branches in explicitly marked columns with a grown leaf crown.
 That whole column is authorized above its marked base, up to 64 blocks tall;
@@ -968,12 +999,12 @@ The server runs these rules; the messages above carry the results.
   one team has players who are not eliminated, that team wins (`matchEnd`).
   Teammates cannot damage each
   other with punches or arrows. Armor reduces combat and arrow damage by
-  `damage * 10 / (10 + armorPoints)` (leather 3, iron 8, dragonscale 9, plus
+  `damage * 10 / (10 + armorPoints)` (leather 3, bronze 5, iron 8, dragonscale 9, plus
   Sturdy); fall and void damage ignore armor.
 
 ### `container`
 
-The state of the chest or furnace you have open. It's sent when you open it,
+The state of the container you have open. It's sent when you open it,
 and to everyone who has it open whenever it changes (anyone's click, or
 smelting). Breaking a container drops it and everything in it.
 
@@ -985,10 +1016,13 @@ smelt, the half-done item starts over.
 | Field       | Type   | Notes |
 |-------------|--------|-------|
 | `x`,`y`,`z` | int    | The block |
-| `kind`      | string | `"chest"`, `"furnace"` or `"anvil"` |
-| `slots`     | (ItemStack \| null)[] | Chest: 27. Furnace: input, fuel, output. Anvil: the one item slot (its `mods` are the preview) |
-| `burn`      | number | Furnace only: fuel left in the current fuel item, 0..1 |
-| `progress`  | number | Furnace only: smelting progress on the current item, 0..1 |
+| `kind`      | string | `"chest"`, `"furnace"`, `"alloyFurnace"`, `"tank"`, `"boiler"`, `"crusher"` or `"anvil"` |
+| `slots`     | (ItemStack \| null)[] | Chest: 27. Furnace: input, fuel, output. Alloy furnace: two inputs, fuel, output. Boiler: fuel. Crusher: input, output. Tank: none. Anvil: one |
+| `burn`      | number | Furnace, alloy furnace or boiler: fuel left in the current fuel item, 0..1 |
+| `progress`  | number | Furnace, alloy furnace or crusher: progress on the current batch/item, 0..1 |
+| `fluid`,`amount`,`capacity` | string \| null, number, number | Tank group contents and capacity |
+| `water`,`steam`,`waterCapacity`,`steamCapacity` | number | Boiler's internal buffers and limits |
+| `steamReceived` | number | Crusher's steam received in the last tick, units/s |
 
 ### `containerClose`
 
@@ -997,7 +1031,7 @@ screen. _(no fields)_
 
 ### `furnaceLit`
 
-Broadcast to every match player when a furnace starts or stops burning. Clients
+Broadcast to every match player when a furnace or alloy furnace starts or stops burning. Clients
 show fire in its mouth and smoke from its top vent while `lit` is true. The
 server also sends `lit: false` when a burning furnace is broken.
 
@@ -1005,6 +1039,45 @@ server also sends `lit: false` when a burning furnace is broken.
 |-------|------|-------|
 | `x`,`y`,`z` | int | Furnace block position |
 | `lit` | bool | Whether fuel is burning |
+
+### `boilerLit`
+
+Broadcast when a boiler starts or stops converting water to steam, including
+when it is broken. `{x,y,z,lit}` uses the same position and boolean types as
+`furnaceLit`. A lit boiler draws a large white steam plume.
+
+### `fluidState`
+
+Authoritative full snapshot `{nodes: FluidNode[]}`. Sent when a pipe or fluid
+block is placed or broken, when a face mode changes, and at most every four ticks
+when tank levels change. Clients replace their previous node list. `welcome` also
+carries this list as `fluidNodes`.
+
+`FluidNode` has `{x,y,z,kind,faces,fluid,amount,capacity,fill}`. `kind` is
+`"pipe"`, `"tank"`, `"pump"`, `"boiler"` or `"crusher"`. Non-pipe `faces`
+has six modes in order west, east, bottom, top, north, south: 0 none, 1 input,
+2 output. Pipes have `faces: null`. `fluid` is `"water"`, `"steam"` or null;
+the amount and capacity are the whole connected tank's units. `fill` (0..1)
+is the fill of this block's vertical layer for rendering.
+
+Pipes connect to adjacent pipes unconditionally and to other fluid blocks only
+at configured ports. Graphs rebuild on placement, break and face changes, and
+sleep with their chunks. Each pipe buffers 50 units of one fluid. A filled
+network rejects the other fluid until empty. Connecting two filled networks
+with different fluids retains the larger amount and discards the incompatible
+contents. Outputs transfer before inputs;
+when supply is short, all consumers receive the same fraction of demand. A
+tank connected to the same network by both input and output ports transfers
+nothing through that network. Adjacent tanks form one 4000-unit-per-block
+group; breaking a block divides its contents proportionally among the pieces.
+Merging tanks that contain different fluids retains the larger amount and
+discards the incompatible contents.
+
+A pump touching a source water block on any face except its output produces 50
+water/s without using up that source. A boiler consumes 10 water/s and emits
+10 steam/s while output space and fuel remain; charcoal burns for 40 s, wood
+for 10 s. A crusher draws 5 steam/s while working and takes 2 s per item at
+full steam; partial supply slows progress proportionally.
 
 Water uses id 4 for a source and ids 41–47 for flowing levels 1–7.
 Sources never form from neighbouring water. Flowing water can replace air,
@@ -1177,11 +1250,15 @@ in a dark scaled texture, and takes armor modifiers like any armor.
 
 ## Quarry Stones
 
-Each team island contains 2 / 3 / 4 Quarry Stones on Small / Medium / Large.
-At least 1 / 1 / 2 of them border an underground cave or cavern. Other stones
-are buried in natural stone; each tiny island independently has a 5% chance
-of one in its underside. Placement avoids keeps and generated structures.
-An iron hammer meets their hardness 8. Breaking one drops the Quarry Stone.
+Each team island contains 2 / 3 / 4 underground Quarry Stones on Small /
+Medium / Large, plus 1 / 2 / 3 on its surface. At least 1 / 1 / 2 of the
+underground stones border a cave or cavern. Each tiny island independently has
+a 5% chance of one in its underside. Surface stones are embedded in open
+ground with the top exposed, at least 10 blocks from the keep and clear of
+its no-build zone, structures and water. Placement is deterministic from the
+seed. All Quarry Stones keep the same open-face regrowth behavior.
+Their hardness 8 exceeds the current hammers' strength. Breaking one, if a
+strong enough tool becomes available, drops the Quarry Stone.
 Each of its six faces independently attempts to grow ordinary stone into air
 every `QUARRY_REGROW_TIME` (5 s). A player or mob blocks growth in that cell;
 dropped items are pushed to nearby air. Clients show glowing cracks, occasional

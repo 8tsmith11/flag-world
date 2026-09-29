@@ -326,7 +326,40 @@ export const DAY_START = 0.04;
 
 // Furnace: seconds to smelt one item.
 export const SMELT_TIME = 5;
-export const ORE_SETTINGS = { ironDensity: 0.5 };
+// Ore and bronze progression. Keep assigned ids stable across worlds.
+export const METALS = {
+  blockIds: { copperOre: 122, tinOre: 123, alloyFurnace: [124, 125, 126, 127] },
+  itemIds: { copperIngot: 311, tinIngot: 312, bronzeIngot: 313, bronzeHammer: 314, bronzeArmor: 315 },
+  ore: { team: { copper: 0.35, tin: 0.04, iron: 0 }, tiny: { copper: 0, tin: 0.4, iron: 0.04 },
+    center: { copper: 0.4, tin: 0.45, iron: 0.15 } },
+  hardness: { copperOre: 3, tinOre: 3, ironOre: 4, ironTierBlocks: 5 },
+  hammer: { bronzeStrength: 4, bronzeSpeed: 1.75, ironStrength: 5 },
+  bronzeArmorPoints: 5,
+  alloy: { copper: 3, tin: 1, output: 4, seconds: 5 },
+  crafting: { alloyFurnaceCopper: 4, bronzeHammerIngots: 3, bronzeHammerWood: 2,
+    bronzeArmorIngots: 10, bucketCopper: 1 },
+};
+export const ORE_SETTINGS = METALS.ore;
+export const QUARRY_SURFACE = { countsByUnderground: { 2: 1, 3: 2, 4: 3 },
+  seedSalt: 0x20df6a71,
+  minKeepDistance: 10, minSpacing: 6, placementFraction: 0.82, attempts: 2400,
+  maxSlope: 2, headroom: 4 };
+export const FLUID = {
+  blockIds: { pipe: 128, tank: 129, pump: [130, 131, 132, 133], boiler: 134, crusher: 135 },
+  blocks: { hardness: 3, pipeBreakTime: 0.8, tankBreakTime: 1.2,
+    pumpBreakTime: 1.2, boilerBreakTime: 1.5, crusherBreakTime: 1.5 },
+  itemIds: { ironDust: 316, copperDust: 317, tinDust: 318 },
+  craft: { pipeBronze: 1, pipeCount: 4, machineCount: 1, tankBronze: 4, tankGlass: 4,
+    pumpBronze: 3, pumpPipes: 1, boilerFurnaces: 1, boilerBronze: 4,
+    crusherBronze: 4, crusherStone: 2, crusherPipes: 1 },
+  pipeCapacity: 50, tankCapacity: 4000, transferPerSecond: 50,
+  pumpPerSecond: 50, boilerPerSecond: 10, crusherPerSecond: 5,
+  boilerWaterBuffer: 50, boilerSteamBuffer: 50,
+  boilerFuelSeconds: { charcoal: 40, wood: 10 },
+  crusherSeconds: 2, crusherOreDust: 2, crusherStoneOutput: 1, networkSendTicks: 4,
+  epsilon: 1e-7,
+  faceNone: 0, faceInput: 1, faceOutput: 2,
+};
 export const GLASS_SETTINGS = { opacity: 0.22 };
 export const MONKEY_WORK = {
   wildColor: 0x756044,

@@ -286,7 +286,8 @@ export class MonkeyWorkers {
     const c=this.container(m.config.target);
     if(c) {
       const before=m.cargo.count;
-      if(c.kind==='furnace') {
+      if(['alloyFurnace','boiler','crusher'].includes(c.kind)) c.insert(m.cargo);
+      else if(c.kind==='furnace') {
         if(m.cargo.item in FUEL)mergeInto(c.slots,FUEL_SLOT,m.cargo);
         if(m.cargo.count)mergeInto(c.slots,INPUT,m.cargo);
       } else c.insert(m.cargo);
@@ -318,7 +319,8 @@ export class MonkeyWorkers {
     const c=this.container(m.config.from);
     if(!c){m.status='Source is missing';return;}
     if(!this.travel(m,m.config.from,'from'))return;
-    const indices=c.kind==='furnace'?[OUTPUT]:c.slots.map((_,i)=>i);
+    const indices=c.kind==='furnace'?[OUTPUT]:c.kind==='alloyFurnace'?[3]:c.kind==='crusher'?[1]
+      :c.kind==='boiler'||c.kind==='tank'?[]:c.slots.map((_,i)=>i);
     const index=indices.find(i=>c.slots[i]&&monkeyFilter(m.config,c.slots[i].item));
     if(index===undefined){m.status='Waiting for source items';return;}
     const s=c.slots[index],n=Math.min(C.capacity,s.count);m.cargo=cloneStack(s,n);

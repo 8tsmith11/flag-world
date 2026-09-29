@@ -683,6 +683,24 @@ export { ANVIL_PARTS } from './anvilParts.js';
 
 // Dark overlapping scales for Dragonscale Armor, made once on first use.
 let scaleTexture = null;
+let bronzeTexture = null;
+function bronzeArmorTexture() {
+  if (bronzeTexture || typeof document === 'undefined') return bronzeTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ae713c'; ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = '#d39a5a';
+  for (let y = 0; y < 64; y += 16) for (let x = 0; x < 64; x += 16) ctx.fillRect(x + 1, y + 1, 14, 2);
+  ctx.strokeStyle = '#754526'; ctx.lineWidth = 2;
+  for (let y = 0; y < 64; y += 16) for (let x = 0; x < 64; x += 16) ctx.strokeRect(x + 1, y + 1, 14, 14);
+  bronzeTexture = new THREE.CanvasTexture(canvas);
+  bronzeTexture.wrapS = bronzeTexture.wrapT = THREE.RepeatWrapping;
+  bronzeTexture.repeat.set(2, 2);
+  bronzeTexture.magFilter = THREE.NearestFilter;
+  bronzeTexture.colorSpace = THREE.SRGBColorSpace;
+  return bronzeTexture;
+}
 function dragonScaleTexture() {
   if (scaleTexture || typeof document === 'undefined') return scaleTexture;
   const canvas = document.createElement('canvas');
@@ -800,6 +818,11 @@ export function createItemModel(item, blockSize = 0.25) {
     const group = new THREE.Group();
     group.add(bar);
     return group;
+  }
+  if (def.shape === 'dust') {
+    const group=new THREE.Group();
+    const pile=new THREE.Mesh(new THREE.ConeGeometry(blockSize*0.42,blockSize*0.35,8),lambert(def.color));
+    pile.position.y=blockSize*0.18;group.add(pile);return group;
   }
   const material = lambert(def.color);
   if (item === BLOCK.GLASS) { material.transparent = true; material.opacity = GLASS_SETTINGS.opacity; material.depthWrite = false; }
@@ -989,7 +1012,8 @@ export function animatePlayer(model, { dt, speed, pitch, held, armor = null, acc
   p.armorParts.forEach((part) => { part.visible = armor !== null; });
   if (armor !== null) {
     // Dragonscale's pieces are textured with scales; the rest are plain colors.
-    const map = getItemDef(armor).texture === 'scales' ? dragonScaleTexture() : null;
+    const map = getItemDef(armor).texture === 'scales' ? dragonScaleTexture()
+      : getItemDef(armor).texture === 'bronze' ? bronzeArmorTexture() : null;
     if (p.armorMaterial.map !== map) {
       p.armorMaterial.map = map;
       p.armorMaterial.needsUpdate = true;

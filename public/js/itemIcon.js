@@ -175,6 +175,9 @@ export function itemIcon(item) {
   } else if (def.shape === 'ingot') {
     icon.classList.add('ingot');
     icon.style.background = cssColor(def.color);
+  } else if (def.shape === 'dust') {
+    icon.classList.add('dust');
+    icon.style.background = cssColor(def.color);
   } else if (def.shape === 'seed') {
     icon.classList.add('seed');
   } else if (def.shape === 'accessory') {

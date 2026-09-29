@@ -42,6 +42,8 @@ export const S2C = {
   CONTAINER: 'container',
   CONTAINER_CLOSE: 'containerClose',
   FURNACE_LIT: 'furnaceLit',
+  BOILER_LIT: 'boilerLit',
+  FLUID_STATE: 'fluidState',
   PORTAL_SPAWN: 'portalSpawn',
   PORTAL_DESPAWN: 'portalDespawn',
   EMBER_BURST: 'emberBurst',

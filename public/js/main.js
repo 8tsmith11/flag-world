@@ -10,7 +10,7 @@ import {
 import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT, TEAMS, ENTITY_TYPE } from '/shared/protocol.js';
 import { generateClientWorld } from './worldGeneration.js';
 import {
-  BLOCK, blocksAttack, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, doorState, isFurnace, isChest, isAnvil, isFlowingWater,
+  BLOCK, blocksAttack, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, doorState, isFurnace, isChest, isAnvil, isFlowingWater, fluidKind,
 } from '/shared/blocks.js';
 import { breakingStats, rangedStats } from '/shared/tools.js';
 import { getItemDef, ITEM } from '/shared/items.js';
@@ -35,6 +35,7 @@ import { BlockHighlight } from './render/blockHighlight.js';
 import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
+import { FluidRenderer } from './render/fluidRenderer.js';
 import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
 import { TurretRenderer } from './render/turretRenderer.js';
@@ -186,6 +187,7 @@ let world = null;
 let chunks = null;
 let clouds = null;
 let furnaceEffects = null;
+let fluidRenderer = null;
 let quarryEffects = null;
 let stormEffects = null;
 let player = null;
@@ -307,9 +309,10 @@ function openInventory(screen, at) {
 // What kind of screen right-clicking this block opens, or null.
 function stationKind(id) {
   if (id === BLOCK.WORKBENCH) return 'workbench';
-  if (isFurnace(id)) return 'furnace';
+  if (isFurnace(id)) return id === BLOCK.ALLOY_FURNACE || (id >= BLOCK.ALLOY_FURNACE && id < BLOCK.ALLOY_FURNACE + 4) ? 'alloyFurnace' : 'furnace';
   if (isChest(id)) return 'chest';
   if (isAnvil(id)) return 'anvil';
+  if (['tank','boiler','crusher'].includes(fluidKind(id))) return fluidKind(id);
   return null;
 }
 
@@ -496,6 +499,9 @@ function startGame(msg, generated) {
   chunks = new ChunkRenderer(scene, world, viewDistance, renderer);
   clouds = new Clouds(scene, world);
   furnaceEffects = new FurnaceEffects(scene, world);
+  fluidRenderer?.dispose();fluidRenderer=new FluidRenderer(scene);
+  fluidRenderer.sync(msg.fluidNodes??[]);
+  for(const {x,y,z} of msg.litBoilers??[])fluidRenderer.setBoilerLit(x,y,z,true);
   quarryEffects = new QuarryEffects(scene, world);
   stormEffects?.dispose();
   stormEffects = world.stormCloud ? new StormEffects(scene, world.stormCloud, audioMixer) : null;
@@ -617,6 +623,8 @@ conn.on(S2C.CONTAINER_CLOSE, () => {
 });
 conn.on(S2C.MONKEY, msg => { if (mode === MODE.PLAY) monkeyScreen.receive(msg); });
 conn.on(S2C.FURNACE_LIT, (msg) => furnaceEffects?.setLit(msg.x, msg.y, msg.z, msg.lit));
+conn.on(S2C.BOILER_LIT, (msg) => fluidRenderer?.setBoilerLit(msg.x,msg.y,msg.z,msg.lit));
+conn.on(S2C.FLUID_STATE, (msg) => fluidRenderer?.sync(msg.nodes));
 
 function applyBlockChange(msg) {
   if (!world) return;
@@ -672,7 +680,7 @@ conn.onClose(() => {
   status.textContent = 'Disconnected from server. Refresh to reconnect.';
   connected = false;
   monkeyScreen.close(false, false);
-  fullscreen.stop();music.fadeOut();audioMixer.stop();dialogue.stop();chunks?.dispose();
+  fullscreen.stop();music.fadeOut();audioMixer.stop();dialogue.stop();chunks?.dispose();fluidRenderer?.dispose();
   showScreen('overlay');
   document.exitPointerLock();
 });
@@ -811,7 +819,9 @@ function frame(now) {
     controls.attack = controls.attack && targetPlayer !== null;
     controls.breaking = breakTarget();
     // Right click on a workbench, furnace or chest opens its screen instead of placing.
-    const station = controls.place && target && stationKind(target.id);
+    const changingFace=controls.place&&target&&fluidKind(target.id)&&fluidKind(target.id)!=='pipe'
+      &&controls.crouch&&heldItem()===null;
+    const station = controls.place && target && !changingFace && stationKind(target.id);
     if (station) {
       const at = { x: target.x, y: target.y, z: target.z };
       if (CONTAINERS.includes(station)) conn.send({ type: C2S.OPEN_CONTAINER, ...at });
@@ -819,8 +829,9 @@ function frame(now) {
       controls.place = false;
     }
     // Right click on a door opens or closes it instead of placing.
-    const useTarget = controls.place && target && (isDoor(target.id) || (target.id === BLOCK.WATER && heldItem() === ITEM.EMPTY_BUCKET));
-    controls.use = useTarget ? { x: target.x, y: target.y, z: target.z } : null;
+    const useTarget = controls.place && target && (changingFace || isDoor(target.id) || (target.id === BLOCK.WATER && heldItem() === ITEM.EMPTY_BUCKET));
+    controls.use = useTarget ? { x: target.x, y: target.y, z: target.z,
+      nx:target.nx,ny:target.ny,nz:target.nz } : null;
     controls.place = controls.place && !useTarget && !aiming ? placeTarget() : null;
     if (aiming) controls.use = null;
     const held = heldItem();
@@ -897,6 +908,7 @@ function frame(now) {
     clouds?.setTint(sky.tint);
   }
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
+  fluidRenderer?.update(dt);
   quarryEffects?.update(dt, camera.position, chunks.viewDistance);
   stormEffects?.update(dt, camera.position, mode === MODE.PLAY || mode === MODE.SPECTATE);
   portals.update(dt, camera);

@@ -23,7 +23,7 @@ import {
   SAPLING_DROP_CHANCE, TREE_SETTINGS, ARROW_DRAG,
 } from '../shared/config.js';
 import {
-  BLOCK, branchBoxes, blocksAttack, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock,
+  BLOCK, branchBoxes, blocksAttack, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock, fluidKind,
   ladderBlock, isLadder, ladderFacing, doorBlock, isDoor, doorState,
 } from '../shared/blocks.js';
 import { getItemDef, ITEM } from '../shared/items.js';
@@ -60,6 +60,7 @@ import { WaterSimulation } from './water.js';
 import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
+import { FluidSystem, fluidFace } from './fluids.js';
 import { EntityInterest } from './entityInterest.js';
 import { MonkeyWorkers, WorkMonkey } from './monkeyWorkers.js';
 import { ChunkLoading } from './chunkLoading.js';
@@ -422,6 +423,7 @@ export class Game {
         && p.state.z - playerBoxOf(p.state).halfW < z + 1
         && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y), null, this.chunkLoading);
     this.quarry = new QuarryRegrowth(this);
+    this.fluids = new FluidSystem(this);
     this.world.onBlockChanged = (x, y, z, id, oldId) => {
       invalidateDragonSurface(this.world, x, z);
       this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id });
@@ -436,6 +438,7 @@ export class Game {
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
       if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
       if (id === BLOCK.QUARRY_STONE || oldId === BLOCK.QUARRY_STONE) this.quarry.changed(x, y, z, id);
+      if (fluidKind(id) || fluidKind(oldId)) this.fluids.changed(x, y, z, id, oldId);
       if (turretType(oldId) && id !== oldId) this.turretController.remove(x, y, z);
       if(getBlockDef(oldId).tileEntity && getBlockDef(oldId).tileEntity!==getBlockDef(id).tileEntity)this.removeContainer(x,y,z);
       this.turretController.invalidate();
@@ -545,11 +548,14 @@ export class Game {
       blocks: [...this.blockChanges.values()],
       doorTeams: [...this.world.doorTeams].map(([key, team]) => ({ key, team })),
       turrets: this.turretController.snapshot(),
-      litFurnaces: [...this.world.tileEntities].filter(([, c]) => c.kind === 'furnace' && c.burn > 0)
+      litFurnaces: [...this.world.tileEntities].filter(([, c]) => (c.kind === 'furnace' || c.kind === 'alloyFurnace') && c.burn > 0)
         .map(([key]) => {
           const [x, y, z] = key.split(',').map(Number);
           return { x, y, z };
         }),
+      fluidNodes: this.fluids.snapshot(),
+      litBoilers: [...this.world.tileEntities].filter(([, c]) => c.kind === 'boiler' && c.lit)
+        .map(([key]) => { const [x,y,z]=key.split(',').map(Number);return {x,y,z}; }),
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
       entities: [...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
         ...this.mobs.values(), ...this.npcs.values()].map((e) => e.describe()),
@@ -577,7 +583,7 @@ export class Game {
       breaking: parseBlockPos(this.world, msg.breaking),
       place: parsePlace(this.world, msg.place),
       spawnEgg: parseBlockPos(this.world, msg.spawnEgg),
-      use: parseBlockPos(this.world, msg.use),
+      use: parsePlace(this.world, msg.use),
       drop: !!msg.drop,
       attack: !!msg.attack,
       crouch: !!msg.crouch,
@@ -756,7 +762,8 @@ export class Game {
   removeContainer(x,y,z) {
     const key=`${x},${y},${z}`,container=this.world.tileEntities.get(key);if(!container)return;
     container.populate?.(this.seed,x,y,z);
-    if(container.kind==='furnace' && container.burn>0)this.broadcast({type:S2C.FURNACE_LIT,x,y,z,lit:false});
+    if((container.kind==='furnace'||container.kind==='alloyFurnace') && container.burn>0)this.broadcast({type:S2C.FURNACE_LIT,x,y,z,lit:false});
+    if(container.kind==='boiler'&&container.lit)this.broadcast({type:S2C.BOILER_LIT,x,y,z,lit:false});
     this.world.tileEntities.delete(key);
     for(const stack of container.takeAll())this.dropAt(stack.item,x,y,z,stack.count,stack.mods);
   }
@@ -770,8 +777,17 @@ export class Game {
   }
 
   // Right click on a door: open or close both halves. A door can't close on a player.
-  stepUse(player, pos) {
+  stepUse(player, pos, crouch = false) {
     const id = this.world.getBlock(pos.x, pos.y, pos.z);
+    if (fluidKind(id) && fluidKind(id) !== 'pipe' && crouch && player.held() === null
+      && this.inReach(player,pos)) {
+      const face=fluidFace(pos.nx,pos.ny,pos.nz);
+      const eye={x:player.state.x,y:player.state.y+eyeHeight(player.state),z:player.state.z};
+      const hit=raycastBlock(this.world,eye,lookDirection(player.state.yaw,player.state.pitch),REACH_DISTANCE,isTargetable);
+      if(hit && hit.x===pos.x && hit.y===pos.y && hit.z===pos.z
+        && fluidFace(hit.nx,hit.ny,hit.nz)===face)this.fluids.cycle(pos.x,pos.y,pos.z,face);
+      return;
+    }
     if (id === BLOCK.WATER && player.held() === ITEM.EMPTY_BUCKET && this.inReach(player, pos)) {
       this.world.setBlock(pos.x, pos.y, pos.z, BLOCK.AIR);
       player.inventory.takeOne(player.selected);
@@ -886,7 +902,7 @@ export class Game {
       this.world.setBlock(x, y, z, id);
       this.leafDecay?.placed(x, y, z, id);
       const container = createContainer(getBlockDef(id).tileEntity);
-      if (container) this.world.tileEntities.set(`${x},${y},${z}`, container);
+      if (container) { this.world.tileEntities.set(`${x},${y},${z}`, container);this.fluids.attach(x,y,z,container); }
     }
     if (turretType(def.block)) this.turretController.place(pos.x, pos.y, pos.z, def.block, player.team);
     player.inventoryDirty = true;
@@ -1056,9 +1072,10 @@ export class Game {
   // and is told to close if it's gone or out of reach.
   updateContainers() {
     for (const [key, container] of this.world.tileEntities.activeEntries()) {
-      const wasLit = container.kind === 'furnace' && container.burn > 0;
-      if (container.tick()) container.dirty = true;
-      if (container.kind === 'furnace' && (container.burn > 0) !== wasLit) {
+      const isOven = container.kind === 'furnace' || container.kind === 'alloyFurnace';
+      const wasLit = isOven && container.burn > 0;
+      if (!['tank','boiler','crusher'].includes(container.kind) && container.tick()) container.dirty = true;
+      if (isOven && (container.burn > 0) !== wasLit) {
         const [x, y, z] = key.split(',').map(Number);
         this.broadcast({ type: S2C.FURNACE_LIT, x, y, z, lit: container.burn > 0 });
       }
@@ -2041,7 +2058,7 @@ export class Game {
         this.monkeys?.playerInput(player, input, wasGrounded);
         if (input.attack) this.stepAttack(player);
         this.stepBreaking(player, input.breaking);
-        if (input.use) this.stepUse(player, input.use);
+        if (input.use) this.stepUse(player, input.use, input.crouch);
         else if (input.place) this.stepPlace(player, input.place, input.slot);
         if (input.spawnEgg) this.stepSpawnEgg(player, input.spawnEgg, input.slot);
         if (input.rift) this.stepRift(player);
@@ -2063,6 +2080,7 @@ export class Game {
     this.updateFlags();
     this.updatePortals();
     this.updateNpcs();
+    this.fluids.tick(this.tick);
     this.updateContainers();
 
     this.garrison.update(this.tick);

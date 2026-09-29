@@ -6,7 +6,7 @@
 // nothing) counts as bare hands for both.
 
 import {
-  HAND_STRENGTH, ATTACK_DAMAGE, ATTACK_COOLDOWN, KNOCKBACK_UP, BOW_FULL_DRAW, BOW_MIN_DRAW, CROSSBOW_LOAD_TIME, TICK_RATE,
+  HAND_STRENGTH, ATTACK_DAMAGE, ATTACK_COOLDOWN, KNOCKBACK_UP, BOW_FULL_DRAW, BOW_MIN_DRAW, CROSSBOW_LOAD_TIME, TICK_RATE, METALS,
 } from './config.js';
 import { ITEM } from './itemIds.js';
 import { modValue } from './modifiers.js';
@@ -23,7 +23,8 @@ export const FROST = { slow: 0.4, seconds: 2 };
 export const HAMMERS = {
   [ITEM.WOOD_HAMMER]: { strength: 2, speed: 1 },
   [ITEM.STONE_HAMMER]: { strength: 3, speed: 1.5 },
-  [ITEM.IRON_HAMMER]: { strength: 8, speed: 2 },
+  [ITEM.BRONZE_HAMMER]: { strength: METALS.hammer.bronzeStrength, speed: METALS.hammer.bronzeSpeed },
+  [ITEM.IRON_HAMMER]: { strength: METALS.hammer.ironStrength, speed: 2 },
 };
 
 // damage, cooldown (seconds); optional knockback (multiplier on the punch's),

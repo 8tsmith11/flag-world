@@ -10,20 +10,22 @@
 //   breakTime    - seconds of holding the break button to mine it
 //   drops        - item id dropped when broken (default: the block's own id), or null
 //   shape        - null for a plain cube, or a name the mesher draws from boxes
-//                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil', 'sapling', 'branch')
+//                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil',
+//                   'sapling', 'branch', 'pipe', 'fluidTank')
 //
 // Ladders and doors keep their state in the block id:
 //   ladder: LADDER + facing, where facing is the side of the cell it hangs on
 //           (toward the block holding it up)
 //   door:   DOOR + facing + 4 * open + 8 * upper half, where facing is the
 //           way the placing player looked
-//   furnace, chest, anvil: one id per facing (FACED), where facing is the way the
+//   furnace, alloy furnace, chest, anvil, pump: one id per facing (FACED), where facing is the way the
 //           front faces (toward the player who placed it). The first id is
 //           the item, the drop, and the id used in recipes.
 // Facing: 0 north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
-//   tileEntity   - name of the tile entity type attached when placed ('furnace', 'chest', 'anvil')
+//   tileEntity   - name of the tile entity type attached when placed
+//                  ('furnace', 'alloyFurnace', 'chest', 'anvil', 'tank', 'boiler', 'crusher')
 
-import { TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS } from './config.js';
+import { TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS, METALS, FLUID } from './config.js';
 import { ITEM } from './itemIds.js';
 
 export const BLOCK = {
@@ -73,6 +75,14 @@ export const BLOCK = {
   // The Ancient Lightning Monkey's cloud. Kept clear of the plant range above.
   STORM_CLOUD: 120,
   GLASS: 121,
+  COPPER_ORE: METALS.blockIds.copperOre,
+  TIN_ORE: METALS.blockIds.tinOre,
+  ALLOY_FURNACE: METALS.blockIds.alloyFurnace[0],
+  BRONZE_PIPE: FLUID.blockIds.pipe,
+  FLUID_TANK: FLUID.blockIds.tank,
+  WATER_PUMP: FLUID.blockIds.pump[0],
+  BOILER: FLUID.blockIds.boiler,
+  CRUSHER: FLUID.blockIds.crusher,
 };
 
 export function isWater(id) {
@@ -94,6 +104,8 @@ export const FACED = {
   [BLOCK.FURNACE]: [BLOCK.FURNACE, 38, 39, 40],
   [BLOCK.CHEST]: [BLOCK.CHEST, 35, 36, 37],
   [BLOCK.ANVIL]: [BLOCK.ANVIL, 54, 55, 56],
+  [BLOCK.ALLOY_FURNACE]: METALS.blockIds.alloyFurnace,
+  [BLOCK.WATER_PUMP]: FLUID.blockIds.pump,
 };
 
 FACED[BLOCK.TORCH] = [85, 86, 87, 88];
@@ -111,7 +123,16 @@ export function blockBase(id) {
 }
 
 export function isFurnace(id) {
-  return blockBase(id).base === BLOCK.FURNACE;
+  return [BLOCK.FURNACE, BLOCK.ALLOY_FURNACE].includes(blockBase(id).base);
+}
+export function fluidKind(id) {
+  const base = blockBase(id).base;
+  if (base === BLOCK.BRONZE_PIPE) return 'pipe';
+  if (base === BLOCK.FLUID_TANK) return 'tank';
+  if (base === BLOCK.WATER_PUMP) return 'pump';
+  if (base === BLOCK.BOILER) return 'boiler';
+  if (base === BLOCK.CRUSHER) return 'crusher';
+  return null;
 }
 
 export function isChest(id) {
@@ -236,9 +257,9 @@ define(BLOCK.STONE, 'stone', { color: 0x8a8a8a, hardness: 2, breakTime: 1.5 });
 define(BLOCK.GOBLIN_BRICKS, 'goblin bricks', { color: 0x657258, hardness: GOBLIN_GEN.brickHardness, breakTime: GOBLIN_GEN.brickBreakTime });
 for (const id of FACED[BLOCK.POISON_TRAP]) define(id, 'hidden poison shooter', { color: 0x657258, hardness: GOBLIN_GEN.brickHardness, breakTime: GOBLIN_GEN.brickBreakTime, drops: BLOCK.GOBLIN_BRICKS });
 define(BLOCK.QUARRY_STONE, 'quarry stone', { color: 0x343b42, hardness: 8, breakTime: 4 });
-define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: 4, breakTime: 1.5 });
-define(BLOCK.MOSSY_STONE_BRICKS, 'mossy stone bricks', { color: 0x778a70, hardness: 4, breakTime: 1.5 });
-define(BLOCK.CRACKED_STONE_BRICKS, 'cracked stone bricks', { color: 0x858480, hardness: 4, breakTime: 1.5 });
+define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: METALS.hardness.ironTierBlocks, breakTime: 1.5 });
+define(BLOCK.MOSSY_STONE_BRICKS, 'mossy stone bricks', { color: 0x778a70, hardness: METALS.hardness.ironTierBlocks, breakTime: 1.5 });
+define(BLOCK.CRACKED_STONE_BRICKS, 'cracked stone bricks', { color: 0x858480, hardness: METALS.hardness.ironTierBlocks, breakTime: 1.5 });
 define(BLOCK.WATER, 'water', { solid: false, transparent: true, color: 0x3a6fd8, breakable: false, hardness: 0 });
 for (let level = 1; level <= 7; level++) {
   define(BLOCK.WATER_FLOW_1 + level - 1, 'flowing water', {
@@ -255,7 +276,9 @@ define(BLOCK.LEAVES, 'leaves', { color: WORLD_LOOK.leaves, breakTime: 0.2, drops
 define(BLOCK.SAPLING, 'sapling', { color: 0x50a346, solid: false, transparent: true,
   breakTime: 0.15, drops: ITEM.TREE_SEED, shape: 'sapling' });
 define(BLOCK.PLANKS, 'planks', { color: 0xb58a55, breakTime: 0.8 });
-define(BLOCK.IRON_ORE, 'iron ore', { color: 0xb88a6a, hardness: 3, breakTime: 2 });
+define(BLOCK.IRON_ORE, 'iron ore', { color: 0xb88a6a, hardness: METALS.hardness.ironOre, breakTime: 2 });
+define(BLOCK.COPPER_ORE, 'copper ore', { color: 0xb87342, hardness: METALS.hardness.copperOre, breakTime: 2 });
+define(BLOCK.TIN_ORE, 'tin ore', { color: 0xb7c6cc, hardness: METALS.hardness.tinOre, breakTime: 2 });
 define(BLOCK.GLASS, 'glass', { color: 0xc9edf5, transparent: true, lightOpaque: false,
   hardness: 1, breakTime: 0.4, icon: '/textures/glass.svg' });
 define(BLOCK.SAND, 'sand', { color: 0xdccf8e, breakTime: 0.5 });
@@ -268,6 +291,20 @@ for (const id of FACED[BLOCK.FURNACE]) {
     color: 0x6e6e72, hardness: 2, breakTime: 1.5, tileEntity: 'furnace', shape: 'furnace', drops: BLOCK.FURNACE,
   });
 }
+for (const id of FACED[BLOCK.ALLOY_FURNACE]) {
+  define(id, 'alloy furnace', {
+    color: 0x9b765d, hardness: 2, breakTime: 1.5, tileEntity: 'alloyFurnace', shape: 'furnace', drops: BLOCK.ALLOY_FURNACE,
+  });
+}
+define(BLOCK.BRONZE_PIPE, 'bronze pipe', { color: 0xb8793e, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.pipeBreakTime,
+  transparent: true, lightOpaque: false, shape: 'pipe' });
+define(BLOCK.FLUID_TANK, 'fluid tank', { color: 0x8c9a9d, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.tankBreakTime,
+  transparent: true, lightOpaque: false, shape: 'fluidTank', tileEntity: 'tank' });
+for (const id of FACED[BLOCK.WATER_PUMP]) define(id, 'water pump', {
+  color: 0x98683e, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.pumpBreakTime, drops: BLOCK.WATER_PUMP,
+});
+define(BLOCK.BOILER, 'boiler', { color: 0x797b7c, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.boilerBreakTime, tileEntity: 'boiler' });
+define(BLOCK.CRUSHER, 'crusher', { color: 0x555c61, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.crusherBreakTime, tileEntity: 'crusher' });
 for (const id of FACED[BLOCK.CHEST]) {
   define(id, 'chest', {
     color: 0x9c6b30, breakTime: 1, tileEntity: 'chest', shape: 'chest', transparent: true, drops: BLOCK.CHEST,
@@ -286,7 +323,7 @@ for (let facing = 0; facing < 4; facing++) {
       });
       define(doorBlock(facing, open, upper, true), 'reinforced door', {
         solid: !open, transparent: true, lightOpaque: !open, shape: 'door', color: 0xa5a8ac,
-        hardness: 4, breakTime: 2, drops: ITEM.REINFORCED_DOOR,
+        hardness: METALS.hardness.ironTierBlocks, breakTime: 2, drops: ITEM.REINFORCED_DOOR,
       });
     }
   }

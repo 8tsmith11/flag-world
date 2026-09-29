@@ -13,10 +13,10 @@
 //                   modifiers, and a Reroll button.
 
 import * as THREE from 'three';
-import { HOTBAR_SIZE, INVENTORY_SIZE } from '/shared/config.js';
+import { HOTBAR_SIZE, INVENTORY_SIZE, FLUID } from '/shared/config.js';
 
 const CHEST_SIZE = 27;
-export const CONTAINERS = ['furnace', 'chest', 'anvil'];
+export const CONTAINERS = ['furnace', 'alloyFurnace', 'tank', 'boiler', 'crusher', 'chest', 'anvil'];
 import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
 import { recipesAt, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
@@ -72,6 +72,12 @@ export class InventoryScreen {
 
     this.furnaceSlots = [...document.querySelectorAll('[data-furnace]')];
     this.furnaceSlots.forEach((slot, i) => this.onClick(slot, i, true));
+    this.alloySlots = [...document.querySelectorAll('[data-alloy]')];
+    this.alloySlots.forEach((slot, i) => this.onClick(slot, i, true));
+    this.boilerSlots=[...document.querySelectorAll('[data-boiler]')];
+    this.boilerSlots.forEach((slot,i)=>this.onClick(slot,i,true));
+    this.crusherSlots=[...document.querySelectorAll('[data-crusher]')];
+    this.crusherSlots.forEach((slot,i)=>this.onClick(slot,i,true));
     this.chestSlots = [];
     const chest = document.getElementById('inv-chest');
     for (let i = 0; i < CHEST_SIZE; i++) {
@@ -91,6 +97,8 @@ export class InventoryScreen {
     this.anvilStack = null;
     this.flame = document.querySelector('.furnace .flame .fill');
     this.arrow = document.querySelector('.furnace-arrow .fill');
+    this.alloyFlame = document.querySelector('#inv-alloy-furnace .flame .fill');
+    this.alloyArrow = document.querySelector('#inv-alloy-furnace .furnace-arrow .fill');
 
     document.getElementById('inventory').addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('mousemove', (e) => {
@@ -143,12 +151,18 @@ export class InventoryScreen {
     document.getElementById('inv-accessory-panel').hidden = container;
     document.querySelector('.inv-crafting').hidden = container;
     document.getElementById('inv-furnace').hidden = mode !== 'furnace';
+    document.getElementById('inv-alloy-furnace').hidden = mode !== 'alloyFurnace';
+    for(const kind of ['tank','boiler','crusher'])document.getElementById(`inv-${kind}`).hidden=mode!==kind;
     document.getElementById('inv-chest-panel').hidden = mode !== 'chest';
     document.getElementById('inv-anvil').hidden = mode !== 'anvil';
     document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : mode === 'workbench' ? 'Workbench' : 'Crafting';
     this.creativeControls.hidden = !this.creative || container;
     // Empty until the server's first CONTAINER message arrives.
     if (mode === 'furnace') this.setContainer({ kind: 'furnace', slots: [null, null, null], burn: 0, progress: 0 });
+    if (mode === 'alloyFurnace') this.setContainer({ kind: 'alloyFurnace', slots: [null, null, null, null], burn: 0, progress: 0 });
+    if (mode === 'tank') this.setContainer({kind:'tank',slots:[],fluid:null,amount:0,capacity:FLUID.tankCapacity});
+    if (mode === 'boiler') this.setContainer({kind:'boiler',slots:[null],burn:0,water:0,steam:0});
+    if (mode === 'crusher') this.setContainer({kind:'crusher',slots:[null,null],progress:0,steamReceived:0});
     if (mode === 'chest') this.setContainer({ kind: 'chest', slots: new Array(CHEST_SIZE).fill(null) });
     if (mode === 'anvil') this.setContainer({ kind: 'anvil', slots: [null] });
     if (!container && !this.preview) this.createPreview(color);
@@ -173,6 +187,21 @@ export class InventoryScreen {
 
   // view: the server's CONTAINER message ({ kind, slots, ... }).
   setContainer(view) {
+    if(view.kind==='tank') {
+      document.getElementById('tank-readout').textContent=`${view.fluid??'Empty'} · ${Math.floor(view.amount)} / ${view.capacity}`;
+      return;
+    }
+    if(view.kind==='boiler') {
+      renderStack(this.boilerSlots[0],view.slots[0]);
+      document.getElementById('boiler-readout').textContent=`Fuel ${Math.ceil(view.burn*100)}% · Water ${view.water.toFixed(1)} / ${view.waterCapacity} · Steam ${view.steam.toFixed(1)} / ${view.steamCapacity}`;
+      return;
+    }
+    if(view.kind==='crusher') {
+      this.crusherSlots.forEach((el,i)=>renderStack(el,view.slots[i]));
+      document.querySelector('#inv-crusher .furnace-arrow .fill').style.width=`${view.progress*100}%`;
+      document.getElementById('crusher-readout').textContent=`Progress ${Math.floor(view.progress*100)}% · Steam ${view.steamReceived.toFixed(1)}/s`;
+      return;
+    }
     if (view.kind === 'chest') {
       this.chestSlots.forEach((el, i) => renderStack(el, view.slots[i]));
       return;
@@ -183,9 +212,10 @@ export class InventoryScreen {
       this.updateAnvil();
       return;
     }
-    this.furnaceSlots.forEach((el, i) => renderStack(el, view.slots[i]));
-    this.flame.style.height = `${view.burn * 100}%`;
-    this.arrow.style.width = `${view.progress * 100}%`;
+    const alloy = view.kind === 'alloyFurnace';
+    (alloy ? this.alloySlots : this.furnaceSlots).forEach((el, i) => renderStack(el, view.slots[i]));
+    (alloy ? this.alloyFlame : this.flame).style.height = `${view.burn * 100}%`;
+    (alloy ? this.alloyArrow : this.arrow).style.width = `${view.progress * 100}%`;
   }
 
   // sendClose: tell the server (it puts the cursor stack back). Not needed when

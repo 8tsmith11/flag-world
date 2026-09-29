@@ -10,7 +10,7 @@ import { CHUNK_SIZE, KEEP_HEIGHT, CENTRAL_EXTRA_DEPTH, VOID_BELOW_LOWEST_ISLAND,
   EEL_BAND } from './config.js';
 import { mulberry32, KEEP_REACH, buildKeep, plantTrees, sandShores, surfaceStats, growTree } from './structures.js';
 import { generateStructures } from './worldStructures.js';
-import { placeQuarries } from './quarryPlacement.js';
+import { placeQuarries, placeSurfaceQuarriesForTeams } from './quarryPlacement.js';
 import { generateRivers, finishRiverBanks } from './rivers.js';
 import { RIVER_SETTINGS } from './config.js';
 import { biomeWeights, biomeParameters, surfaceBiome, biomeCode } from './biomes.js';
@@ -581,9 +581,19 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
       const threshold = exposed && world.biomeAt(x, z) === 'mountains'
         ? BIOME_SETTINGS.mountainOreThreshold : exposed ? 0.69 : 0.83;
       if (noise3(x / 5 + 2000, y / 5, z / 5 + 2000) > threshold) {
+        // Exact generated columns separate stacked tiny islands from their parent.
+        const owner = terrains.find(t => t.kind === 'tiny' && y >= t.getBottom(x, z) && y <= t.getTop(x, z))
+          ?? terrains.find(t => t.kind !== 'tiny' && y >= t.getBottom(x, z) && y <= t.getTop(x, z));
+        if (!owner) continue;
+        const weights = ORE_SETTINGS[owner.kind === 'center' ? 'center' : owner.kind === 'tiny' ? 'tiny' : 'team'];
         let h=Math.imul(x,73856093)^Math.imul(y,19349663)^Math.imul(z,83492791)^world.seed;
         h=Math.imul(h^(h>>>16),2246822519);h=Math.imul(h^(h>>>13),3266489917);
-        if(((h^(h>>>16))>>>0)/4294967296<ORE_SETTINGS.ironDensity)world.setBlock(x, y, z, BLOCK.IRON_ORE);
+        const roll = ((h^(h>>>16))>>>0)/4294967296;
+        const total = weights.copper + weights.tin + weights.iron;
+        if (roll >= Math.min(1, total)) continue;
+        const choice = roll / Math.min(1, total) * total;
+        world.setBlock(x, y, z, choice < weights.copper ? BLOCK.COPPER_ORE
+          : choice < weights.copper + weights.tin ? BLOCK.TIN_ORE : BLOCK.IRON_ORE);
       }
     }
   }
@@ -620,6 +630,7 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
         noise, clusterScale:terrain.radius*BIOME_SETTINGS.forestClusterFraction });
   }
   generateFallenTrees(world,terrains);
+  placeSurfaceQuarriesForTeams(world,terrains,seed,config.quarry);
   world.treeGenerationMs=performance.now()-treeStart;
   finishRiverBanks(world);
   delete world.plantClearance;

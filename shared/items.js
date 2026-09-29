@@ -16,7 +16,7 @@
 //   armorPoints   - armor: damage reduction (see Game.damage); fireImmune: no dragon fire damage
 //   texture       - armor: 'scales' draws the pieces with a scaled texture
 
-import { MAX_STACK } from './config.js';
+import { MAX_STACK, METALS } from './config.js';
 import { BLOCK, getBlockDef, registeredBlockIds, ladderBlock, doorBlock, blockBase, isLadder, isDoor, doorState, isWater } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { ACCESSORIES, RIFT_ORB } from './accessories.js';
@@ -34,6 +34,7 @@ function defineItem(id, name, props) {
 
 // Tool heads and blades are drawn in their material's color.
 const IRON_COLOR = 0xd9d9de;
+const COPPER_COLOR = 0xb87342, TIN_COLOR = 0xb7c6cc, BRONZE_COLOR = 0xb8793e;
 const MATERIALS = [
   ['wood', getBlockDef(BLOCK.PLANKS).color, ITEM.WOOD_HAMMER, ITEM.WOOD_SWORD],
   ['stone', getBlockDef(BLOCK.STONE).color, ITEM.STONE_HAMMER, ITEM.STONE_SWORD],
@@ -44,6 +45,13 @@ for (const [material, color, hammer, sword] of MATERIALS) {
   defineItem(sword, `${material} sword`, { maxStack: 1, tool: 'sword', color, modCategory: 'melee' });
 }
 defineItem(ITEM.IRON_INGOT, 'iron ingot', { shape: 'ingot', color: IRON_COLOR });
+defineItem(ITEM.COPPER_INGOT, 'copper ingot', { shape: 'ingot', color: COPPER_COLOR });
+defineItem(ITEM.TIN_INGOT, 'tin ingot', { shape: 'ingot', color: TIN_COLOR });
+defineItem(ITEM.BRONZE_INGOT, 'bronze ingot', { shape: 'ingot', color: BRONZE_COLOR });
+defineItem(ITEM.IRON_DUST, 'iron dust', { shape: 'dust', color: IRON_COLOR });
+defineItem(ITEM.COPPER_DUST, 'copper dust', { shape: 'dust', color: COPPER_COLOR });
+defineItem(ITEM.TIN_DUST, 'tin dust', { shape: 'dust', color: TIN_COLOR });
+defineItem(ITEM.BRONZE_HAMMER, 'bronze hammer', { maxStack: 1, tool: 'hammer', color: BRONZE_COLOR, modCategory: 'hammer' });
 defineItem(ITEM.CHARCOAL, 'charcoal', { color: 0x292b30, icon: '/textures/charcoal.svg' });
 // Hold right click to draw, release to shoot (arrows are unlimited).
 defineItem(ITEM.BOW, 'bow', { maxStack: 1, tool: 'bow', color: 0x8a5a2b, modCategory: 'ranged' });
@@ -56,6 +64,8 @@ defineItem(ITEM.EMPTY_BUCKET, 'bucket', { maxStack: 1, shape: 'bucket', color: I
 defineItem(ITEM.WATER_BUCKET, 'water bucket', { maxStack: 1, block: BLOCK.WATER, shape: 'bucket', color: 0x3a6fd8 });
 defineItem(ITEM.LEATHER_ARMOR, 'leather armor', { maxStack: 1, shape: 'armor', color: 0x87512f, armorPoints: 3, modCategory: 'armor' });
 defineItem(ITEM.IRON_ARMOR, 'iron armor', { maxStack: 1, shape: 'armor', color: IRON_COLOR, armorPoints: 8, modCategory: 'armor' });
+defineItem(ITEM.BRONZE_ARMOR, 'bronze armor', { maxStack: 1, shape: 'armor', color: BRONZE_COLOR,
+  armorPoints: METALS.bronzeArmorPoints, texture: 'bronze', modCategory: 'armor' });
 // Crafted from Dragon Scales (dropped by dragons); shrugs off dragon fire.
 defineItem(ITEM.DRAGONSCALE_ARMOR, 'dragonscale armor', {
   maxStack: 1, shape: 'armor', color: 0x3a2a30, armorPoints: 9, fireImmune: true, texture: 'scales', modCategory: 'armor',

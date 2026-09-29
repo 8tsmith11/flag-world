@@ -19,7 +19,7 @@ export class FurnaceEffects {
 
   setLit(x, y, z, lit) {
     const key = `${x},${y},${z}`;
-    if (!lit || blockBase(this.world.getBlock(x, y, z)).base !== BLOCK.FURNACE) {
+    if (!lit || ![BLOCK.FURNACE, BLOCK.ALLOY_FURNACE].includes(blockBase(this.world.getBlock(x, y, z)).base)) {
       this.remove(key);
       return;
     }

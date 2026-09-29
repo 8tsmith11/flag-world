@@ -18,7 +18,7 @@ const BUILDS_PER_FRAME = C.buildsPerFrame;
 // back and forth over the edge doesn't rebuild them.
 const UNLOAD_MARGIN = C.unloadMargin;
 
-function ironTexture() {
+function ironTexture(dark = '#9d603d', light = '#e5b278', middle = '#d39b61') {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 32;
   const ctx = canvas.getContext('2d');
@@ -33,9 +33,9 @@ function ironTexture() {
   }
   for (let i = 0; i < 14; i++) {
     const x = Math.floor(random() * 30), y = Math.floor(random() * 30);
-    ctx.fillStyle = i % 3 === 0 ? '#d39b61' : '#9d603d';
+    ctx.fillStyle = i % 3 === 0 ? middle : dark;
     ctx.fillRect(x, y, 3 + Math.floor(random() * 4), 2 + Math.floor(random() * 3));
-    ctx.fillStyle = '#e5b278';
+    ctx.fillStyle = light;
     ctx.fillRect(x + 1, y, 1 + Math.floor(random() * 2), 1);
   }
   const texture = new THREE.CanvasTexture(canvas);
@@ -181,7 +181,8 @@ function goblinBrickTexture() {
 
 // Extruded gutters isolate tiles through the useful mip levels.
 function blockAtlas(renderer) {
-  const sources = { ore: ironTexture(), bricks: stoneBrickTexture(), mossyBricks: stoneBrickTexture('mossy'),
+  const sources = { ore: ironTexture(), copperOre: ironTexture('#9d4c30', '#eba36c', '#c67645'),
+    tinOre: ironTexture('#788e9b', '#d9e5e8', '#a9bdc7'), bricks: stoneBrickTexture(), mossyBricks: stoneBrickTexture('mossy'),
     crackedBricks: stoneBrickTexture('cracked'), planks: patternedTexture('planks'),
     woodSides: patternedTexture('woodSides'), woodEnds: patternedTexture('woodEnds'), quarry: patternedTexture('quarry') };
   sources.goblinBricks = goblinBrickTexture();

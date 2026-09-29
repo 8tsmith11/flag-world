@@ -83,7 +83,37 @@
           <div class="furnace-arrow" title="Smelting"><div class="fill"></div></div>
           <div class="slot" data-furnace="2" title="Output"></div>
         </div>
-        <p class="hint">Smelt logs into charcoal, sand into glass, iron ore into ingots or raw beef into cooked beef. Fuel: charcoal (8 items), wood (2) or planks (1).</p>
+        <p class="hint">Smelt copper, tin and iron ore into ingots. Fuel: charcoal (8 items), wood (2) or planks (1).</p>
+      </div>
+      <div id="inv-alloy-furnace" class="inv-side" hidden>
+        <h2>Alloy Furnace</h2>
+        <div class="furnace">
+          <div class="furnace-in">
+            <div class="slot" data-alloy="0" title="Copper or tin"></div>
+            <div class="slot" data-alloy="1" title="Copper or tin"></div>
+            <div class="flame" title="Fuel left"><div class="fill"></div></div>
+            <div class="slot" data-alloy="2" title="Fuel"></div>
+          </div>
+          <div class="furnace-arrow" title="Alloying"><div class="fill"></div></div>
+          <div class="slot" data-alloy="3" title="Bronze output"></div>
+        </div>
+        <p class="hint">3 copper ingots + 1 tin ingot make 4 bronze ingots in 5 seconds.</p>
+      </div>
+      <div id="inv-tank" class="inv-side" hidden>
+        <h2>Fluid Tank</h2><p id="tank-readout">Empty · 0 / 4000</p>
+        <p class="hint">Crouch and right click a face with an empty hand to change its port.</p>
+      </div>
+      <div id="inv-boiler" class="inv-side" hidden>
+        <h2>Boiler</h2>
+        <div class="slot" data-boiler="0" title="Charcoal or wood fuel"></div>
+        <p id="boiler-readout">Fuel 0% · Water 0 · Steam 0</p>
+      </div>
+      <div id="inv-crusher" class="inv-side" hidden>
+        <h2>Crusher</h2>
+        <div class="furnace"><div class="slot" data-crusher="0" title="Stone or ore input"></div>
+          <div class="furnace-arrow"><div class="fill"></div></div>
+          <div class="slot" data-crusher="1" title="Output"></div></div>
+        <p id="crusher-readout">Progress 0% · Steam 0/s</p>
       </div>
       <div id="inv-anvil" class="inv-side" hidden>
         <h2>Anvil</h2>
