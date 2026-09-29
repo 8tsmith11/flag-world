@@ -7,6 +7,9 @@ import { WISE_MONKEY_HINTS, WISE_MONKEY_CLUES, WISE_MONKEY_COMPLETE, WISE_MONKEY
 import { conditionMet, emptyProgress } from '../shared/dialogue.js';
 import { registeredItemIds } from '../shared/items.js';
 import { MONKEY_SOUNDS } from '../shared/audio.js';
+import { TeamProgress } from '../server/teamProgress.js';
+import { Inventory } from '../server/inventory.js';
+import { npcLine } from '../server/npcs.js';
 
 const known = new Set(registeredItemIds());
 const problems = [];
@@ -59,6 +62,28 @@ WISE_MONKEY_HINTS.forEach((hint, index) => {
   for (const [key, id] of firstOption(hint.done)) progress[key].add(id);
 });
 if (WISE_MONKEY_HINTS.some((hint) => !conditionMet(hint.done, { progress, features: {} }))) problems.push('hints never complete');
+
+// Simulate talking after each real progress action, including inventory
+// discovery by one team member. Suppress random world clues for this check.
+const teamProgress = new TeamProgress();
+const player = { id: 1, team: 0, inventory: new Inventory() };
+const monkey = { team: 0, def: { dialogue: 'wiseMonkey' }, lastLines: new Map() };
+const random = Math.random;
+try {
+  Math.random = () => 0.99;
+  for (const hint of WISE_MONKEY_HINTS) {
+    const spoken = npcLine(monkey, player, { progress: teamProgress.of(player.team), features: {} }).text;
+    if (!hint.lines.includes(spoken)) problems.push(`talk expected ${hint.id}, heard ${spoken}`);
+    for (const [key, id] of firstOption(hint.done)) {
+      if (key === 'obtained') {
+        player.inventory.add(id, 1);
+        teamProgress.noteInventory(player);
+      } else teamProgress[key](player.team, id);
+    }
+  }
+  const complete = npcLine(monkey, player, { progress: teamProgress.of(player.team), features: {} }).text;
+  if (!WISE_MONKEY_COMPLETE.includes(complete)) problems.push(`talk did not complete: ${complete}`);
+} finally { Math.random = random; }
 
 if (problems.length) {
   console.error(problems.join('\n'));

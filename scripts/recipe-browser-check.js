@@ -1,0 +1,34 @@
+// Discovery, station filtering, name search and crafting from a team's history.
+import assert from 'node:assert/strict';
+import { TeamProgress } from '../server/teamProgress.js';
+import { Inventory } from '../server/inventory.js';
+import { BLOCK } from '../shared/blocks.js';
+import { ITEM } from '../shared/itemIds.js';
+import { browserRecipes, canAfford, countItems, getRecipe, recipesAt } from '../shared/recipes.js';
+
+const progress = new TeamProgress();
+const one = {team:0,inventory:new Inventory()};
+const two = {team:0,inventory:new Inventory()};
+assert.deepEqual(browserRecipes('workbench',progress.of(0).obtained),[]);
+one.inventory.add(ITEM.COPPER_INGOT,1);
+assert.deepEqual(progress.noteInventory(one),[ITEM.COPPER_INGOT]);
+assert.deepEqual(progress.noteInventory(one),[]);
+const discovered=progress.of(two.team).obtained;
+const copperRecipes=browserRecipes('workbench',discovered);
+assert.ok(copperRecipes.some(r=>r.id==='alloy_furnace'));
+assert.ok(copperRecipes.some(r=>r.id==='bucket'));
+assert.equal(browserRecipes(null,discovered).some(r=>r.id==='alloy_furnace'),false);
+assert.deepEqual(browserRecipes('workbench',discovered,'  ALLOY furnace ').map(r=>r.id),['alloy_furnace']);
+assert.deepEqual(browserRecipes('workbench',discovered,'does not exist'),[]);
+const alloy=getRecipe('alloy_furnace');
+assert.equal(canAfford(alloy,one.inventory.slots),false);
+assert.equal(countItems(one.inventory.slots).get(ITEM.COPPER_INGOT),1);
+assert.equal(alloy.inputs.find(i=>i.item===ITEM.COPPER_INGOT).count,4);
+assert.equal(one.inventory.craft(alloy),false);
+one.inventory.add(ITEM.COPPER_INGOT,3);
+one.inventory.add(BLOCK.FURNACE,1);
+assert.equal(canAfford(alloy,one.inventory.slots),true);
+assert.equal(one.inventory.craft(alloy),true);
+assert.equal(countItems(one.inventory.slots).get(BLOCK.ALLOY_FURNACE),1);
+assert.equal(recipesAt('workbench',true).length>copperRecipes.length,true);
+console.log('OK: team copper discovery, station filter, output search, have/need and crafting');

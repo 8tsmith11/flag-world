@@ -560,6 +560,7 @@ export class Game {
       entities: [...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
         ...this.mobs.values(), ...this.npcs.values()].map((e) => e.describe()),
       inventory: player.inventory,
+      teamObtained: [...this.teamProgress.of(player.team).obtained],
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
       portals: [...this.portals.values()].map(({ id, x, y, z, expiresTick }) => ({ id, x, y, z, expiresTick })),
       winnerId: this.winnerId,
@@ -2096,7 +2097,10 @@ export class Game {
     for (const player of this.players.values()) {
       if (!player.inventoryDirty) continue;
       player.inventoryDirty = false;
-      this.teamProgress.noteInventory(player);
+      const discovered = this.teamProgress.noteInventory(player);
+      if (discovered.length) for (const teammate of this.players.values()) {
+        if (teammate.team === player.team) this.send(teammate, { type: S2C.TEAM_OBTAINED, items: discovered });
+      }
       this.send(player, { type: S2C.INVENTORY, ...player.inventory.toJSON() });
     }
 

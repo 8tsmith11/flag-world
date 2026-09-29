@@ -34,6 +34,7 @@ export const S2C = {
   ENTITY_SPAWN: 'entitySpawn',
   ENTITY_DESPAWN: 'entityDespawn',
   INVENTORY: 'inventory',
+  TEAM_OBTAINED: 'teamObtained', // {items}: new ingredient ids seen by this player's team
   DAMAGE: 'damage',
   DEATH: 'death',
   FLAG_EVENT: 'flagEvent',

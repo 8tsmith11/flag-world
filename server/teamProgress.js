@@ -18,9 +18,14 @@ export class TeamProgress {
   // Everything the player holds now, whichever way it arrived.
   noteInventory(player) {
     const { obtained } = this.of(player.team), inventory = player.inventory;
+    const discovered = [];
     for (const stack of [...inventory.slots, inventory.cursor, inventory.armor, inventory.accessory]) {
-      if (stack) obtained.add(stack.item);
+      if (stack && !obtained.has(stack.item)) {
+        obtained.add(stack.item);
+        discovered.push(stack.item);
+      }
     }
+    return discovered;
   }
 
   crafted(team, item) {

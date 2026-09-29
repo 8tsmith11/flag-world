@@ -293,7 +293,7 @@ document.getElementById('settings').addEventListener('click', (e) => e.stopPropa
 window.addEventListener('keydown', (e) => {
   // Still locked means this is the same E press that just opened it.
   if (!inventoryScreen.open || e.repeat || input.locked) return;
-  if (e.code === 'KeyE') closeInventory(true);
+  if (e.code === 'KeyE' && e.target !== inventoryScreen.recipeSearch) closeInventory(true);
   else if (e.code === 'Escape') closeInventory(false);
 });
 
@@ -513,6 +513,7 @@ function startGame(msg, generated) {
   self = msg.players.find((p) => p.id === msg.id);
   audioSettings.setPlayer(self.name);
   player = new LocalPlayer(msg.id, msg.color, self, world);
+  inventoryScreen.setObtained(msg.teamObtained ?? []);
   setCreative(!!msg.creative);
   inventoryScreen.setCreativeState({ immortal: !!msg.immortal, flying: !!msg.flying,
     invisible: !!msg.invisible });
@@ -606,6 +607,7 @@ conn.on(S2C.DAY_TIME, (msg) => {
 });
 conn.on(S2C.INVENTORY, (msg) => setInventory({ slots: msg.slots, cursor: msg.cursor,
   armor: msg.armor, accessory: msg.accessory }));
+conn.on(S2C.TEAM_OBTAINED, (msg) => inventoryScreen.addObtained(msg.items));
 conn.on(S2C.SWING, (msg) => entities.swing(msg.id));
 // An NPC answered us (only us): subtitle and voice, and its jaw moves.
 conn.on(S2C.SPEAK, (msg) => {

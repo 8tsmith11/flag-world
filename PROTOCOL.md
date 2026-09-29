@@ -398,6 +398,11 @@ matching Dust. A furnace smelts each Dust into one matching ingot.
 While creative mode is enabled, `creative:<itemId>` recipes provide every
 canonical block and non-block item for free, without a station or
 modifiers. The server rejects those recipe ids for other players.
+Normal inventory and workbench crafting screens show recipes once anyone on
+the player's team has held at least one ingredient. Search filters these by
+output name. Recipes still require all ingredients in the player's own
+inventory to craft; unavailable recipes are greyed out and show have / need
+for each ingredient. Creative crafting keeps its full catalogue.
 
 ### `creativeToggle`
 
@@ -756,6 +761,7 @@ reclaim.
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
 | `fluidNodes` | FluidNode[] | Current pipes, face modes and tank contents; see `fluidState` |
 | `litBoilers` | `{x,y,z}[]` | Boilers currently converting water to steam; restore their plumes |
+| `teamObtained` | int[] | Item ids that a member of your team has ever held in an inventory; seeds normal recipe discovery |
 | `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Orb portals; `expiresTick` is a server tick |
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
 | `flags`   | FlagInfo[]    | One flag per occupied team |
@@ -852,6 +858,13 @@ InventoryState.
 |----------|-----------------------|-------|
 | `slots`  | (ItemStack \| null)[] | 36 slots |
 | `cursor` | ItemStack \| null     | Stack on the mouse |
+
+### `teamObtained`
+
+Sent to each connected member of a team when an inventory update discovers
+new item types: `{items: int[]}`. Clients add these ids to their team history
+and refresh the normal recipe browser. Reclaiming players receive the full
+history in `welcome.teamObtained`.
 
 Pickup: after a short delay (0.5 s for block drops, 2 s for thrown items), an
 item within 1.5 blocks of a player's body goes into their inventory. It tops up
@@ -1323,7 +1336,10 @@ shortcuts through that API. Browser/OS permissions still govern key capture.
   `WISE_MONKEY_HINTS` (`shared/npcLines.js`), judged on the team's progress:
   items that have been in a member's inventory, items crafted and items
   placed (`server/teamProgress.js`). With chance `DIALOGUE.clueChance` it gives
-  a clue about the world instead. Other teams get a dismissive line.
+  a clue about the world instead. The progression includes surface Quarry
+  Stones, copper and tin, bronze alloying and gear, iron locations, pumps and
+  pipes, boilers, and steam crushers. Each advances when the team obtains,
+  crafts or places the relevant items. Other teams get a dismissive line.
 - A Wise Monkey has `NPC.wiseMonkey.hp` HP, takes damage from anyone's punches
   and arrows (`damage`), never fights back, and once killed is gone for the
   match (`entityDespawn`), taking its team's hints with it.

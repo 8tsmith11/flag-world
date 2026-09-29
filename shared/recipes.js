@@ -8,7 +8,7 @@
 import { LIGHTING, METALS, FLUID } from './config.js';
 import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
-import { creativeItemIds } from './items.js';
+import { creativeItemIds, getItemDef } from './items.js';
 
 const needs = (...pairs) => pairs.map(([item, count]) => ({ item, count }));
 
@@ -100,6 +100,14 @@ export function getRecipe(id) {
 // Recipes usable at a station (null = just the inventory screen).
 export function recipesAt(station, creative = false) {
   return creative ? CREATIVE_RECIPES : RECIPES.filter((r) => r.station === null || r.station === station);
+}
+
+// A team discovers a recipe as soon as anyone has held one ingredient.
+// Search is by the output's display name, not its internal recipe id.
+export function browserRecipes(station, obtained, query = '') {
+  const needle = query.trim().toLocaleLowerCase();
+  return recipesAt(station).filter(recipe => recipe.inputs.some(({ item }) => obtained.has(item))
+    && (!needle || getItemDef(recipe.output).name.toLocaleLowerCase().includes(needle)));
 }
 
 // Total count of each item across inventory slots (null = empty).

@@ -1,10 +1,10 @@
-// Inventory screen, in four modes. All show the 27-slot main grid and the
+// Inventory screen, in crafting and container modes. All show the 27-slot main grid and the
 // hotbar row. Clicks go to the server, which moves the stacks and answers with
 // the new inventory (and container); nothing changes locally until then.
 // Shift-click moves a stack across: between a container and the inventory,
 // or with no container, between the hotbar and the main grid.
 //   inventory (E):  a slowly turning preview of your player model, and the
-//                   recipes you can afford right now that need no station
+//                   discovered recipes that need no station
 //   workbench:      the same, plus workbench recipes
 //   furnace, chest, anvil: containers, updated live by the server for everyone
 //                   who has them open. Furnace: input, fuel and output slots
@@ -19,7 +19,7 @@ const CHEST_SIZE = 27;
 export const CONTAINERS = ['furnace', 'alloyFurnace', 'tank', 'boiler', 'crusher', 'chest', 'anvil'];
 import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
-import { recipesAt, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
+import { recipesAt, browserRecipes, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
 import { canHaveMods, modLines, stackName } from '/shared/modifiers.js';
 import { renderStack } from './itemIcon.js';
 import { createPlayerModel, animatePlayer } from './render/models.js';
@@ -31,6 +31,9 @@ export class InventoryScreen {
     this.conn = conn;
     this.cursorEl = document.getElementById('inv-cursor');
     this.recipeList = document.getElementById('inv-recipes');
+    this.recipeSearch = document.getElementById('inv-recipe-search');
+    this.recipeSearch.addEventListener('input', () => this.renderRecipes());
+    this.obtained = new Set();
     this.open = false;
     this.creative = false;
     this.creativeState = { immortal: false, flying: false, invisible: false };
@@ -156,6 +159,7 @@ export class InventoryScreen {
     document.getElementById('inv-chest-panel').hidden = mode !== 'chest';
     document.getElementById('inv-anvil').hidden = mode !== 'anvil';
     document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : mode === 'workbench' ? 'Workbench' : 'Crafting';
+    this.recipeSearch.hidden = this.creative;
     this.creativeControls.hidden = !this.creative || container;
     // Empty until the server's first CONTAINER message arrives.
     if (mode === 'furnace') this.setContainer({ kind: 'furnace', slots: [null, null, null], burn: 0, progress: 0 });
@@ -172,6 +176,7 @@ export class InventoryScreen {
   setCreative(enabled) {
     this.creative = !!enabled;
     this.creativeControls.hidden = !this.creative || CONTAINERS.includes(this.mode);
+    this.recipeSearch.hidden = this.creative;
     if (this.open) {
       document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : this.mode === 'workbench' ? 'Workbench' : 'Crafting';
       this.update(this.inventory);
@@ -183,6 +188,16 @@ export class InventoryScreen {
     document.getElementById('creative-immortal').textContent = `Immortality: ${this.creativeState.immortal ? 'On' : 'Off'}`;
     document.getElementById('creative-flight').textContent = `Flight: ${this.creativeState.flying ? 'On' : 'Off'}`;
     document.getElementById('creative-invisible').textContent = `Invisibility: ${this.creativeState.invisible ? 'On' : 'Off'}`;
+  }
+
+  setObtained(items) {
+    this.obtained = new Set(items);
+    if (this.open) this.renderRecipes();
+  }
+
+  addObtained(items) {
+    for (const item of items) this.obtained.add(item);
+    if (this.open) this.renderRecipes();
   }
 
   // view: the server's CONTAINER message ({ kind, slots, ... }).
@@ -252,14 +267,22 @@ export class InventoryScreen {
     renderStack(this.accessoryEl, inventory.accessory);
     if (this.mode === 'anvil') this.updateAnvil();
 
-    // Only what you can make right now here; rebuilt on every inventory change.
+    this.renderRecipes();
+  }
+
+  // Discovery comes from the team's history; affordability comes from this
+  // player's current inventory. Creative keeps its complete catalogue.
+  renderRecipes() {
     const station = this.mode === 'workbench' ? 'workbench' : null;
-    this.recipeList.replaceChildren(...recipesAt(station, this.creative)
-      .filter((r) => this.creative || canAfford(r, inventory.slots)).map((recipe) => {
+    const recipes = this.creative ? recipesAt(station, true)
+      : browserRecipes(station, this.obtained, this.recipeSearch.value);
+    const counts = countItems(this.inventory.slots);
+    this.recipeList.replaceChildren(...recipes.map((recipe) => {
       const li = document.createElement('li');
       const button = document.createElement('button');
       button.type = 'button';
-      button.disabled = !canAfford(recipe, inventory.slots);
+      const affordable = canAfford(recipe, this.inventory.slots);
+      button.disabled = !affordable;
       const out = document.createElement('div');
       out.className = 'slot';
       renderStack(out, { item: recipe.output, count: recipe.count });
@@ -268,7 +291,9 @@ export class InventoryScreen {
       const name = document.createElement('strong');
       name.textContent = getItemDef(recipe.output).name;
       const cost = document.createElement('span');
-      cost.textContent = recipe.inputs.map(({ item, count }) => `${count} ${getItemDef(item).name}`).join(' + ');
+      cost.textContent = recipe.inputs.map(({ item, count }) => affordable
+        ? `${count} ${getItemDef(item).name}`
+        : `${getItemDef(item).name} ${counts.get(item) ?? 0} / ${count}`).join(' + ');
       text.append(name, cost);
       button.append(out, text);
       // Workbench recipes are checked against the workbench's position.
@@ -279,7 +304,8 @@ export class InventoryScreen {
     if (!this.recipeList.children.length) {
       const li = document.createElement('li');
       li.className = 'hint';
-      li.textContent = 'Nothing you can craft yet.';
+      li.textContent = this.creative ? 'No creative recipes.'
+        : this.recipeSearch.value.trim() ? 'No matching recipes.' : 'Find ingredients to discover recipes.';
       this.recipeList.append(li);
     }
   }
