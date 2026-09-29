@@ -1650,7 +1650,7 @@ export class Game {
   // Right click on an NPC in reach: it answers this player only.
   talk(player, id) {
     const npc = this.npcs.get(id);
-    if (!npc || player.dead || this.tick < (player.nextTalkTick ?? 0)) return;
+    if (!npc || player.dead || (!(npc instanceof WorkMonkey) && this.tick < (player.nextTalkTick ?? 0))) return;
     const s = player.state, n = npc.state, box = npc.def.box;
     const eyeY = s.y + eyeHeight(s);
     const gap = Math.hypot(Math.max(0, Math.abs(s.x - n.x) - box.halfW), Math.max(0, n.y - eyeY, eyeY - (n.y + box.height)),
@@ -2033,10 +2033,12 @@ export class Game {
         if (input.eat && !getItemDef(player.held()).food) input.eat = false;
         if (input.glide && player.held() !== ITEM.GLIDER) input.glide = false;
         const prevY = player.state.y;
+        const wasGrounded = player.state.onGround;
         stepPlayer(player.state, input, this.world);
         this.checkVoid(player);
         if (!player.dead) this.trackFall(player, prevY);
         if (player.dead) continue;
+        this.monkeys?.playerInput(player, input, wasGrounded);
         if (input.attack) this.stepAttack(player);
         this.stepBreaking(player, input.breaking);
         if (input.use) this.stepUse(player, input.use);

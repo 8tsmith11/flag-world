@@ -1,7 +1,7 @@
 import { C2S, TEAMS } from '/shared/protocol.js';
-import { MONKEY_WORK as C } from '/shared/config.js';
+import { MONKEY_WORK as C, INVENTORY_SIZE, HOTBAR_SIZE } from '/shared/config.js';
 import { MONKEY_ROLES } from '/shared/monkeys.js';
-import { registeredItemIds, getItemDef } from '/shared/items.js';
+import { getItemDef } from '/shared/items.js';
 import { renderStack } from './itemIcon.js';
 
 const clone=data=>JSON.parse(JSON.stringify(data));
@@ -14,16 +14,16 @@ function button(text,action) {const b=element('button','',text);b.type='button';
 
 export class MonkeyScreen {
   constructor(conn) {
-    this.conn=conn;this.open=false;this.picking=null;this.timers=[];this.played=null;
+    this.conn=conn;this.open=false;this.picking=null;this.timers=[];this.played=null;this.worldGame=false;
+    this.inventory={slots:Array(INVENTORY_SIZE).fill(null),cursor:null};
     this.screen=element('div','screen hidden');this.screen.id='monkey';
     this.panel=element('div','panel card monkey-panel');this.screen.append(this.panel);document.body.append(this.screen);
+    this.cursorEl=element('div','monkey-cursor slot');this.cursorEl.hidden=true;document.body.append(this.cursorEl);
+    document.addEventListener('mousemove',e=>this.cursorEl.style.transform=`translate(${e.clientX}px, ${e.clientY}px)`);
+    this.screen.addEventListener('contextmenu',e=>e.preventDefault());
     window.addEventListener('keydown',e=>{
       if(!this.open||e.repeat)return;
       if(e.code==='Escape'){e.preventDefault();this.close(false);}
-      if(this.data?.mode==='tame'&&this.data.game==='simon'&&this.ready
-        &&(e.code==='Space'||e.code==='ShiftLeft'||e.code==='ShiftRight')) {
-        e.preventDefault();this.action('simon',e.code==='Space'?'jump':'crouch');
-      }
     });
   }
   action(action,value=null,extra={}) {
@@ -32,23 +32,31 @@ export class MonkeyScreen {
   timer(fn,ms) {const id=setTimeout(fn,ms);this.timers.push(id);return id;}
   clearTimers() {for(const id of this.timers)clearTimeout(id);this.timers=[];}
   receive(data) {
-    if(data.closed){if(this.open||this.picking)this.close(false,false);return;}
+    if(data.closed){if(this.open||this.picking||this.worldGame)this.close(false,false);return;}
     if(this.picking&&this.data?.id===data.id){this.data=data;return;}
-    const same=this.data?.id===data.id&&this.data?.mode===data.mode;
+    const wasOpen=this.open,same=this.data?.id===data.id&&this.data?.mode===data.mode;
     const unchanged=same&&data.mode==='configure'&&this.draftRevision===data.revision;
-    this.data=data;this.open=true;
-    if(unchanged) {
-      this.status.textContent=this.summary(data);this.message.textContent=data.message??'';return;
+    this.data=data;
+    if(data.mode==='tame'&&data.game==='simon') {
+      const changed=!this.worldGame||this.played!==data.session;
+      this.clearTimers();this.played=data.session;this.open=false;this.worldGame=true;
+      this.cursorEl.hidden=true;
+      if(changed)this.onWorldGame?.();
+      this.onCue?.(data.waitMs>0?'Watch the monkey jump and crouch. Then repeat with Space and Shift.':
+        `Your turn: jump with Space, crouch with Shift. ${data.progress}/${data.length} correct.`);
+      return;
     }
-    this.onOpen?.();
+    this.worldGame=false;this.open=true;
+    if(!wasOpen)this.onOpen?.();
+    if(unchanged) {
+      this.status.textContent=this.summary(data);this.message.textContent=data.message??'';
+      this.updateInventory();return;
+    }
     if(data.mode==='configure')this.renderConfig();
     else if(data.mode==='result')this.renderResult();
     else if(data.game==='memory')this.renderMemory();
     else if(!same||this.played!==data.session)this.renderSequence();
-    else {
-      this.progress.textContent=`${data.progress}/${data.sequence?.length??1} correct`;
-      this.busy=false;
-    }
+    this.updateInventory();
   }
   header(subtitle) {
     this.panel.replaceChildren();
@@ -76,27 +84,60 @@ export class MonkeyScreen {
     const filterLabel=element('label','','Item filter'),mode=element('select','');
     for(const value of ['blacklist','whitelist']){const option=element('option','',value==='blacklist'?'Collect everything except':'Only collect these items');option.value=value;mode.append(option);}
     mode.value=this.draft.filter.mode;mode.onchange=()=>this.draft.filter.mode=mode.value;filterLabel.append(mode);this.panel.append(filterLabel);
-    const search=element('input','monkey-search');search.placeholder='Find an item…';search.setAttribute('aria-label','Find filter items');
-    const catalogue=element('div','monkey-filter');
-    const ids=registeredItemIds().filter(id=>id!==0&&!getItemDef(id).name.startsWith('unknown'));
-    const draw=()=>{
-      const query=search.value.toLowerCase();catalogue.replaceChildren();
-      for(const id of ids.filter(id=>getItemDef(id).name.toLowerCase().includes(query))) {
-        const b=button('',()=>{
-          const list=this.draft.filter.items,i=list.indexOf(id);
-          if(i>=0)list.splice(i,1);else if(list.length<C.maxFilter)list.push(id);
-          b.classList.toggle('selected',list.includes(id));b.setAttribute('aria-pressed',list.includes(id));
-        });
-        b.className='monkey-filter-item';b.classList.toggle('selected',this.draft.filter.items.includes(id));
-        b.setAttribute('aria-pressed',this.draft.filter.items.includes(id));b.title=getItemDef(id).name;
-        const icon=element('span','slot');renderStack(icon,{item:id,count:1});b.append(icon,element('span','',getItemDef(id).name));catalogue.append(b);
-      }
-      this.disableForeign();
-    };
-    search.oninput=draw;this.panel.append(search,catalogue);draw();
+    this.filterGrid=element('div','monkey-filter inv');this.panel.append(
+      element('p','hint','Pick up an item from your inventory, then click a filter slot to copy its type. The item stays on your cursor. Click a filter with an empty cursor to remove it.'),this.filterGrid);
+    this.renderFilters();
+    this.panel.append(element('h2','','Monkey inventory'));
+    this.monkeySlots=this.inventoryGrid('monkey',Array.from({length:C.inventorySize},(_,i)=>i));
+    this.panel.append(this.monkeySlots.grid,element('p','hint','Store supplies here, including saplings for planting. Shift-click transfers stacks.'));
+    this.panel.append(element('h3','','Carrying to delivery target'));
+    this.cargoSlots=this.inventoryGrid('cargo',[0]);this.panel.append(this.cargoSlots.grid);
+    this.panel.append(element('h2','','Your inventory'));
+    this.playerSlots=this.inventoryGrid('player',[
+      ...Array.from({length:INVENTORY_SIZE-HOTBAR_SIZE},(_,i)=>i+HOTBAR_SIZE),
+      ...Array.from({length:HOTBAR_SIZE},(_,i)=>i)]);
+    this.panel.append(this.playerSlots.grid);
     const actions=element('div','row');
-    actions.append(button('Save settings',()=>{this.readForm();this.action('configure',null,{config:this.draft,revision:this.draftRevision});}),
-      button('Give 1 sapling',()=>this.action('seed')));this.panel.append(actions);
+    actions.append(button('Save settings',()=>{this.readForm();this.action('configure',null,{config:this.draft,revision:this.draftRevision});}));this.panel.append(actions);
+    this.updateInventory();
+    this.disableForeign();
+  }
+  inventoryGrid(grid,indices) {
+    const el=element('div','monkey-inventory inv'),slots=[];
+    for(const slot of indices) {
+      const cell=button('',()=>{});cell.className='slot';cell.setAttribute('aria-label',`${grid} slot ${slot+1}`);
+      cell.addEventListener('mousedown',e=>{
+        if((e.button!==0&&e.button!==2)||!this.data.editable)return;
+        e.preventDefault();this.action('inventory',null,{grid,slot,button:e.button===2?'right':'left',shift:e.shiftKey});
+      });slots[slot]=cell;el.append(cell);
+    }
+    return {grid:el,slots};
+  }
+  setInventory(inventory) {this.inventory=inventory;this.updateInventory();}
+  updateInventory() {
+    this.cursorEl.hidden=!this.open||this.data?.mode!=='configure';
+    renderStack(this.cursorEl,this.cursorEl.hidden?null:this.inventory.cursor);
+    if(this.data?.mode!=='configure'||!this.open)return;
+    for(const [els,stacks]of [[this.playerSlots,this.inventory.slots],[this.monkeySlots,this.data.slots??[]],[this.cargoSlots,[this.data.cargo]]]) {
+      els?.slots.forEach((el,i)=>renderStack(el,stacks[i]));
+    }
+  }
+  renderFilters() {
+    this.filterGrid.replaceChildren();
+    const list=this.draft.filter.items,count=Math.min(C.maxFilter,Math.max(18,list.length+1));
+    for(let i=0;i<count;i++) {
+      const cell=button('',()=>{
+        if(!this.data.editable)return;
+        const item=this.inventory.cursor?.item;
+        if(item) {
+          if(list.includes(item))return;
+          if(i<list.length)list[i]=item;else list.push(item);
+        } else if(i<list.length)list.splice(i,1);
+        this.renderFilters();
+      });
+      cell.className='slot';cell.setAttribute('aria-label',`Filter slot ${i+1}`);
+      renderStack(cell,list[i]?{item:list[i],count:1}:null);this.filterGrid.append(cell);
+    }
     this.disableForeign();
   }
   readForm() {if(this.radius){this.draft.radius=Number(this.radius.value);this.draft.vertical=Number(this.vertical.value);}}
@@ -116,7 +157,7 @@ export class MonkeyScreen {
         element('p','hint','From must be within your range of To. Furnace sources use output only; delivery fills fuel first, then input.'));
     } else this.details.append(this.targetRow('target','Delivery target'));
     if(lumberjack) {
-      this.details.append(element('p','hint','Mark tree bases or soil blocks. Each spot authorizes its whole column. Supply a sapling first; one is kept for replanting. Fallen saplings near marked spots go to the delivery target.'));
+      this.details.append(element('p','hint','Mark tree bases or soil blocks. Each spot authorizes its whole column. Put saplings in the monkey inventory first; one is kept for replanting. Fallen saplings near marked spots go to the delivery target.'));
       const list=element('ul','monkey-sites');
       this.draft.sites.forEach((p,i)=>{const li=element('li','');li.append(element('code','',coordinate(p)),button('Remove',()=>{this.draft.sites.splice(i,1);this.renderDraft();}));list.append(li);});
       this.details.append(list,button(`Add tree / planting spot (${this.draft.sites.length}/${C.maxSites})`,()=>this.pick('sites')));
@@ -125,7 +166,7 @@ export class MonkeyScreen {
   }
   pick(field) {
     this.readForm();if(field==='sites'&&this.draft.sites.length>=C.maxSites)return;
-    this.picking=field;this.open=false;this.onPick?.();
+    this.picking=field;this.open=false;this.cursorEl.hidden=true;this.onPick?.();
   }
   choose(p) {
     const point={x:p.x,y:p.y,z:p.z};
@@ -134,7 +175,7 @@ export class MonkeyScreen {
     } else {this.draft[this.picking]=point;if(this.picking==='to')this.draft.target=point;}
     this.cancelPick();
   }
-  cancelPick() {this.picking=null;this.open=true;this.renderDraft();this.onOpen?.();}
+  cancelPick() {this.picking=null;this.open=true;this.renderDraft();this.updateInventory();this.onOpen?.();}
   renderResult() {
     this.clearTimers();this.header('A new game is waiting.');
     this.panel.append(element('div','monkey-avatar','🐒'),button('Play again',()=>this.action('retry')));
@@ -151,41 +192,29 @@ export class MonkeyScreen {
     this.panel.append(grid,element('p','hint',`${this.data.progress}/6 pairs matched`));
   }
   renderSequence() {
-    this.clearTimers();this.played=this.data.session;this.ready=false;this.busy=false;
-    const simon=this.data.game==='simon',data=this.data;
-    this.header(simon?'Simon Says · Watch, then repeat with Space / Shift or the buttons.':'Cup shuffle · Watch the ball, then choose its cup.');
-    this.progress=element('p','monkey-status',simon?'Watch the monkey…':'Watch the ball…');
-    this.panel.append(this.progress);
-    const controls=[];
-    if(simon) {
-      const avatar=element('div','monkey-avatar','🐒'),cue=element('p','monkey-cue','Ready?');this.panel.append(avatar,cue);
-      for(const [value,label]of [['jump','Jump (Space)'],['crouch','Crouch (Shift)']]) {
-        const b=button(label,()=>{if(this.ready)this.action('simon',value);});b.disabled=true;controls.push(b);this.panel.append(b);
-      }
-      data.sequence.forEach((value,i)=>{
-        this.timer(()=>{avatar.className=`monkey-avatar ${value}`;cue.textContent=value==='jump'?'Jump!':'Crouch!';},(i+1)*data.stepMs);
-        this.timer(()=>{avatar.className='monkey-avatar';cue.textContent='…';},(i+1.7)*data.stepMs);
-      });
-    } else {
-      const stage=element('div','monkey-cups'),ball=element('span','monkey-ball');
-      const positions=[0,1,2],cups=[];
-      ball.style.left=`${data.ball*96+38}px`;stage.append(ball);
-      for(let i=0;i<3;i++) {
-        const b=button(String(i+1),()=>{if(this.ready)this.action('cup',positions[i]);});
-        b.className='monkey-cup';b.style.transform=`translateX(${i*96}px)`;b.disabled=true;stage.append(b);controls.push(b);cups.push(b);
-      }
-      this.panel.append(stage);
-      this.timer(()=>ball.hidden=true,data.stepMs*1.5);
-      data.swaps.forEach(([a,b],i)=>this.timer(()=>{
-        const ai=positions.indexOf(a),bi=positions.indexOf(b);[positions[ai],positions[bi]]=[b,a];
-        cups[ai].style.transform=`translateX(${b*96}px)`;cups[bi].style.transform=`translateX(${a*96}px)`;
-      },(i+2)*data.stepMs));
+    this.clearTimers();this.played=this.data.session;this.ready=false;
+    const data=this.data;
+    this.header('Cup shuffle · Watch the ball, then choose its cup.');
+    this.progress=element('p','monkey-status','Watch the ball…');this.panel.append(this.progress);
+    const stage=element('div','monkey-cups'),ball=element('span','monkey-ball');
+    const positions=[0,1,2],cups=[];
+    ball.style.left=`${data.ball*96+38}px`;stage.append(ball);
+    for(let i=0;i<3;i++) {
+      const b=button('',()=>{if(this.ready)this.action('cup',positions[i]);});
+      b.className='monkey-cup';b.setAttribute('aria-label','Choose cup');
+      b.style.transform=`translateX(${i*96}px)`;b.disabled=true;stage.append(b);cups.push(b);
     }
-    this.timer(()=>{this.ready=true;for(const b of controls)b.disabled=false;
-      this.progress.textContent=simon?'Your turn!':'Which cup has the ball?';},data.waitMs+100);
+    this.panel.append(stage);
+    this.timer(()=>ball.hidden=true,data.stepMs*1.5);
+    data.swaps.forEach(([a,b],i)=>this.timer(()=>{
+      const ai=positions.indexOf(a),bi=positions.indexOf(b);[positions[ai],positions[bi]]=[b,a];
+      cups[ai].style.transform=`translateX(${b*96}px)`;cups[bi].style.transform=`translateX(${a*96}px)`;
+    },(i+2)*data.stepMs));
+    this.timer(()=>{this.ready=true;for(const b of cups)b.disabled=false;
+      this.progress.textContent='Which cup has the ball?';},data.waitMs+100);
   }
   close(relock=false,send=true) {
-    if(send&&this.data)this.action('close');this.clearTimers();this.open=false;this.picking=null;
+    if(send&&this.data)this.action('close');this.clearTimers();this.open=false;this.picking=null;this.worldGame=false;this.cursorEl.hidden=true;
     this.onClose?.(relock);
   }
 }

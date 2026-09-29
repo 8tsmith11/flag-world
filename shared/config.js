@@ -327,9 +327,11 @@ export const DAY_START = 0.04;
 // Furnace: seconds to smelt one item.
 export const SMELT_TIME = 5;
 export const ORE_SETTINGS = { ironDensity: 0.5 };
+export const GLASS_SETTINGS = { opacity: 0.22 };
 export const MONKEY_WORK = {
+  wildColor: 0x756044,
   maxRadius: 24, defaultRadius: 16, maxVertical: 3, maxSites: 16, maxFilter: 128,
-  box: { halfW: 0.4, height: 1.4 }, speed: 0.75, capacity: 16,
+  box: { halfW: 0.4, height: 1.4 }, speed: 0.75, capacity: 16, inventorySize: 9,
   thinkTicks: 10, pathNodes: 600, pathsPerTick: 4, stuckTicks: 40,
   chopTicks: 60, chopBlocksPerThink: 12, maxTreeHeight: 64, configureReach: 32,
   spawnArea: 2200, minSpawns: 1, maxSpawns: 6, spawnAttempts: 160,

@@ -17,7 +17,7 @@ export const C2S = {
   CREATIVE_TOGGLE: 'creativeToggle',
   CREATIVE_ACTION: 'creativeAction', // {action}
   TALK: 'talk', // {id}: right click on an NPC
-  MONKEY_ACTION: 'monkeyAction', // {id,action,...}: taming, configuration, seed supply, close
+  MONKEY_ACTION: 'monkeyAction', // {id,action,...}: GUI games, configuration, inventory slots, close
 };
 
 // Server -> client
@@ -49,7 +49,7 @@ export const S2C = {
   CREATIVE: 'creative', // {enabled,immortal,flying,invisible}
   DAY_TIME: 'dayTime',
   SPEAK: 'speak', // {id,name,voice,text,sound}: private NPC line with a subtitle
-  MONKEY: 'monkey', // Private taming/configuration view; closed:true dismisses it
+  MONKEY: 'monkey', // Private taming/configuration/inventory view; Simon uses world movement
 };
 
 // Where a flag is, in FlagState.

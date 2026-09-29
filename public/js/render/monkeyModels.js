@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import { TEAMS } from '/shared/protocol.js';
 import { NPC_DEFS } from '/shared/npcs.js';
+import { MONKEY_WORK } from '/shared/config.js';
 
 const lambert = (color) => new THREE.MeshLambertMaterial({ color });
 const mix = (a, b, t) => new THREE.Color(a).lerp(new THREE.Color(b), t).getHex();
@@ -44,6 +45,9 @@ const POSES = {
   // On all fours, knuckles on the ground.
   walk: { hip: 0.95, pitch: -0.85, thigh: 0.25, knee: -0.2, shoulder: 0.85, elbow: -0.1, spread: 0.1 },
   look: { hip: 0.95, pitch: -0.8, thigh: 0.25, knee: -0.2, shoulder: 0.8, elbow: -0.1, spread: 0.1 },
+  ready: { hip: 1, pitch: -0.1, thigh: 0.05, knee: -0.1, shoulder: 0.1, elbow: -0.15, spread: 0.1 },
+  crouch: { hip: 0.55, pitch: -0.4, thigh: 0.9, knee: -1.4, shoulder: 0.4, elbow: -0.1, spread: 0.1 },
+  jump: { hip: 1, pitch: -0.1, thigh: 0.2, knee: -0.4, shoulder: 1.2, elbow: 0.3, spread: 0.2 },
 };
 
 // Water: blue-green; lightning: pale violet-white.
@@ -111,7 +115,8 @@ function ape(kind, colors) {
 // The team's color as orange fur would wear it: slightly dark, with a
 // darker face and hands.
 export function createOrangutanModel({ team, npc }) {
-  const color = new THREE.Color(TEAMS[team]?.color ?? (npc === 'workMonkey' ? 0x80502f : 0xc86b2a));
+  const color = new THREE.Color((Number.isInteger(team) ? TEAMS[team]?.color : null)
+    ?? (npc === 'workMonkey' ? MONKEY_WORK.wildColor : 0xc86b2a));
   const { root, parts } = ape('orangutan', {
     fur: mix(color, 0x3a2410, 0.2), skin: mix(color, 0x2b2320, 0.72), dark: mix(color, 0x1c1714, 0.8),
     eye: new THREE.MeshBasicMaterial({ color: 0x1a120c }),
@@ -125,7 +130,7 @@ export function createOrangutanModel({ team, npc }) {
     box(elbow, [d.arm * 1.3, d.foreArm * 0.6, d.arm * 0.45], [0, -d.foreArm * 0.5, d.arm * 0.4], fur);
   }
   box(head, [s * 0.9, s * 0.25, s * 0.8], [0, s * 0.95, s * 0.05], fur);
-  root.userData.monkey.seated = 'chair';
+  root.userData.monkey.seated = npc === 'workMonkey' ? 'sit' : 'chair';
   root.userData.monkey.team = team;
   return root;
 }
@@ -176,7 +181,7 @@ export function updateMonkeyTeam(model, team) {
   const m = model.userData.monkey;
   if (m.team === team || m.kind !== 'orangutan') return;
   m.team = team;
-  const color = new THREE.Color(TEAMS[team]?.color ?? 0x80502f);
+  const color = new THREE.Color((Number.isInteger(team) ? TEAMS[team]?.color : null) ?? MONKEY_WORK.wildColor);
   m.fur.color.setHex(mix(color, 0x3a2410, 0.2));
   m.skin.color.setHex(mix(color, 0x2b2320, 0.72));
   m.dark.color.setHex(mix(color, 0x1c1714, 0.8));
@@ -193,7 +198,8 @@ export function animateMonkey(model, dt, { pose = 'sit', look = 0, speed = 0, ta
     if (pose === 'stand') m.beat = 0;
     m.lastPose = pose;
   }
-  for (const joint of Object.keys(target)) m.pose[joint] = approach(m.pose[joint], target[joint], d.poseRate, dt);
+  for (const joint of Object.keys(target)) m.pose[joint] = approach(m.pose[joint], target[joint],
+    ['ready','crouch','jump'].includes(pose) ? 12 : d.poseRate, dt);
   const p = m.pose, legLength = d.thigh + d.shin;
   const walking = pose === 'walk' ? Math.min(1, speed / 0.6) : 0;
   if (walking) m.phase += dt * (2.5 + speed * 2);

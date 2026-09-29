@@ -133,6 +133,8 @@ const monkeyScreen = new MonkeyScreen(conn);
 monkeyScreen.onOpen = () => { closeInventory(false); showScreen('monkey'); document.exitPointerLock(); input.release(); };
 monkeyScreen.onClose = relock => { showScreen(null); if (relock && lockable()) input.requestLock(); };
 monkeyScreen.onPick = () => { showScreen(null); toast.show('Right-click a block to select it. Esc cancels.'); input.requestLock(); };
+monkeyScreen.onWorldGame = () => { closeInventory(false); showScreen(null); if (!input.locked) input.requestLock(); };
+monkeyScreen.onCue = text => toast.show(text);
 const creativeLabel = document.getElementById('creative-label');
 function setCreative(enabled) {
   creativeLabel.hidden = !enabled;
@@ -263,6 +265,7 @@ input.onKey = (code) => {
 };
 window.addEventListener('keydown', e => {
   if (e.code === 'Escape' && monkeyScreen.picking) { e.preventDefault(); monkeyScreen.cancelPick(); }
+  else if (e.code === 'Escape' && monkeyScreen.worldGame) monkeyScreen.close(false);
 });
 
 // View distance slider on the click-to-play overlay.
@@ -294,7 +297,7 @@ window.addEventListener('keydown', (e) => {
 
 // screen: 'inventory', 'workbench', 'furnace' or 'chest'; at: that block.
 function openInventory(screen, at) {
-  if (monkeyScreen.open || monkeyScreen.picking) monkeyScreen.close(false);
+  if (monkeyScreen.open || monkeyScreen.picking || monkeyScreen.worldGame) monkeyScreen.close(false);
   // Visible first: the preview sizes itself from its canvas.
   showScreen('inventory');
   inventoryScreen.show(player.color, screen, at);
@@ -333,6 +336,7 @@ function setInventory(inv) {
   if (player) player.state.accessory = inv.accessory?.item ?? null;
   hotbar.setInventory(inv.slots);
   inventoryScreen.update(inv);
+  monkeyScreen.setInventory(inv);
 }
 
 // Item id in hand (the selected hotbar slot), or null.

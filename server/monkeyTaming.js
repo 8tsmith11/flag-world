@@ -28,7 +28,7 @@ export class MonkeyTaming {
     if(this.kind==='memory'&&this.hideAt&&tick>=this.hideAt){this.open=[];this.hideAt=0;}
     return {session:this.id,game:this.kind,waitMs:Math.max(0,this.ready-tick)*1000/TICK_RATE,
       progress:this.progress,stepMs:(this.kind==='simon'?C.simonStepTicks:C.cupSwapTicks)*1000/TICK_RATE,
-      ...(this.kind==='simon'?{sequence:this.sequence}:this.kind==='cups'?{ball:this.ball,swaps:this.swaps}:
+      ...(this.kind==='simon'?{length:this.sequence.length}:this.kind==='cups'?{ball:this.ball,swaps:this.swaps}:
         {cards:this.cards.map((v,i)=>this.matched.has(i)||this.open.includes(i)?v:null),matched:[...this.matched],
           hideMs:this.hideAt?Math.max(0,this.hideAt-tick)*1000/TICK_RATE:0})};
   }

@@ -446,7 +446,7 @@ export function createChunkMesher(THREE) {
       lightBlocks.set(chunk.blocks.subarray(start,start+CHUNK_SIZE),1+LIGHT_SPAN*(z+1+LIGHT_SPAN*(y+1)));
     }
     const opaque = createBuffers();
-    const transparent = createBuffers();
+    const transparent = createBuffers(), glass = createBuffers();
     // Every atlas tile shares one buffer and one draw call per chunk.
     const textured = createBuffers(), glow = createBuffers(), plants=createBuffers(true);
     const ore = textured, bricks = textured, goblinBricks = textured,
@@ -473,7 +473,7 @@ export function createChunkMesher(THREE) {
             }
             continue;
           }
-          const buf = id === BLOCK.IRON_ORE ? ore : def.transparent ? transparent : opaque;
+          const buf = id === BLOCK.GLASS ? glass : id === BLOCK.IRON_ORE ? ore : def.transparent ? transparent : opaque;
 
           if (isWater(id)) {
             const visibleFaces = FACES.filter((face) => {
@@ -533,7 +533,7 @@ export function createChunkMesher(THREE) {
       }
     }
 
-    return { opaque: toGeometry(opaque), transparent: toGeometry(transparent),
+    return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), glass: toGeometry(glass),
       textured: toGeometry(textured), glow: toGeometry(glow), plants: toGeometry(plants) };
   }
 

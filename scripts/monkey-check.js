@@ -13,6 +13,8 @@ import { MonkeyWorkers, WorkMonkey } from '../server/monkeyWorkers.js';
 import { Furnace, Chest, INPUT, OUTPUT, FUEL_SLOT } from '../server/containers.js';
 import { Inventory } from '../server/inventory.js';
 import { mulberry32 } from '../shared/structures.js';
+import { createPlayerState, stepPlayer } from '../shared/physics.js';
+import { Game } from '../server/game.js';
 
 assert.equal(SMELTING[BLOCK.WOOD], ITEM.CHARCOAL);
 assert.equal(SMELTING[BLOCK.SAND], BLOCK.GLASS);
@@ -70,10 +72,11 @@ function fixture() {
   const sent=[],dropped=[];
   const game={world,seed:1,tick:0,nextId:1,npcs:new Map(),items:new Map(),players:new Map(),
     send:(p,msg)=>sent.push({player:p.id,...msg}),removeItem:e=>game.items.delete(e.id),
+    stowCursor:p=>{const left=p.inventory.stowCursor();assert.equal(left,null);p.inventoryDirty=true;},
     spawnItem:(item,count,x,y,z,vx,vy,vz,delay,mods)=>dropped.push({item,count,x,y,z,mods})};
   const workers=new MonkeyWorkers(game,mulberry32(5)),monkey=new WorkMonkey(game.nextId++,workers,{x:20.5,y:5,z:20.5});
   game.npcs.set(monkey.id,monkey);world.onBlockChanged=(x,y,z)=>workers.changed(x,y,z);
-  const player={id:10,team:0,connected:true,dead:false,state:{x:20.5,y:5,z:21},inventory:new Inventory()};
+  const player={id:10,team:0,connected:true,dead:false,state:createPlayerState(20.5,5,21),inventory:new Inventory()};
   const friend={...player,id:11,inventory:new Inventory()},enemy={...player,id:12,team:1,inventory:new Inventory()};
   for(const p of [player,friend,enemy])game.players.set(p.id,p);
   return {world,game,workers,monkey,player,friend,enemy,sent,dropped};
@@ -85,7 +88,11 @@ function fixture() {
   workers.action(enemy,{id:monkey.id,session:session.id,action:'cup',value:0});
   assert.equal(monkey.team,null,'Another player submitted the taming session');
   game.tick=session.ready;
-  if(session.kind==='simon')for(const value of session.sequence)workers.action(player,{id:monkey.id,session:session.id,action:'simon',value});
+  if(session.kind==='simon')for(const value of session.sequence) {
+    Object.assign(player.state,{onGround:true,vy:value==='jump'?6:0,crouching:value==='crouch'});
+    workers.playerInput(player,{jump:value==='jump',crouch:value==='crouch'},true);
+    workers.playerInput(player,{jump:false,crouch:false},false);
+  }
   if(session.kind==='cups')workers.action(player,{id:monkey.id,session:session.id,action:'cup',value:session.finalBall});
   if(session.kind==='memory')for(let f=0;f<C.cardPairs;f++)for(const i of session.cards.flatMap((v,i)=>v===f?[i]:[]))workers.action(player,{id:monkey.id,session:session.id,action:'card',value:i});
   assert.equal(monkey.team,player.team);assert.equal(monkey.name,name);
@@ -96,8 +103,70 @@ function fixture() {
   workers.action(player,{id:monkey.id,action:'configure',revision:0,config});assert.equal(monkey.revision,1,'Stale settings overwrote teammate');
   assert.equal(workers.parseConfig({...config,radius:25}),null);
   assert.equal(workers.parseConfig({...config,vertical:4}),null);
-  player.inventory.add(ITEM.TREE_SEED,1);workers.action(player,{id:monkey.id,action:'seed'});
+  workers.open(player,monkey);
+  player.inventory.add(ITEM.TREE_SEED,1);
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'player',slot:0,button:'left'});
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'monkey',slot:0,button:'left'});
   assert.equal(monkey.seeds,1);assert.equal(player.inventory.slots.filter(Boolean).length,0);
+  workers.action(player,{id:monkey.id,action:'close'});
+  Game.prototype.talk.call({...game,monkeys:workers},player,monkey.id);
+  assert.equal(player.monkeyViewing,monkey.id);
+  workers.action(player,{id:monkey.id,action:'close'});
+  Game.prototype.talk.call({...game,monkeys:workers},player,monkey.id);
+  assert.equal(sent.at(-1).mode,'configure','Talk cooldown prevented reopening');
+}
+{
+  const {game,workers,monkey,player,friend,enemy}=fixture();monkey.team=0;
+  workers.open(player,monkey);workers.open(friend,monkey);
+  const mods=[{id:'damage',value:2}];player.inventory.add(ITEM.IRON_SWORD,1,mods);
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'player',slot:0,button:'left',shift:true});
+  assert.deepEqual(monkey.inventory.slots[0].mods,mods);
+  workers.action(enemy,{id:monkey.id,action:'inventory',grid:'monkey',slot:0,button:'left'});
+  assert.deepEqual(monkey.inventory.slots[0].mods,mods,'Enemy took stored gear');
+  workers.action(friend,{id:monkey.id,action:'inventory',grid:'monkey',slot:0,button:'left'});
+  assert.deepEqual(friend.inventory.cursor.mods,mods);
+  workers.action(friend,{id:monkey.id,action:'close'});
+  assert.deepEqual(friend.inventory.slots[0].mods,mods,'Closing discarded cursor gear');
+  player.inventory.add(BLOCK.WOOD,8);
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'player',slot:0,button:'left'});
+  const config={...defaultMonkeyConfig(),filter:{mode:'whitelist',items:[BLOCK.WOOD]}};
+  workers.action(player,{id:monkey.id,action:'configure',revision:0,config});
+  assert.equal(player.inventory.cursor.count,8,'Filter consumed its sample');
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'monkey',slot:0,button:'right'});
+  assert.equal(monkey.inventory.slots[0].count,1);assert.equal(player.inventory.cursor.count,7);
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'cargo',slot:0,button:'left'});
+  assert.equal(monkey.cargo.count,7);
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'cargo',slot:0,button:'left',shift:true});
+  assert.equal(monkey.cargo,null);assert.equal(player.inventory.slots[0].count,7);
+}
+{
+  const {world,game,workers,monkey,player}=fixture();
+  const session=new MonkeyTaming(1,monkey,player,0,()=>0.25,'simon');
+  session.sequence=['jump','crouch','jump','crouch','crouch'];workers.sessions.set(player.id,session);
+  assert.equal('sequence' in session.view(0),false,'Simon leaked its answers');
+  let jumped=false,crouched=false;
+  for(game.tick=1;game.tick<session.ready;game.tick++) {
+    workers.beginTick();monkey.step(world,[player],game.tick);
+    jumped ||= monkey.state.y>5.1;crouched ||= monkey.pose==='crouch';
+  }
+  assert.ok(jumped&&crouched,'Monkey did not demonstrate movement in the world');
+  workers.action(player,{id:monkey.id,session:session.id,action:'simon',value:'jump'});
+  assert.equal(session.progress,0,'UI action counted as a real jump');
+  const move=input=>{
+    game.tick++;const grounded=player.state.onGround;
+    stepPlayer(player.state,{forward:0,strafe:0,yaw:0,pitch:0,...input},world);
+    workers.playerInput(player,input,grounded);
+  };
+  move({jump:false,crouch:false});
+  for(const value of session.sequence) {
+    move({jump:value==='jump',crouch:value==='crouch'});
+    const progress=session.progress;
+    for(let i=0;i<20;i++)move({jump:value==='jump',crouch:value==='crouch'});
+    assert.equal(session.progress,progress,'Held key repeated an answer');
+    move({jump:false,crouch:false});
+    while(!player.state.onGround)move({jump:false,crouch:false});
+  }
+  assert.equal(monkey.team,player.team,'Movement sequence did not tame monkey');
 }
 {
   const {world,game,workers,monkey}=fixture();monkey.team=0;
@@ -108,7 +177,10 @@ function fixture() {
   monkey.config=workers.parseConfig({...defaultMonkeyConfig(),role:'courier',from,to});assert.ok(monkey.config);
   // Start on standing space adjacent to the destination, not inside its block.
   Object.assign(monkey.state,{x:21.5,y:5,z:20.5});
-  for(game.tick=1;game.tick<=2200;game.tick++){workers.beginTick();monkey.step(world,[],game.tick);}
+  for(game.tick=1;game.tick<=2200;game.tick++) {
+    workers.beginTick();monkey.step(world,[],game.tick);
+    assert.notEqual(monkey.pose,'sit','Courier sat between task legs');
+  }
   assert.deepEqual(furnace.slots[FUEL_SLOT],{item:BLOCK.WOOD,count:64});
   assert.deepEqual(furnace.slots[INPUT],{item:BLOCK.WOOD,count:64});
   assert.equal(chest.slots[0],null);assert.ok(workers.pathSearches<=4,`Unchanged courier recomputed ${workers.pathSearches} paths`);

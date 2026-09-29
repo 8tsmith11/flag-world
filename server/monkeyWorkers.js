@@ -1,7 +1,7 @@
 import { Npc } from './npcs.js';
 import { findPath, canStand } from './pathfind.js';
 import { stepMobPath } from '../shared/mobMovement.js';
-import { playerFitsAt } from '../shared/physics.js';
+import { playerFitsAt, stepPlayer } from '../shared/physics.js';
 import { BLOCK, isSolid } from '../shared/blocks.js';
 import { ITEM, registeredItemIds } from '../shared/items.js';
 import { FUEL } from '../shared/recipes.js';
@@ -11,6 +11,7 @@ import { MONKEY_ROLES, MONKEY_NAMES, defaultMonkeyConfig, monkeyFilter, monkeyRa
 import { mergeInto, OUTPUT, INPUT, FUEL_SLOT } from './containers.js';
 import { S2C } from '../shared/protocol.js';
 import { MonkeyTaming } from './monkeyTaming.js';
+import { Inventory, clickSlot } from './inventory.js';
 
 const key=p=>`${p.x},${p.y},${p.z}`;
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
@@ -22,11 +23,17 @@ export class WorkMonkey extends Npc {
   constructor(id,manager,site) {
     super(id,{...site,npc:NPC_KIND.WORK_MONKEY,yaw:0},null,manager.game.tick);
     this.manager=manager;this.name=MONKEY_NAMES[Math.floor(manager.random()*MONKEY_NAMES.length)];
-    this.config=defaultMonkeyConfig();this.revision=0;this.seeds=0;this.cargo=null;
+    this.config=defaultMonkeyConfig();this.revision=0;this.inventory=new Inventory(C.inventorySize);this.cargo=null;
     this.routes=new Map();this.path=[];this.pathKey=null;this.stuck=0;this.status='Wild';
     this.state.edgeGuard=true;this.woodJob=null;
   }
   step(world,players,tick) {this.lookAtNearest(players);this.manager.run(this,tick);}
+  get seeds() {return this.inventory.slots.reduce((n,s)=>n+(s?.item===ITEM.TREE_SEED?s.count:0),0);}
+  set seeds(count) {
+    const change=count-this.seeds;
+    if(change>0)this.inventory.add(ITEM.TREE_SEED,change);
+    else if(change<0)this.inventory.remove(ITEM.TREE_SEED,-change);
+  }
   snapshot() {return {...super.snapshot(),role:this.config.role,tamed:this.team!==null};}
 }
 
@@ -61,12 +68,14 @@ export class MonkeyWorkers {
       this.sessions.delete(id);this.send(s.player,s.monkey,{closed:true});
     } else if(s.kind==='memory'&&s.hideAt&&this.game.tick>=s.hideAt) {
       s.view(this.game.tick);this.send(s.player,s.monkey,{mode:'tame',...s.view(this.game.tick)});
+    } else if(s.kind==='simon'&&!s.readySent&&this.game.tick>=s.ready) {
+      s.readySent=true;this.send(s.player,s.monkey,{mode:'tame',...s.view(this.game.tick)});
     }
     if(this.game.tick%TICK_RATE===0)for(const player of this.game.players.values()) {
       const monkey=this.game.npcs.get(player.monkeyViewing);
       if(!monkey)continue;
       if(player.dead||!player.connected||distance(player.state,monkey.state)>C.configureReach) {
-        player.monkeyViewing=null;this.send(player,monkey,{closed:true});
+        player.monkeyViewing=null;this.game.stowCursor(player);this.send(player,monkey,{closed:true});
       } else this.view(player,monkey);
     }
   }
@@ -80,12 +89,18 @@ export class MonkeyWorkers {
   send(player,monkey,data) {this.game.send(player,{type:S2C.MONKEY,id:monkey.id,name:monkey.name,team:monkey.team,...data});}
   view(player,m,message=null) {
     this.send(player,m,{mode:'configure',editable:m.team===player.team,config:m.config,revision:m.revision,
-      seeds:m.seeds,cargo:m.cargo,status:m.status,...(message?{message}:{})});
+      seeds:m.seeds,slots:m.inventory.slots,cargo:m.cargo,status:m.status,...(message?{message}:{})});
   }
   open(player,m) {
-    if(m.team!==null){player.monkeyViewing=m.id;this.view(player,m);return;}
     const old=this.sessions.get(player.id);
-    const s=old?.monkey===m?old:new MonkeyTaming(this.nextSession++,m,player,this.game.tick,this.random);
+    if(old?.monkey===m) {this.send(player,m,{mode:'tame',...old.view(this.game.tick)});return;}
+    this.sessions.delete(player.id);
+    player.monkeyViewing=null;
+    if(m.team!==null){player.monkeyViewing=m.id;this.view(player,m);return;}
+    if([...this.sessions.values()].some(s=>s.monkey===m)) {
+      this.send(player,m,{mode:'result',won:false,message:'The monkey is playing with someone else. Try again shortly.'});return;
+    }
+    const s=new MonkeyTaming(this.nextSession++,m,player,this.game.tick,this.random);
     this.sessions.set(player.id,s);this.send(player,m,{mode:'tame',...s.view(this.game.tick)});
     this.sound(player,m,'grunt','The monkey invites you to play.');
   }
@@ -94,33 +109,22 @@ export class MonkeyWorkers {
     const m=this.game.npcs.get(msg.id);
     if(!(m instanceof WorkMonkey)||player.dead||!player.connected)return;
     if(msg.action==='close') {
-      this.sessions.delete(player.id);player.monkeyViewing=null;return;
+      this.sessions.delete(player.id);player.monkeyViewing=null;this.game.stowCursor(player);return;
     }
     if(distance(player.state,m.state)>C.configureReach)return;
     if(m.team===null) {
       if(msg.action==='retry'){this.open(player,m);return;}
       const s=this.sessions.get(player.id);
       if(s?.monkey!==m||s.id!==msg.session)return;
+      // Simon answers come exclusively from authoritative player movement.
+      if(s.kind==='simon')return;
       const result=s.action(msg.action,msg.value,this.game.tick);
-      if(result==='won') {
-        m.team=player.team;m.status='Idle';
-        for(const [id,other]of this.sessions)if(other.monkey===m) {
-          this.sessions.delete(id);other.player.monkeyViewing=m.id;
-          this.view(other.player,m,other.player.team===m.team?'Tamed for your team!':'Another team tamed this monkey.');
-        }
-        this.sound(player,m,'huff','The monkey joins your team.');
-      } else if(result==='lost'||result==='expired') {
-        this.sessions.delete(player.id);this.send(player,m,{mode:'result',won:false,message:'Try again when you are ready.'});
-        this.sound(player,m,'grunt','The monkey wants another game.');
-      } else this.send(player,m,{mode:'tame',...s.view(this.game.tick)});
+      this.tamingResult(s,result);
       return;
     }
     if(m.team!==player.team){this.view(player,m,'Only its team can configure this monkey.');return;}
-    if(msg.action==='seed') {
-      const stack=player.inventory.slots.find(s=>s?.item===ITEM.TREE_SEED&&s.count>0);
-      if(stack&&m.seeds<64){stack.count--;if(!stack.count)player.inventory.slots[player.inventory.slots.indexOf(stack)]=null;
-        m.seeds++;player.inventoryDirty=true;this.view(player,m,'Sapling supplied.');}
-      else this.view(player,m,'Carry a sapling in your inventory first.');
+    if(msg.action==='inventory') {
+      this.inventoryClick(player,m,msg);
     } else if(msg.action==='configure') {
       if(msg.revision!==m.revision){this.view(player,m,'A teammate changed these settings. Review and save again.');return;}
       const config=this.parseConfig(msg.config);
@@ -132,9 +136,49 @@ export class MonkeyWorkers {
         m.woodJob=null;
       }
       m.config=config;m.revision++;m.status='Ready';
-      // Cargo survives configuration changes and is delivered before new work.
       for(const p of this.game.players.values())if(p.monkeyViewing===m.id)this.view(p,m,'Settings saved.');
     } else if(msg.action==='retry')this.open(player,m);
+  }
+  inventoryClick(player,m,msg) {
+    if(player.monkeyViewing!==m.id||!Number.isInteger(msg.slot)||!['left','right'].includes(msg.button))return;
+    const inv=player.inventory;
+    const slots=msg.grid==='player'?inv.slots:msg.grid==='monkey'?m.inventory.slots:msg.grid==='cargo'?[m.cargo]:null;
+    if(!slots||msg.slot<0||msg.slot>=slots.length)return;
+    let moved=false;
+    if(msg.shift) {
+      const stack=slots[msg.slot];if(!stack)return;
+      const target=msg.grid==='player'?m.inventory:inv;
+      const left=target.addStack(stack);moved=left<stack.count;stack.count=left;
+      if(!left)slots[msg.slot]=null;
+    } else moved=clickSlot(slots,msg.slot,inv,msg.button);
+    if(msg.grid==='cargo')m.cargo=slots[0];
+    if(!moved)return;
+    player.inventoryDirty=true;
+    for(const p of this.game.players.values())if(p.monkeyViewing===m.id)this.view(p,m);
+  }
+  playerInput(player,input,wasGrounded) {
+    const s=this.sessions.get(player.id);
+    if(s?.kind!=='simon'||player.dead||!player.connected)return;
+    const jump=!!input.jump,crouch=!!input.crouch;
+    const value=jump&&!s.jumpHeld&&wasGrounded&&player.state.vy>0?'jump':
+      crouch&&!s.crouchHeld&&player.state.crouching?'crouch':null;
+    s.jumpHeld=jump;s.crouchHeld=crouch;
+    if(!value||this.game.tick<s.ready||s.monkey.dead||distance(player.state,s.monkey.state)>C.configureReach)return;
+    this.tamingResult(s,s.action('simon',value,this.game.tick));
+  }
+  tamingResult(s,result) {
+    const {player,monkey:m}=s;
+    if(result==='won') {
+      m.team=player.team;m.status='Idle';
+      for(const [id,other]of this.sessions)if(other.monkey===m) {
+        this.sessions.delete(id);other.player.monkeyViewing=m.id;
+        this.view(other.player,m,other.player.team===m.team?'Tamed for your team!':'Another team tamed this monkey.');
+      }
+      this.sound(player,m,'huff','The monkey joins your team.');
+    } else if(result==='lost'||result==='expired') {
+      this.sessions.delete(player.id);this.send(player,m,{mode:'result',won:false,message:'Try again when you are ready.'});
+      this.sound(player,m,'grunt','The monkey wants another game.');
+    } else this.send(player,m,{mode:'tame',...s.view(this.game.tick)});
   }
   position(p) {
     return p&&['x','y','z'].every(k=>Number.isInteger(p[k]))&&this.game.world.inBounds(p.x,p.y,p.z)?{x:p.x,y:p.y,z:p.z}:null;
@@ -212,11 +256,22 @@ export class MonkeyWorkers {
   }
   run(m,tick) {
     if(m.state.y<this.game.world.minY){Object.assign(m.state,m.home,{vy:0});m.routes.clear();m.path=[];m.pathKey=null;}
+    const game=[...this.sessions.values()].find(s=>s.monkey===m&&s.kind==='simon');
+    if(game) {
+      const elapsed=tick-game.start-C.simonStepTicks,index=Math.floor(elapsed/C.simonStepTicks);
+      const phase=elapsed%C.simonStepTicks;
+      const cue=index>=0&&index<game.sequence.length?game.sequence[index]:null;
+      const crouch=cue==='crouch'&&phase<C.simonStepTicks*0.7;
+      stepPlayer(m.state,{forward:0,strafe:0,yaw:m.state.yaw,pitch:0,crouch,
+        jump:cue==='jump'&&phase===0},this.game.world);
+      m.pose=crouch?'crouch':m.state.onGround?'ready':'jump';return;
+    }
     const moved=stepMobPath(m,this.game.world,C.speed);
     if(m.path.length&&moved<0.01) {
       if(++m.stuck>=C.stuckTicks){m.routes.clear();m.path=[];m.pathKey=null;m.stuck=0;}
     } else m.stuck=0;
-    m.pose=m.walking?'walk':m.woodJob?'stand':'sit';
+    // Direction changes and pauses between task legs retain an upright pose.
+    m.pose=m.walking?'walk':m.team!==null&&m.config.role!=='idle'?'ready':'sit';
     if(m.team===null||tick%C.thinkTicks!==m.id%C.thinkTicks)return;
     if(m.cargo) {
       if(m.config.target&&this.travel(m,m.config.target,'to'))this.deliver(m);
@@ -271,6 +326,7 @@ export class MonkeyWorkers {
   }
   reserveSeed(m) {
     if(m.seeds)return true;
+    if(m.inventory.slots.every(Boolean)){m.status='Make room for a sapling in the inventory';return false;}
     if(!this.travel(m,m.config.target,'to'))return false;
     const c=this.container(m.config.target),s=c?.slots.find(s=>s?.item===ITEM.TREE_SEED);
     if(s){s.count--;if(!s.count)c.slots[c.slots.indexOf(s)]=null;c.dirty=true;m.seeds++;return true;}
@@ -290,7 +346,7 @@ export class MonkeyWorkers {
     if(!chosen)return false;
     const p={x:Math.floor(chosen.state.x),y:Math.floor(chosen.state.y),z:Math.floor(chosen.state.z)};
     if(!this.travel(m,p,`seed:${chosen.id}`))return true;
-    if(!m.seeds){m.seeds++;chosen.count--;}
+    if(!m.seeds&&!m.inventory.slots.every(Boolean)){m.seeds++;chosen.count--;}
     const n=monkeyFilter(m.config,ITEM.TREE_SEED)?Math.min(C.capacity,chosen.count):0;
     if(n){m.cargo=cloneStack({item:chosen.item,count:n,mods:chosen.mods},n);chosen.count-=n;}
     if(!chosen.count)this.game.removeItem(chosen);

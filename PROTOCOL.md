@@ -210,7 +210,7 @@ snapshots at distance cadence.
 | `team` | int \| null | A Wise or tamed working monkey's team (`TEAMS` index; its fur color), else `null` |
 | `x`,`y`,`z` | number | Feet (seat) position; box from `NPC_DEFS[npc].box` |
 | `yaw` | number | Body facing (0 looks toward -Z) |
-| `pose` | string | `"sit"`, `"stand"` (chest beat), `"walk"` or `"look"` (looking around) |
+| `pose` | string | `"sit"`, `"stand"` (chest beat), `"walk"`, `"look"`, or worker `"ready"`, `"crouch"`, `"jump"` |
 | `look` | number | Head turn toward the nearest player, relative to `yaw` (radians) |
 
 **RiftOrbSnapshot** — a thrown Rift Orb in flight. Sent in `entitySpawn` and
@@ -393,7 +393,8 @@ their keep.
 
 Right click on an NPC. The server answers with `speak`, to this player only,
 if the NPC is alive and within 6 blocks of the eyes (`NPC.talkReach`), at most
-once per `NPC.talkCooldown`.
+once per `NPC.talkCooldown` for Wise/Ancient NPC dialogue. Worker screens
+can be reopened immediately.
 For a working monkey this opens a private `monkey` taming or configuration
 view instead of ordinary dialogue. Wild monkeys are brown; taming assigns
 the winning player's team and changes their fur to that team's color.
@@ -404,20 +405,33 @@ the winning player's team and changes their fur to that team's color.
 
 ### `monkeyAction`
 
-Match players only, `{id, action, session?, value?, config?, revision?}`.
+Match players only, `{id, action, session?, value?, config?, revision?, grid?, slot?, button?, shift?}`.
 The server validates the live monkey, player, session, distance and team.
 Taming starts through `talk` within 6 blocks; an open session or configuration
 can continue within 32 blocks. Sessions expire after 60 seconds.
 
 | Action | Fields | Behavior |
 |--------|--------|----------|
-| `simon` | `session`, `value: "jump" \| "crouch"` | Repeat the displayed sequence after the server's watch timer |
 | `card` | `session`, integer `value` 0–11 | Reveal a card; matching all six pairs wins |
 | `cup` | `session`, integer `value` 0–2 | Choose the final cup position after the watch timer |
 | `retry` | — | Start another random game on a wild monkey |
 | `configure` | `config`, `revision` | Owning team only; reject stale settings rather than overwrite a teammate |
-| `seed` | — | Owning team only; consume one inventory sapling into its reserve |
+| `inventory` | `grid:"player"\|"monkey"\|"cargo"`, integer `slot`, `button:"left"\|"right"`, optional `shift` | Owning team with this monkey open only; normal cursor clicks, half stacks/right-click singles, or shift transfers between player and monkey storage (cargo to player). Storage has nine slots; cargo has one |
 | `close` | — | Close this player's view/session |
+
+Simon Says runs in the world: the monkey demonstrates actual jumps and crouch
+poses through NPC snapshots. After the watch timer, the server counts rising
+edges of ordinary `input.jump` (successful grounded jumps) and `input.crouch`.
+Holding a key counts once; `monkeyAction` cannot submit Simon answers. Its
+sequence remains server-only. Memory and cup shuffle stay in the GUI; cups
+have identical, unlabeled appearances.
+
+The filter grid copies the type of the player's cursor stack into the local
+configuration draft and saves through `configure`. It never transfers or
+consumes that stack. Saplings live in the monkey's storage inventory, which
+the lumberjack uses as its reserve. The carried delivery stack is also
+interactive. Closing configuration stows the player's cursor as for other
+inventory screens.
 
 `config` is `{role, target, from, to, radius, vertical, sites, filter}`.
 Roles: `idle`, `collector`, `courier`, `lumberjack`. Targets are BlockPos or
@@ -849,8 +863,8 @@ Private reply/view for a working monkey. Common fields: `{id,name,team}`;
 
 | Mode | Additional fields |
 |------|-------------------|
-| `tame` | `session`, `game:"simon"|"memory"|"cups"`, `waitMs`, `stepMs`, `progress`; Simon includes `sequence`; memory includes `cards` (hidden entries null), `matched` indices and `hideMs`; cups include initial `ball` and ordered `swaps` of positions |
-| `configure` | `editable`, `config`, `revision`, `seeds`, `cargo:Stack|null`, `status`, optional `message` |
+| `tame` | `session`, `game:"simon"|"memory"|"cups"`, `waitMs`, `stepMs`, `progress`; Simon includes `length` and keeps movement controls active; memory includes `cards` (hidden entries null), `matched` indices and `hideMs`; cups include initial `ball` and ordered `swaps` of positions |
+| `configure` | `editable`, `config`, `revision`, `slots` (nine `Stack|null` entries), `seeds` (sapling count in storage), `cargo:Stack|null`, `status`, optional `message` |
 | `result` | `won:false`, `message` (retry allowed) |
 
 The final cup answer and unrevealed card faces remain server-only. Winning

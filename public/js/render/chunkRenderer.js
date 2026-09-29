@@ -8,7 +8,7 @@ import { TEXTURE_TILES, ATLAS_ROWS } from '/shared/blockTextures.js';
 
 import * as THREE from 'three';
 import { LightingClient, litMaterial } from './voxelLighting.js';
-import { CHUNK_SIZE, LIGHTING as C } from '/shared/config.js';
+import { CHUNK_SIZE, LIGHTING as C, GLASS_SETTINGS } from '/shared/config.js';
 import { chunkKey } from '/shared/world.js';
 import { MeshWorkerClient, restoreGeometries } from './meshWorkerClient.js';
 
@@ -246,6 +246,8 @@ export class ChunkRenderer {
       depthWrite: false,
       side: THREE.DoubleSide,
     }),this.daylight);
+    this.glassMaterial = litMaterial(new THREE.MeshBasicMaterial({ vertexColors: true,
+      transparent: true, opacity: GLASS_SETTINGS.opacity, depthWrite: false }),this.daylight);
     const plants=plantMaterial(this.daylight,this.windTime,renderer);this.plantMaterial=plants.material;this.plantReady=plants.ready;
     this.lighting=new LightingClient(world,this.dirty);
     this.meshing=new MeshWorkerClient(world);
@@ -356,8 +358,9 @@ export class ChunkRenderer {
       textured: geo.textured && new THREE.Mesh(geo.textured, this.texturedMaterial),
       glow: geo.glow && new THREE.Mesh(geo.glow, this.glowMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
+      glass: geo.glass && new THREE.Mesh(geo.glass, this.glassMaterial),
     };
-    entry.draws=[entry.opaque,entry.textured,entry.glow,entry.transparent,entry.plants].filter(Boolean);
+    entry.draws=[entry.opaque,entry.textured,entry.glow,entry.transparent,entry.glass,entry.plants].filter(Boolean);
     for(const mesh of entry.draws) {
       // Terrain vertices already use world coordinates; these transforms never change.
       mesh.matrixAutoUpdate=false;
@@ -371,6 +374,7 @@ export class ChunkRenderer {
       entry.transparent.renderOrder = 1;
       this.scene.add(entry.transparent);
     }
+    if (entry.glass) { entry.glass.renderOrder = 1; this.scene.add(entry.glass); }
     this.meshes.set(key, entry);
     this.lastRemeshMs=performance.now()-started;this.buildCount++;
   }

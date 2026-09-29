@@ -5,9 +5,9 @@ import { mergeStaticMeshes } from './mergeStaticMeshes.js';
 // the item in hand) and item models (block cubes and tools).
 
 import * as THREE from 'three';
-import { PLAYER_HEIGHT, LIGHTING, VEGETATION, TREE_SETTINGS } from '/shared/config.js';
+import { PLAYER_HEIGHT, LIGHTING, VEGETATION, TREE_SETTINGS, GLASS_SETTINGS } from '/shared/config.js';
 import { getItemDef } from '/shared/items.js';
-import { getBlockDef } from '/shared/blocks.js';
+import { BLOCK, getBlockDef } from '/shared/blocks.js';
 import { ITEM } from '/shared/itemIds.js';
 
 const plantItemTextures=new Map();
@@ -801,7 +801,9 @@ export function createItemModel(item, blockSize = 0.25) {
     group.add(bar);
     return group;
   }
-  const cube = new THREE.Mesh(new THREE.BoxGeometry(blockSize, blockSize, blockSize), lambert(def.color));
+  const material = lambert(def.color);
+  if (item === BLOCK.GLASS) { material.transparent = true; material.opacity = GLASS_SETTINGS.opacity; material.depthWrite = false; }
+  const cube = new THREE.Mesh(new THREE.BoxGeometry(blockSize, blockSize, blockSize), material);
   cube.position.y = blockSize / 2;
   const group = new THREE.Group();
   group.add(cube);
