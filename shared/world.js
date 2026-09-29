@@ -163,8 +163,18 @@ export class World {
 
   // Highest solid block's y in a column, or -1 if none.
   getSurfaceY(x, z, isSolid) {
-    for (let y = this.sizeY - 1; y >= this.minY; y--) {
-      if (isSolid(this.getBlock(x, y, z))) return y;
+    const airMatches = isSolid(BLOCK.AIR);
+    if (x < 0 || z < 0 || x >= this.sizeX || z >= this.sizeZ) return airMatches ? this.sizeY - 1 : -1;
+    const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    const offset = x % CHUNK_SIZE + CHUNK_SIZE * (z % CHUNK_SIZE);
+    for (let cy = Math.floor((this.sizeY - 1) / CHUNK_SIZE); cy >= Math.floor(this.minY / CHUNK_SIZE); cy--) {
+      const top = Math.min(this.sizeY - 1, (cy + 1) * CHUNK_SIZE - 1);
+      const bottom = Math.max(this.minY, cy * CHUNK_SIZE);
+      const chunk = this.getChunk(cx, cy, cz);
+      if (!chunk) { if (airMatches) return top; continue; }
+      for (let y = top; y >= bottom; y--) {
+        if (isSolid(chunk.blocks[offset + CHUNK_SIZE * CHUNK_SIZE * (y - cy * CHUNK_SIZE)])) return y;
+      }
     }
     return -1;
   }

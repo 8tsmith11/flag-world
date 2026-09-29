@@ -12,7 +12,7 @@ try{for(const seed of seeds.length?seeds:[1]){
  await page.evaluate(view=>window.look.setView(view),view);await page.screenshot({path:`/tmp/look-${label}/${seed}-${view}.png`});
  if(seed===1&&['side','forest','ancient'].includes(view)){
  const timing=await page.evaluate(async C=>{const {renderer,scene,camera,chunks}=window.look;let last=performance.now(),interval=0,cpu=0;const builds=chunks.buildCount;
- for(let i=0;i<C.warmFrames+C.sampleFrames;i++){await new Promise(requestAnimationFrame);const now=performance.now();const started=performance.now();chunks.update(camera.position.x,camera.position.z);renderer.render(scene,camera);if(i>=C.warmFrames){interval+=now-last;cpu+=performance.now()-started;}last=now;}
+ for(let i=0;i<C.warmFrames+C.sampleFrames;i++){await new Promise(requestAnimationFrame);const now=performance.now();const started=performance.now();chunks.update(camera.position.x,camera.position.z,camera);renderer.render(scene,camera);if(i>=C.warmFrames){interval+=now-last;cpu+=performance.now()-started;}last=now;}
  const gl=renderer.getContext(),info=gl.getExtension('WEBGL_debug_renderer_info');
  return {gpu:info?gl.getParameter(info.UNMASKED_RENDERER_WEBGL):'unknown',frameMs:interval/C.sampleFrames,submitMs:cpu/C.sampleFrames,remeshes:chunks.buildCount-builds,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,forestScore:window.look.forestScore,ancientScore:window.look.ancientScore};},C);if(timing.remeshes!==0)throw Error('Animation remeshed terrain');results.push({seed,view,...timing});console.log(label,view,timing);
  }

@@ -7,14 +7,21 @@ import { S2C } from '../shared/protocol.js';
 import { huntable } from './provocation.js';
 export const isGoblin = target => target.faction === 'goblin' || target.type?.startsWith('goblin');
 export class FortressTraps {
-  constructor(game) { this.game = game; this.cooldowns = new Map(); this.poison = new Map(); }
+  constructor(game) {
+    this.game = game; this.cooldowns = new Map(); this.poison = new Map();
+    this.traps = game.chunkLoading ? game.chunkLoading.entityMap(p => p) : new Map();
+    for (const piece of game.world.goblinPlan?.fortress.pieces ?? []) for (const trap of piece.traps ?? []) {
+      this.traps.set(`${trap.x},${trap.y},${trap.z}`, trap);
+    }
+  }
   infect(target) {
     this.poison.set(target, { until: this.game.tick + Math.round(C.poisonSeconds * TICK_RATE),
       next: this.game.tick + Math.round(C.poisonInterval * TICK_RATE) });
   }
   step() {
-    const g = this.game, targets = [...g.players.values(), ...g.cows.values(), ...g.mobs.values(), ...g.dragons.values()];
-    for (const piece of g.world.goblinPlan?.fortress.pieces ?? []) for (const trap of piece.traps ?? []) {
+    const g = this.game, targets = [...g.players.values(), ...(g.cows.activeValues?.() ?? g.cows.values()),
+      ...(g.mobs.activeValues?.() ?? g.mobs.values()), ...(g.dragons.activeValues?.() ?? g.dragons.values())];
+    for (const trap of this.traps.activeValues?.() ?? this.traps.values()) {
       const k = `${trap.x},${trap.y},${trap.z}`;
       if ((this.cooldowns.get(k) ?? 0) > g.tick || g.world.getBlock(trap.x, trap.y, trap.z) !== facedBlock(BLOCK.POISON_TRAP, trap.facing)) continue;
       const [dx, dz] = FACING_DIRS[trap.facing], x = trap.sensor?.x ?? trap.x + dx, z = trap.sensor?.z ?? trap.z + dz;
@@ -30,6 +37,7 @@ export class FortressTraps {
     }
     for (const [target, poison] of this.poison) {
       if (!huntable(target) || g.tick >= poison.until) { this.poison.delete(target); continue; }
+      if (g.chunkLoading && !g.chunkLoading.has(target.state.x, target.state.z)) continue;
       if (g.tick < poison.next) continue;
       poison.next = g.tick + Math.round(C.poisonInterval * TICK_RATE);
       if (target.hp > 1) g.hurt(target, Math.min(C.poisonDamage, target.hp - 1), null);

@@ -15,6 +15,7 @@ import { playerBoxOf } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { raycastBlock } from '../shared/raycast.js';
 import { Provocation, huntable } from './provocation.js';
+import { dragonSurface } from './dragonSurface.js';
 
 export const DRAGON_BOX = { halfW: 1.1, height: 2.8 };
 const FIRE_TICKS = Math.round(DRAGON_FIRE_DURATION * TICK_RATE);
@@ -63,7 +64,7 @@ export class Dragon {
 
   groundAt(world, x, z) {
     if (x < 3 || z < 3 || x >= world.sizeX - 3 || z >= world.sizeZ - 3) return -1;
-    const ground = world.getSurfaceY(Math.floor(x), Math.floor(z), isSolid);
+    const ground = dragonSurface(world, x, z);
     if (ground < 0 || world.getBlock(Math.floor(x), ground, Math.floor(z)) !== BLOCK.GRASS) return -1;
     for (let y = ground + 1; y <= ground + 3; y++) {
       if (isSolid(world.getBlock(Math.floor(x), y, Math.floor(z)))) return -1;
@@ -88,11 +89,14 @@ export class Dragon {
     const provoked = this.provocation.current(world, { x: s.x, y: s.y + 1.7, z: s.z }, tick);
     if (provoked) return provoked;
     const island = this.homeIsland;
-    return players.filter((p) => huntable(p)
-      && Math.hypot(p.state.x - island.x, p.state.z - island.z) <= this.leashRadius)
-      .map((p) => ({ player: p, distance: Math.hypot(p.state.x - s.x, p.state.z - s.z) }))
-      .filter(({ player, distance }) => distance < DRAGON_SIGHT && Math.abs(player.state.y - s.y) <= NAV.targetVerticalRange)
-      .sort((a, b) => a.distance - b.distance)[0]?.player ?? null;
+    let nearest = null, best = DRAGON_SIGHT * DRAGON_SIGHT;
+    for (const p of players) {
+      if (!huntable(p) || Math.abs(p.state.y - s.y) > NAV.targetVerticalRange
+        || (p.state.x - island.x) ** 2 + (p.state.z - island.z) ** 2 > this.leashRadius ** 2) continue;
+      const distance = (p.state.x - s.x) ** 2 + (p.state.z - s.z) ** 2;
+      if (distance < best) { nearest = p; best = distance; }
+    }
+    return nearest;
   }
 
   // Returns players hit by this tick's fire pulse. The game applies damage.
@@ -183,7 +187,7 @@ export class Dragon {
       s.x = nx;
       s.z = nz;
     }
-    const ground = world.getSurfaceY(Math.floor(s.x), Math.floor(s.z), isSolid);
+    const ground = dragonSurface(world, s.x, s.z);
     const minimum = ground < 0 ? 10 : ground + 3.5;
     const wantedY = Math.max(minimum, Math.min(world.sizeY - DRAGON_BOX.height - 1, goal.y));
     s.y += Math.max(-CLIMB_SPEED * TICK_DT, Math.min(CLIMB_SPEED * TICK_DT, wantedY - s.y));

@@ -17,6 +17,7 @@ export const C2S = {
   CREATIVE_TOGGLE: 'creativeToggle',
   CREATIVE_ACTION: 'creativeAction', // {action}
   TALK: 'talk', // {id}: right click on an NPC
+  MONKEY_ACTION: 'monkeyAction', // {id,action,...}: taming, configuration, seed supply, close
 };
 
 // Server -> client
@@ -48,6 +49,7 @@ export const S2C = {
   CREATIVE: 'creative', // {enabled,immortal,flying,invisible}
   DAY_TIME: 'dayTime',
   SPEAK: 'speak', // {id,name,voice,text,sound}: private NPC line with a subtitle
+  MONKEY: 'monkey', // Private taming/configuration view; closed:true dismisses it
 };
 
 // Where a flag is, in FlagState.
@@ -100,7 +102,7 @@ export const ENTITY_TYPE = {
   DRAGON: 'dragon',
   CRAWLER: 'crawler',
   VOID_EEL: 'voidEel',
-  // Wise and Ancient Monkeys; `npc` names the kind in shared/npcs.js.
+  // Wise, Ancient and working monkeys; `npc` names the kind in shared/npcs.js.
   NPC: 'npc',
   GOBLIN_WORKER: 'goblinWorker',
   GOBLIN_SOLDIER: 'goblinSoldier',

@@ -12,16 +12,21 @@
 //   voice     - how it is heard (VOICES in dialogue.js)
 //   dialogue  - its lines (DIALOGUE_LINES in npcLines.js)
 
-import { NPC } from './config.js';
+import { NPC, MONKEY_WORK } from './config.js';
 import { TEAMS } from './protocol.js';
 
 export const NPC_KIND = {
   WISE_MONKEY: 'wiseMonkey',
+  WORK_MONKEY: 'workMonkey',
   ANCIENT_WATER_MONKEY: 'ancientWaterMonkey',
   ANCIENT_LIGHTNING_MONKEY: 'ancientLightningMonkey',
 };
 
 export const NPC_DEFS = {
+  [NPC_KIND.WORK_MONKEY]: {
+    model: 'orangutan', box: MONKEY_WORK.box, hp: null,
+    behavior: 'worker', voice: 'ancientMonkey', dialogue: null,
+  },
   [NPC_KIND.WISE_MONKEY]: {
     model: 'orangutan', box: NPC.wiseMonkey.box, hp: NPC.wiseMonkey.hp,
     behavior: 'seated', voice: 'wiseMonkey', dialogue: 'wiseMonkey',

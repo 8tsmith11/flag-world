@@ -35,7 +35,7 @@ const link = (specifier, parent) => {
 };
 await load(new URL(entry, origin).href).link(link);
 // Module workers have their own module graph and no document import map.
-await load(new URL('/js/worldWorker.js', origin).href).link((specifier, parent) => {
+for(const worker of ['worldWorker','meshWorker'])await load(new URL(`/js/${worker}.js`, origin).href).link((specifier, parent) => {
   if (!specifier.startsWith('/') && !specifier.startsWith('.')) throw new Error(`Worker needs an explicit URL: ${specifier}`);
   return load(new URL(specifier, parent.identifier).href);
 });

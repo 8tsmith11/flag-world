@@ -197,7 +197,7 @@ then as changed snapshots at the viewer's distance cadence (`u`).
 | `night` | bool | Faint night glow |
 | `tail` | `{x,y,z}` | Tail-tip weak point; melee and projectiles deal double damage there |
 
-**NpcSnapshot** — a Wise Monkey or Ancient Monkey (kinds in `shared/npcs.js`).
+**NpcSnapshot** — a Wise, Ancient or working monkey (kinds in `shared/npcs.js`).
 Sent in `welcome` (they exist from match start), then as changed `state`
 snapshots at distance cadence.
 
@@ -205,9 +205,9 @@ snapshots at distance cadence.
 |-------|------|-------|
 | `id` | int | Entity id |
 | `type` | string | `"npc"` |
-| `npc` | string | `"wiseMonkey"`, `"ancientWaterMonkey"` or `"ancientLightningMonkey"` |
+| `npc` | string | `"wiseMonkey"`, `"workMonkey"`, `"ancientWaterMonkey"` or `"ancientLightningMonkey"` |
 | `name` | string | `"Wise Blue Monkey"`, `"Ancient Water Monkey"`, ... |
-| `team` | int \| null | A Wise Monkey's team (`TEAMS` index; its fur color), else `null` |
+| `team` | int \| null | A Wise or tamed working monkey's team (`TEAMS` index; its fur color), else `null` |
 | `x`,`y`,`z` | number | Feet (seat) position; box from `NPC_DEFS[npc].box` |
 | `yaw` | number | Body facing (0 looks toward -Z) |
 | `pose` | string | `"sit"`, `"stand"` (chest beat), `"walk"` or `"look"` (looking around) |
@@ -394,10 +394,39 @@ their keep.
 Right click on an NPC. The server answers with `speak`, to this player only,
 if the NPC is alive and within 6 blocks of the eyes (`NPC.talkReach`), at most
 once per `NPC.talkCooldown`.
+For a working monkey this opens a private `monkey` taming or configuration
+view instead of ordinary dialogue. Wild monkeys are brown; taming assigns
+the winning player's team and changes their fur to that team's color.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | int | NPC entity id |
+
+### `monkeyAction`
+
+Match players only, `{id, action, session?, value?, config?, revision?}`.
+The server validates the live monkey, player, session, distance and team.
+Taming starts through `talk` within 6 blocks; an open session or configuration
+can continue within 32 blocks. Sessions expire after 60 seconds.
+
+| Action | Fields | Behavior |
+|--------|--------|----------|
+| `simon` | `session`, `value: "jump" \| "crouch"` | Repeat the displayed sequence after the server's watch timer |
+| `card` | `session`, integer `value` 0–11 | Reveal a card; matching all six pairs wins |
+| `cup` | `session`, integer `value` 0–2 | Choose the final cup position after the watch timer |
+| `retry` | — | Start another random game on a wild monkey |
+| `configure` | `config`, `revision` | Owning team only; reject stale settings rather than overwrite a teammate |
+| `seed` | — | Owning team only; consume one inventory sapling into its reserve |
+| `close` | — | Close this player's view/session |
+
+`config` is `{role, target, from, to, radius, vertical, sites, filter}`.
+Roles: `idle`, `collector`, `courier`, `lumberjack`. Targets are BlockPos or
+null; `sites` is up to 16 explicit tree-base/planting BlockPos entries (a soil
+selection becomes the cell above it). Radius is 1–24 blocks, vertical range
+0–3 blocks above/below the delivery target. Filter is
+`{mode:"whitelist"|"blacklist", items: ItemId[]}`, up to 128 registered items.
+Courier `from` must be a container within range of `to`; `target` becomes `to`.
+Every non-idle role needs a target. Settings changes retain carried items.
 
 ### `reclaim`
 
@@ -812,6 +841,35 @@ synthesis (master x voice volume); `"sound"` voices play `sound` at the NPC.
 | `text` | string | The line, or a description such as `*a low grunt*` |
 | `sound` | string? | Sound-only voices: `"grunt"`, `"huff"` or `"rumble"` (`MONKEY_SOUNDS`) |
 
+### `monkey`
+
+Private reply/view for a working monkey. Common fields: `{id,name,team}`;
+`name` is chosen at spawn and never changes, `team:null` means wild.
+`{closed:true}` dismisses the view. Other messages carry `mode`:
+
+| Mode | Additional fields |
+|------|-------------------|
+| `tame` | `session`, `game:"simon"|"memory"|"cups"`, `waitMs`, `stepMs`, `progress`; Simon includes `sequence`; memory includes `cards` (hidden entries null), `matched` indices and `hideMs`; cups include initial `ball` and ordered `swaps` of positions |
+| `configure` | `editable`, `config`, `revision`, `seeds`, `cargo:Stack|null`, `status`, optional `message` |
+| `result` | `won:false`, `message` (retry allowed) |
+
+The final cup answer and unrevealed card faces remain server-only. Winning
+assigns team ownership and opens configuration for all viewers; other teams
+receive a read-only view. `state` NPC snapshots additionally carry `role`
+and `tamed` for working monkeys; `team` changes after taming.
+
+Collectors ignore drops on their own target. Couriers extract furnace output
+only and fill destination fuel before input. Lumberjacks require a reserved
+sapling, supplied by a teammate or taken from their delivery target, and only
+cut wood/branches in explicitly marked columns with a grown leaf crown.
+That whole column is authorized above its marked base, up to 64 blocks tall;
+horizontal branches outside the column are left to ordinary decay. No new
+grown-tree registry is introduced. Fallen saplings within 2.5 blocks of a
+marked spot are gathered within the work range, reserving one if needed and
+delivering extras that pass the filter; the delivery pile is excluded.
+Each harvested tree supplies one sapling
+for the same-site replanting cycle; extra leaf drops use normal decay rules.
+
 ### `damage`
 
 A player, cow, dragon, Crawler, Void Eel or Wise Monkey took damage (a punch, an arrow, a bite, fire, Thorns or a fall). Broadcast to every
@@ -1201,6 +1259,26 @@ These entities use the existing changed-only distance cadence (`u`: 1, 3 or
 messages confirm hits and deaths. Slots respawn Workers after 15 seconds,
 Soldiers/Archers after 20 seconds, and Brutes after 45 seconds; the King and
 Totem never respawn. Goblins do not attack, repair, construct or siege in this
-slice. Existing `input.spawnEgg` hatches the five goblin egg items only for a
+slice. Existing `input.spawnEgg` hatches all six goblin egg items only for a
 creative player (creative is granted only to the local host); no new message
 is introduced. Historical item ids are unchanged.
+
+## Runtime chunk loading and new materials
+
+`CHUNK_LOADING` defines 8 horizontal chunks around each connected live player,
+including the column's full height. Team islands and their 16-block margin
+are always loaded. Outside loaded columns, entities, dropped-item/projectile
+physics, containers, water propagation, sapling growth, quarry regrowth,
+turrets and garrison releases sleep and resume when loaded. No backlog of
+physics ticks is replayed. Fixed-tick player prediction is unchanged.
+Dormant mobs are omitted from changed-state replication; their descriptions
+remain in welcome and clients keep their last state. Client mesh/lighting
+loading remains governed by view distance. Terrain buffers remain resident
+and deterministic generation still runs once at match startup.
+
+Block 121 is Glass; smelting one Sand yields one Glass. Item 305 is Charcoal;
+smelting one log yields one Charcoal, and one Charcoal smelts eight items.
+Iron generation retains half of its original seeded candidates. New creative
+eggs 306–309 spawn working, Wise, Ancient Water and Ancient Lightning Monkeys;
+310 spawns a Goblin Totem. Every living creature/NPC kind has a creative egg.
+Historic and reserved ids remain intact.

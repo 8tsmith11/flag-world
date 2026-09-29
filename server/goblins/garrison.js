@@ -11,7 +11,7 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) + Math.abs(a.y - b.y);
 export class Garrison {
   constructor(game) {
     this.game = game; this.plan = game.world.goblinPlan; this.nav = new GoblinNav(game.world);
-    this.releases = new Map(); this.slots = new Map(); this.version = this.plan.outskirtsVersion;
+    this.releases = new Map(); this.slots = game.chunkLoading ? game.chunkLoading.entityMap(s => s.point) : new Map(); this.version = this.plan.outskirtsVersion;
     this.generateSlots(this.nav.regions());
   }
   add(area, role, duty, point, extras = {}) {
@@ -125,7 +125,8 @@ export class Garrison {
       }
       this.generateSlots(this.plan.outskirts); this.version = this.plan.outskirtsVersion;
     }
-    for (const slot of this.slots.values()) {
+    for (const slot of this.slots.activeValues?.() ?? this.slots.values()) {
+      if (this.game.chunkLoading && !this.game.chunkLoading.has(slot.point.x, slot.point.z)) continue;
       if (slot.mob || slot.ready === null || tick < slot.ready || this.nav.area(slot.home)?.state !== 'active') continue;
       const spawn = this.spawnFor(slot); if (!spawn || tick < (this.releases.get(spawn.id) ?? 0)) continue;
       const route = this.nav.route({ x: spawn.point.x + 0.5, y: spawn.point.y, z: spawn.point.z + 0.5 }, slot.point,

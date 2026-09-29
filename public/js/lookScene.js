@@ -54,8 +54,8 @@ window.look.setView=async(view,time=C.dayTime)=>{
  else {camera.position.set(center.x+center.radius*C.sideDistance,center.surfaceY+(view==='below'? -C.belowDepth:C.sideHeight),center.z);camera.lookAt(center.x,center.surfaceY-C.targetDepth,center.z);}
  sky.update(time,camera);chunks.daylight.value=LIGHTING.nightSky+(LIGHTING.daySky-LIGHTING.nightSky)*sky.daylight;chunks.daylight.tint.value.copy(sky.light.color);
  const started=performance.now();
- while(true){chunks.update(camera.position.x,camera.position.z);if(chunks.lighting.error)throw chunks.lighting.error;
- if(chunks.queue.length&&chunks.buildCursor>=chunks.queue.length&&!chunks.dirty.size&&!chunks.lighting.edits)break;
+ while(true){chunks.update(camera.position.x,camera.position.z,camera);if(chunks.error)throw chunks.error;
+ if(chunks.queue.length&&chunks.buildCursor>=chunks.queue.length&&!chunks.meshing.pending.size&&!chunks.dirty.size&&!chunks.lighting.edits)break;
  if(performance.now()-started>C.timeoutMs)throw Error('review load timeout');await new Promise(requestAnimationFrame);}
  renderer.render(scene,camera);return {builds:chunks.buildCount-start,chunks:chunks.loadedCount};
 };

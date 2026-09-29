@@ -9,10 +9,12 @@ const TICK_BUDGET = 64;
 export class SaplingGrowth {
   // growTime(x, y, z): seconds for the sapling there to grow (default: a
   // random time in SAPLING_GROW_TIME).
-  constructor(world, occupied = () => false, growTime = null) {
+  constructor(world, occupied = () => false, growTime = null, loader = null) {
     this.world = world;
     this.occupied = occupied;
     this.growTime = growTime;
+    this.loader = loader;
+    this.sleeping = loader ? loader.entityMap(p => p) : new Map();
     this.scheduled = new Map();
     this.buckets = new Map();
   }
@@ -32,6 +34,7 @@ export class SaplingGrowth {
 
   removed(x, y, z) {
     this.scheduled.delete(`${x},${y},${z}`);
+    this.sleeping.delete(`${x},${y},${z}`);
   }
 
   canGrow(x, y, z, top) {
@@ -42,12 +45,17 @@ export class SaplingGrowth {
   }
 
   tick(gameTick) {
+    for (const p of this.sleeping.activeValues?.() ?? []) {
+      this.sleeping.delete(p.key);
+      if (this.scheduled.has(p.key)) this.scheduleAt(p.x, p.y, p.z, gameTick + 1);
+    }
     const due = this.buckets.get(gameTick);
     if (!due) return;
     this.buckets.delete(gameTick);
     for (let i = 0; i < due.length; i++) {
       const { key, x, y, z } = due[i];
       if (this.scheduled.get(key) !== gameTick) continue;
+      if (this.loader && !this.loader.has(x, z)) { this.sleeping.set(key, { key, x, y, z }); continue; }
       if (i >= TICK_BUDGET) {
         this.scheduleAt(x, y, z, gameTick + 1);
         continue;

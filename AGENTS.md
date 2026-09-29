@@ -501,6 +501,30 @@ PROTOCOL.md                  WebSocket message reference
   geometry. Also run existing central-island, world-look, lighting, river and village
   checks and `npm run check`. User playtesting owns appearance/gameplay review.
 
+## Runtime rendering performance
+
+- `render/chunkMesher.js` is the shared mesher factory. Pages provide Three
+  through the import map; `meshWorker.js` uses its explicit vendor URL. A bounded
+  `MeshWorkerClient` queue copies only each chunk's 3x3x3 neighbourhood and
+  transfers completed geometry arrays and bounds. `LIGHTING.meshWorkerBatch`
+  controls its size; existing frame budgets limit installation and requests.
+  Block edits and lighting dirtiness reject stale results while keeping the old
+  mesh visible until its replacement arrives. Workers terminate on disconnect.
+- Chunk face visibility and ambient occlusion share a padded block cache;
+  interior rows come directly from the chunk. Static terrain matrices don't
+  update per frame. Entire meshes beyond the actual camera-depth fog plane skip
+  drawing; culling uses the same depth convention as Three's fog.
+- Goblin animation rigs live outside scene traversal. Instance batches compact
+  only visible members, upload only their used ranges and hide empty batches.
+  Conservative frustum bounds skip animation and light sampling for off-screen
+  goblins while leaving room for their weapons and animated limbs.
+- `scripts/render-performance-check.js --large` uses external Playwright like
+  `look-capture.js`. It verifies actual worker geometry against the synchronous
+  mesher, edits during in-flight jobs, chunk boundaries, camera changes, and
+  goblin batch visibility/removal/reuse. Also run the client import check,
+  existing tree mesh check and `npm run check`. Use the same seeds and views in
+  `look-capture.js` for before/after timing comparisons.
+
 ## NPCs, the monkeys and spoken dialogue
 
 - NPC kinds are data in `shared/npcs.js` (`NPC_DEFS`): entity type `npc` with
@@ -612,3 +636,52 @@ PROTOCOL.md                  WebSocket message reference
   prohibition, and writes labeled ASCII and full geometry maps to `/tmp`.
   Cross-area spawn travel is explicitly checked against the gate-chain
   volumes; home patrol/working routes must remain inside their home volume.
+
+## Chunk simulation, working monkeys and creative eggs
+
+- `server/chunkLoading.js` indexes entities and queued work by horizontal
+  chunk column. `CHUNK_LOADING` keeps eight chunks around each live connected
+  player and every team island plus its margin active, across the full height.
+  `ChunkEntityMap` retains normal Map access for welcome/targeting but exposes
+  `activeValues`, `activeEntries` and `nearbyValues` for bounded runtime work.
+  Relocate moving entities after physics. Sleeping entities retain their state;
+  physics ticks are not replayed on wake. Terrain buffers remain resident.
+  Water/foliage queues, containers, sapling timers, quarries, turrets, traps and
+  garrison releases obey the same tickets. Player prediction stays unchanged.
+- `World.getSurfaceY` skips missing chunks and reads stored column cells
+  directly. `server/dragonSurface.js` caches bounded solid-column heights;
+  invalidate the edited column in `Game`'s block-change callback. Hidden dragon
+  rigs leave scene traversal; static dragon parts merge by material without
+  changing geometry, joints or fire. Visible dragons use ten body draw calls.
+- `shared/monkeys.js` defines roles, names and filters; `MONKEY_WORK` tunes
+  spawning, ranges, budgets and minigames. `server/monkeyTaming.js` owns Simon,
+  memory and cup-shuffle answers/timers. `server/monkeyWorkers.js` owns team
+  taming, settings revisions, cargo, seed reserves and work. Wild monkeys are
+  brown, tamed monkeys use team colors, and names never change. Any teammate
+  can configure them through `public/js/monkeyScreen.js`; protocol views stay
+  private. Sounds reuse the existing monkey audio.
+- Courier routes persist across trips. Only changed endpoints/work bounds,
+  edits intersecting a route, a displaced start or stuck recovery invalidate
+  them. Failed routes watch their bounded work volume. Furnace extraction uses
+  output only; insertion prefers fuel then input. Preserve stack modifiers.
+- Lumberjacks use only explicitly marked base columns; never add a grown-tree
+  registry for this role. A leaf crown identifies a grown column. The marked
+  column authorizes wood/branches above it up to the configured height, leaving
+  horizontal branches to ordinary decay. Require a sapling reserve before
+  chopping; supply it manually or from the delivery target. Replant at the
+  same spot and retain one sapling from the harvest for the next cycle.
+  Gather fallen saplings near marked bases, reserve one when needed and
+  deliver filtered extras; never loop on the delivery pile.
+- Glass is block 121, Charcoal item 305. Sand smelts into Glass, logs into
+  Charcoal; Charcoal smelts eight items. `ORE_SETTINGS.ironDensity` keeps half
+  the original seeded iron candidates without changing generation RNG order.
+  `shared/mobEggs.js` supplies every creature/NPC kind, including Totem and all
+  monkeys, and automatically enters creative recipes. New eggs use 306–310;
+  all historical/reserved ids remain intact.
+- Run `npm run check`, `node scripts/monkey-check.js`,
+  `node scripts/chunk-loading-check.js`, and the existing movement/lighting/tree
+  checks. `scripts/runtime-performance-check.js medium large` measures real
+  seed-1 matches with two teams and checks all egg constructors.
+  `scripts/monkey-browser-check.js` uses externally installed Playwright and
+  `BASE_URL` (default localhost:3001) to check GUI actions, colors, geometry and
+  dragon culling without joining or changing an existing match.

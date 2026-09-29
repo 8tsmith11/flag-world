@@ -142,7 +142,7 @@ export class Sounds {
     this.poses.set(id, pose);
     if (this.mixer.spatial(position, C.monkeyRange).volume <= 0) return;
     const play = (sounds, gain) => this.mixer.play(sounds, gain, position, C.monkeyRange, C.monkeyRate);
-    if (previous && previous !== 'stand' && pose === 'stand') {
+    if (entity.info.npc !== 'workMonkey' && previous && previous !== 'stand' && pose === 'stand') {
       play(MONKEY_SOUNDS.chestBeat, C.monkeyBeatGain);
       if (Math.random() < C.monkeyRoarChance) this.roars.set(id, this.time + 1.6);
     }

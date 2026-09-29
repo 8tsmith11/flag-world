@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { LightingClient, litMaterial } from './voxelLighting.js';
 import { CHUNK_SIZE, LIGHTING as C } from '/shared/config.js';
 import { chunkKey } from '/shared/world.js';
-import { meshChunk } from './mesher.js';
+import { MeshWorkerClient, restoreGeometries } from './meshWorkerClient.js';
 
 // Meshes built per frame.
 const BUILDS_PER_FRAME = C.buildsPerFrame;
@@ -229,6 +229,7 @@ export class ChunkRenderer {
     // Chunks in range, nearest first; recomputed when the camera changes chunk.
     this.queue = [];
     this.queueFrom = null;
+    this.viewDirection=new THREE.Vector3();
 
     this.daylight={value:C.daySky,tint:{value:new THREE.Color(0xffedc9)}};
     this.windTime={value:0};
@@ -247,6 +248,7 @@ export class ChunkRenderer {
     }),this.daylight);
     const plants=plantMaterial(this.daylight,this.windTime,renderer);this.plantMaterial=plants.material;this.plantReady=plants.ready;
     this.lighting=new LightingClient(world,this.dirty);
+    this.meshing=new MeshWorkerClient(world);
     this.lastRemeshMs=0;this.buildCount=0;
     world.onBlockChanged = (x,y,z,id,oldId) => {this.markBlockDirty(x,y,z);this.lighting.edit(x,y,z,id,oldId);};
   }
@@ -268,7 +270,9 @@ export class ChunkRenderer {
     if (ly === CHUNK_SIZE - 1) ys.push(cy + 1);
     if (lz === 0) zs.push(cz - 1);
     if (lz === CHUNK_SIZE - 1) zs.push(cz + 1);
-    for (const ax of xs) for (const ay of ys) for (const az of zs) this.dirty.add(chunkKey(ax, ay, az));
+    for (const ax of xs) for (const ay of ys) for (const az of zs) {
+      const key=chunkKey(ax,ay,az);this.dirty.add(key);this.meshing.invalidate(key);
+    }
     // A block placed in empty sky may have created a chunk the queue doesn't know.
     if (!this.meshes.has(chunkKey(cx, cy, cz))) this.queueFrom = null;
   }
@@ -278,8 +282,22 @@ export class ChunkRenderer {
     return Math.hypot((chunk.cx + 0.5) * CHUNK_SIZE - x, (chunk.cz + 0.5) * CHUNK_SIZE - z);
   }
 
-  update(x, z) {
+  update(x, z, camera) {
+    if(this.disposed)return;
     this.windTime.value=performance.now()/1000;
+    if(camera)camera.getWorldDirection(this.viewDirection);
+    if(camera)for(const entry of this.meshes.values()) {
+      for(const mesh of entry.draws) {
+        // Linear fog is completely opaque at its far distance. Skip whole
+        // meshes beyond it, including caves far below the camera in tall worlds.
+        const sphere=mesh.geometry.boundingSphere;
+        // Three's fog uses camera depth, rather than radial distance. Matching
+        // that plane also preserves terrain at the sides of a wide field of view.
+        const p=camera.position,d=this.viewDirection,c=sphere.center;
+        const depth=(c.x-p.x)*d.x+(c.y-p.y)*d.y+(c.z-p.z)*d.z;
+        mesh.visible=depth<=this.scene.fog.far+sphere.radius;
+      }
+    }
     const key = `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}`;
     if (key !== this.queueFrom) {
       this.queueFrom = key;
@@ -296,33 +314,41 @@ export class ChunkRenderer {
       }
     }
 
-    if(this.lighting.edits || this.lighting.error)return;
+    if(this.lighting.edits || this.error)return;
     let budget = BUILDS_PER_FRAME;
     const deadline = performance.now() + C.buildBudgetMs;
+    for(const [key,job] of this.meshing.pending) {
+      if(!job.result)continue;
+      this.meshing.pending.delete(key);
+      if(this.distanceTo(job.chunk,x,z)>this.viewDistance+UNLOAD_MARGIN)continue;
+      // Edits can arrive while the worker is building. Keep the old mesh until
+      // its replacement uses both the latest blocks and the latest illumination.
+      if(job.stale||this.dirty.has(key)){this.dirty.add(key);continue;}
+      this.build(key,job.chunk,restoreGeometries(job.result.geometries));
+      if(--budget===0||performance.now()>=deadline)break;
+    }
     // Edits have priority. Idle frames never walk the full chunk queue.
     for (const k of this.dirty) {
-      const entry = this.meshes.get(k);
-      if (!entry) { this.dirty.delete(k); continue; }
-      this.build(k, entry.chunk);
-      if (--budget === 0 || performance.now() >= deadline) return;
+      const chunk=this.world.chunks.get(k);
+      if(!chunk||this.distanceTo(chunk,x,z)>this.viewDistance+UNLOAD_MARGIN){this.dirty.delete(k);continue;}
+      if(this.lighting.ready.has(k)&&this.meshing.request(k,chunk))this.dirty.delete(k);
+      if(this.meshing.pending.size>=C.meshWorkerBatch||performance.now()>=deadline)return;
     }
-    while (this.buildCursor < this.queue.length && budget > 0) {
+    while (this.buildCursor < this.queue.length && this.meshing.pending.size<C.meshWorkerBatch) {
       const { chunk } = this.queue[this.buildCursor];
       const k = chunkKey(chunk.cx, chunk.cy, chunk.cz);
-      if (this.meshes.has(k)) { this.buildCursor++; continue; }
+      if (this.meshes.has(k)||this.meshing.pending.has(k)) { this.buildCursor++; continue; }
       if (!this.lighting.ready.has(k)) break;
       this.buildCursor++;
-      this.build(k, chunk);
-      budget--;
+      this.meshing.request(k,chunk);
       if (performance.now() >= deadline) break;
     }
   }
 
-  build(key, chunk) {
+  build(key, chunk, geo) {
     const started=performance.now();
     this.unload(key);
     this.dirty.delete(key);
-    const geo = meshChunk(this.world, chunk);
     const entry = {
       chunk,
       plants:geo.plants&&new THREE.Mesh(geo.plants,this.plantMaterial),
@@ -331,6 +357,12 @@ export class ChunkRenderer {
       glow: geo.glow && new THREE.Mesh(geo.glow, this.glowMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
     };
+    entry.draws=[entry.opaque,entry.textured,entry.glow,entry.transparent,entry.plants].filter(Boolean);
+    for(const mesh of entry.draws) {
+      // Terrain vertices already use world coordinates; these transforms never change.
+      mesh.matrixAutoUpdate=false;
+      mesh.matrixWorldAutoUpdate=false;
+    }
     if(entry.plants)this.scene.add(entry.plants);
     if (entry.opaque) this.scene.add(entry.opaque);
     if (entry.textured) this.scene.add(entry.textured);
@@ -346,8 +378,7 @@ export class ChunkRenderer {
   unload(key) {
     const entry = this.meshes.get(key);
     if (!entry) return;
-    for (const mesh of [entry.opaque, entry.textured, entry.glow, entry.transparent, entry.plants]) {
-      if (!mesh) continue;
+    for (const mesh of entry.draws) {
       this.scene.remove(mesh);
       mesh.geometry.dispose();
     }
@@ -356,5 +387,13 @@ export class ChunkRenderer {
 
   get loadedCount() {
     return this.meshes.size;
+  }
+
+  get error() {return this.lighting.error??this.meshing.error;}
+
+  dispose() {
+    this.disposed=true;
+    this.lighting.dispose();this.meshing.dispose();
+    for(const key of this.meshes.keys())this.unload(key);
   }
 }

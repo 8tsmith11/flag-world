@@ -19,7 +19,7 @@ import { attachGeneratedTorches } from './torches.js';
 import { generateNpcSites } from './npcSites.js';
 import { centralRegions, regionalColumn } from './centralTerrain.js';
 import { CENTRAL_TERRAIN, GOBLIN_GEN } from './config.js';
-import { ISLAND_SHAPE as S, BIOME_SETTINGS } from './config.js';
+import { ISLAND_SHAPE as S, BIOME_SETTINGS, ORE_SETTINGS } from './config.js';
 
 const EDGE_SHELL = 3;
 const KEEP_CLEARANCE = KEEP_REACH + 6;
@@ -581,7 +581,9 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
       const threshold = exposed && world.biomeAt(x, z) === 'mountains'
         ? BIOME_SETTINGS.mountainOreThreshold : exposed ? 0.69 : 0.83;
       if (noise3(x / 5 + 2000, y / 5, z / 5 + 2000) > threshold) {
-        world.setBlock(x, y, z, BLOCK.IRON_ORE);
+        let h=Math.imul(x,73856093)^Math.imul(y,19349663)^Math.imul(z,83492791)^world.seed;
+        h=Math.imul(h^(h>>>16),2246822519);h=Math.imul(h^(h>>>13),3266489917);
+        if(((h^(h>>>16))>>>0)/4294967296<ORE_SETTINGS.ironDensity)world.setBlock(x, y, z, BLOCK.IRON_ORE);
       }
     }
   }

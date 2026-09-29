@@ -19,7 +19,7 @@ import {
   createCrawlerModel, createEelModel, animatePlayer, animateCow, animateDragon, animateCrawler, animateEel, swingPlayer,
 } from './models.js';
 import { GrappleLine } from './grappleLine.js';
-import { createNpcModel, animateMonkey } from './monkeyModels.js';
+import { createNpcModel, animateMonkey, updateMonkeyTeam } from './monkeyModels.js';
 import { NPC_DEFS } from '/shared/npcs.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
@@ -103,6 +103,7 @@ export class EntityRenderer {
     // id -> { object, info, snapshots: [{ time, x, y, z, yaw, pitch, held, dead }], flashUntil, flashing }
     this.entities = new Map();
     this.goblinInstances = new GoblinInstances(scene);
+    this.frustum=new THREE.Frustum();this.viewProjection=new THREE.Matrix4();this.goblinBounds=new THREE.Sphere();
   }
 
   // `info` holds static fields (type, color, ...) from WELCOME / ENTITY_SPAWN.
@@ -147,6 +148,7 @@ export class EntityRenderer {
       onGround: !!snap.onGround,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
       pose: snap.pose ?? null, look: snap.look ?? 0,
+      team: snap.team ?? null, name: snap.name ?? entity.info.name,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
     if (entity.snapshots.length > MAX_SNAPSHOTS) entity.snapshots.shift();
@@ -203,14 +205,20 @@ export class EntityRenderer {
 
   update(dt, world, daylight, camera) {
     const now = performance.now();
+    if(camera) {
+      camera.updateMatrixWorld();
+      this.viewProjection.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
+      this.frustum.setFromProjectionMatrix(this.viewProjection);
+    }
     for (const entity of this.entities.values()) {
       const { object, snapshots } = entity;
       if (snapshots.length === 0) continue;
       object.visible = !snapshots.at(-1).dead;
       const latest = snapshots.at(-1);
       if (camera && (latest.x-camera.position.x)**2 + (latest.y-camera.position.y)**2
-        + (latest.z-camera.position.z)**2 > camera.far**2) {
+        + (latest.z-camera.position.z)**2 > (camera.far + (object.userData.dragon ? 16 : 0))**2) {
         object.visible = false;
+        if (object.userData.dragon) this.scene.remove(object);
         continue;
       }
       const flashing = now < entity.flashUntil;
@@ -220,6 +228,25 @@ export class EntityRenderer {
       }
       const {a,b,t}=sampleSnapshots(snapshots,now);
       object.position.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+      if (object.userData.dragon) {
+        this.goblinBounds.center.copy(object.position);this.goblinBounds.center.y += 1.5;
+        this.goblinBounds.radius = latest.breathing || b.breathing ? 16 : 4;
+        if (!object.visible || (camera && !this.frustum.intersectsSphere(this.goblinBounds))) {
+          object.visible = false; this.scene.remove(object); continue;
+        }
+        if (object.parent !== this.scene) this.scene.add(object);
+      }
+      if (entity.info.npc === 'workMonkey') {
+        entity.info.team = latest.team; entity.info.name = latest.name;
+        updateMonkeyTeam(object, latest.team);
+      }
+      if(camera&&object.userData.goblin) {
+        const height=boxOf(entity.info).height;
+        this.goblinBounds.center.copy(object.position);this.goblinBounds.center.y+=height/2;
+        // Leave room for animated arms, weapons and head turns at the edges.
+        this.goblinBounds.radius=height+1;
+        if(!this.frustum.intersectsSphere(this.goblinBounds)){object.visible=false;continue;}
+      }
       const spin = object.userData.spin;
       if (object.userData.arrow) {
         // Face along the flight. A stuck arrow keeps the direction it hit with.

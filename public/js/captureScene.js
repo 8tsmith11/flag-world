@@ -13,9 +13,9 @@ camera.position.set(end.x+(end.x-center.x)*C.cameraOutward,end.y+C.cameraHeight,
 camera.lookAt(center.x,center.surfaceY+C.targetHeight,center.z);
 const sky=new Sky(scene,{ambient,sun}),clouds=new Clouds(scene,world),chunks=new ChunkRenderer(scene,world,C.viewDistance,renderer);
 function frame() {
-  chunks.update(camera.position.x,camera.position.z);sky.update(C.dayTime,camera);
+  chunks.update(camera.position.x,camera.position.z,camera);sky.update(C.dayTime,camera);
   chunks.daylight.value=LIGHTING.nightSky+(LIGHTING.daySky-LIGHTING.nightSky)*sky.daylight;chunks.daylight.tint.value.copy(sky.light.color);clouds.setTint(sky.tint);
-  if(chunks.lighting.error){window.captureError=chunks.lighting.error.message;return;}
+  if(chunks.error){window.captureError=chunks.error.message;return;}
   if(chunks.queue.length&&chunks.queue.every(({chunk})=>chunks.meshes.has(chunk.cx+4096*(chunk.cz+4096*chunk.cy)))) {
     renderer.render(scene,camera);
     window.captureReady=true;window.captureInfo={seed:C.seed,worldSize:C.worldSize,riverMs:world.riverGenerationMs,camera:camera.position.toArray()};

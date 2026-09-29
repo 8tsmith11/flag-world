@@ -5,8 +5,8 @@ import { TREE_SETTINGS as C } from '../shared/config.js';
 const REACH=C.decayReach, DIAMETER=REACH*2+1;
 const localIndex=(dx,dy,dz)=>dx+REACH+DIAMETER*(dz+REACH+DIAMETER*(dy+REACH));
 export class LeafDecay {
-  constructor(world,onDecay=()=>{}) {
-    this.world=world;this.onDecay=onDecay;this.pending=new Map();this.placedBlocks=new Set();this.explorations=[];this.decaying=false;
+  constructor(world,onDecay=()=>{},loader=null) {
+    this.world=world;this.onDecay=onDecay;this.pending=loader?loader.entityMap(p=>p):new Map();this.placedBlocks=new Set();this.explorations=[];this.decaying=false;
     this.visited=new Uint16Array(DIAMETER**3);this.visitId=0;
   }
   placed(x,y,z,id) { if(isDecayingTreeBlock(id))this.placedBlocks.add(`${x},${y},${z}`); }
@@ -57,7 +57,9 @@ export class LeafDecay {
     this.explore();
     let budget=C.decayTickBudget,work=C.decayNodeBudget;
     while(budget-- > 0&&work>0&&this.pending.size) {
-      const [key,{x,y,z}]=this.pending.entries().next().value;this.pending.delete(key);
+      const entry=(this.pending.activeEntries?.()??this.pending.entries()).next().value;
+      if(!entry)break;
+      const [key,{x,y,z}]=entry;this.pending.delete(key);
       const id=this.world.getBlock(x,y,z);
       if(!isDecayingTreeBlock(id)||this.placedBlocks.has(key))continue;
       if(!this.hasWoodWithinReach(x,y,z)) {

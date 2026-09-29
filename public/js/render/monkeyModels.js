@@ -101,7 +101,7 @@ function ape(kind, colors) {
     legs.push({ hip, knee, side });
   }
   root.userData.monkey = {
-    kind, d, body, pelvis, torso, neck, head, jaw, arms, legs, eyes, fur, skin,
+    kind, d, body, pelvis, torso, neck, head, jaw, arms, legs, eyes, fur, skin, dark,
     pose: { ...POSES.sit }, look: 0, phase: 0, time: Math.random() * 100,
     scratch: 0, nextScratch: 4 + Math.random() * 8, beat: 0, lastPose: null, talkUntil: 0,
   };
@@ -110,8 +110,8 @@ function ape(kind, colors) {
 
 // The team's color as orange fur would wear it: slightly dark, with a
 // darker face and hands.
-export function createOrangutanModel({ team }) {
-  const color = new THREE.Color(TEAMS[team]?.color ?? 0xc86b2a);
+export function createOrangutanModel({ team, npc }) {
+  const color = new THREE.Color(TEAMS[team]?.color ?? (npc === 'workMonkey' ? 0x80502f : 0xc86b2a));
   const { root, parts } = ape('orangutan', {
     fur: mix(color, 0x3a2410, 0.2), skin: mix(color, 0x2b2320, 0.72), dark: mix(color, 0x1c1714, 0.8),
     eye: new THREE.MeshBasicMaterial({ color: 0x1a120c }),
@@ -167,8 +167,19 @@ const MODELS = { orangutan: createOrangutanModel, gorilla: createGorillaModel };
 // The model for an NPC entity (info.npc is its kind in shared/npcs.js).
 export function createNpcModel(info) {
   const model = (MODELS[NPC_DEFS[info.npc]?.model] ?? createGorillaModel)(info);
+  if(info.npc==='workMonkey')model.scale.setScalar(NPC_DEFS.workMonkey.box.height/NPC_DEFS.wiseMonkey.box.height);
   model.userData.npc = true;
   return model;
+}
+
+export function updateMonkeyTeam(model, team) {
+  const m = model.userData.monkey;
+  if (m.team === team || m.kind !== 'orangutan') return;
+  m.team = team;
+  const color = new THREE.Color(TEAMS[team]?.color ?? 0x80502f);
+  m.fur.color.setHex(mix(color, 0x3a2410, 0.2));
+  m.skin.color.setHex(mix(color, 0x2b2320, 0.72));
+  m.dark.color.setHex(mix(color, 0x1c1714, 0.8));
 }
 
 // Per frame. pose: the server's ('sit', 'stand', 'walk', 'look'); look: head

@@ -44,6 +44,7 @@ for (const [material, color, hammer, sword] of MATERIALS) {
   defineItem(sword, `${material} sword`, { maxStack: 1, tool: 'sword', color, modCategory: 'melee' });
 }
 defineItem(ITEM.IRON_INGOT, 'iron ingot', { shape: 'ingot', color: IRON_COLOR });
+defineItem(ITEM.CHARCOAL, 'charcoal', { color: 0x292b30, icon: '/textures/charcoal.svg' });
 // Hold right click to draw, release to shoot (arrows are unlimited).
 defineItem(ITEM.BOW, 'bow', { maxStack: 1, tool: 'bow', color: 0x8a5a2b, modCategory: 'ranged' });
 // Dropped by cows.

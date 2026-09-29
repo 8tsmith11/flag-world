@@ -9,9 +9,9 @@ const SEARCH_DISTANCE = 4;
 const HORIZONTAL = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 export class WaterSimulation {
-  constructor(world) {
+  constructor(world, loader = null) {
     this.world = world;
-    this.pending = new Map();
+    this.pending = loader ? loader.entityMap(p => p) : new Map();
     // Generated pond water is source water. Seed its boundary, not its entire
     // volume, so starting a large world does not fill the queue with interiors.
     for (const chunk of world.chunks.values()) {
@@ -101,8 +101,10 @@ export class WaterSimulation {
   tick(gameTick) {
     if (gameTick % TICK_PERIOD) return;
     let budget = TICK_BUDGET;
-    while (budget-- > 0 && this.pending.size) {
-      const [key, pos] = this.pending.entries().next().value;
+    while (budget-- > 0) {
+      const entry = (this.pending.activeEntries?.() ?? this.pending.entries()).next().value;
+      if (!entry) break;
+      const [key, pos] = entry;
       this.pending.delete(key);
       this.updateCell(pos.x, pos.y, pos.z);
     }

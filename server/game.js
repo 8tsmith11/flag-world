@@ -39,6 +39,7 @@ import { Arrow } from './arrow.js';
 import { RiftOrbProjectile } from './riftOrb.js';
 import { Cow, Herd, COW_BOX } from './cow.js';
 import { Dragon, DRAGON_BOX } from './dragon.js';
+import { invalidateDragonSurface } from './dragonSurface.js';
 import { Crawler, CRAWLER_BOX } from './crawler.js';
 import { VoidEel, EEL_BOX } from './eel.js';
 import { canStand } from './pathfind.js';
@@ -60,12 +61,15 @@ import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
 import { EntityInterest } from './entityInterest.js';
+import { MonkeyWorkers, WorkMonkey } from './monkeyWorkers.js';
+import { ChunkLoading } from './chunkLoading.js';
 import { TurretController } from './turrets.js';
 import { turretType } from '../shared/turrets.js';
 import { assignMobSteering, steerGround, resolveMobOverlaps } from './mobSteering.js';
 import { Npc, npcLine } from './npcs.js';
 import { TeamProgress } from './teamProgress.js';
 import { NPC } from '../shared/config.js';
+import { NPC_KIND, NPC_DEFS } from '../shared/npcs.js';
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -130,6 +134,7 @@ function isLocalAddress(address) {
 export class Game {
   constructor() {
     this.entityInterest=new EntityInterest();
+    this.chunkLoading = new ChunkLoading();
     this.phase = PHASE.LOBBY;
     // Ids for lobby members, players and entities. A member keeps its id as a player.
     this.nextId = 1;
@@ -160,15 +165,15 @@ export class Game {
     this.players = new Map();
     // Dropped items and flying or stuck arrows by entity id. They share the
     // id space with players.
-    this.items = new Map();
-    this.arrows = new Map();
-    this.riftOrbs = new Map();
-    this.cows = new Map();
-    this.dragons = new Map();
+    this.items = this.chunkLoading.entityMap();
+    this.arrows = this.chunkLoading.entityMap();
+    this.riftOrbs = this.chunkLoading.entityMap();
+    this.cows = this.chunkLoading.entityMap();
+    this.dragons = this.chunkLoading.entityMap();
     // Crawlers and Void Eels by entity id.
-    this.mobs = new Map();
+    this.mobs = this.chunkLoading.entityMap();
     // Wise and Ancient Monkeys by entity id; what each team has done, for hints.
-    this.npcs = new Map();
+    this.npcs = this.chunkLoading.entityMap();
     this.teamProgress = new TeamProgress();
     this.portals = new Map();
     // Sessions on the "match in progress" screen.
@@ -262,6 +267,9 @@ export class Game {
         break;
       case C2S.TALK:
         if (session.player) this.talk(session.player, msg.id);
+        break;
+      case C2S.MONKEY_ACTION:
+        if(session.player)this.monkeys?.action(session.player,msg);
         break;
     }
   }
@@ -394,26 +402,35 @@ export class Game {
       this.broadcastLobby();
       return;
     }
+    this.chunkLoading.configure(this.world);
+    const containers = this.chunkLoading.entityMap((value, id) => {
+      const [x, y, z] = id.split(',').map(Number); return { x, y, z };
+    });
+    for (const [id, container] of this.world.tileEntities) containers.set(id, container);
+    this.world.tileEntities = containers;
     this.fortressTraps = new FortressTraps(this);
     this.turretController = new TurretController(this);
-    this.water = new WaterSimulation(this.world);
+    this.water = new WaterSimulation(this.world, this.chunkLoading);
+    this.monkeys = new MonkeyWorkers(this);
     this.leafDecay = new LeafDecay(this.world, (x, y, z, id) => {
       if (id === BLOCK.LEAVES && Math.random() < TREE_SETTINGS.decaySaplingChance) this.dropAt(ITEM.TREE_SEED, x, y, z);
-    });
+    }, this.chunkLoading);
     this.saplings = new SaplingGrowth(this.world, (x, y, z, top) =>
       [...this.players.values()].some((p) => !p.dead && p.state.x + playerBoxOf(p.state).halfW > x
         && p.state.x - playerBoxOf(p.state).halfW < x + 1
         && p.state.z + playerBoxOf(p.state).halfW > z
         && p.state.z - playerBoxOf(p.state).halfW < z + 1
-        && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y));
+        && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y), null, this.chunkLoading);
     this.quarry = new QuarryRegrowth(this);
     this.world.onBlockChanged = (x, y, z, id, oldId) => {
+      invalidateDragonSurface(this.world, x, z);
       this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id });
       const door = isDoor(id) ? doorState(id) : isDoor(oldId) ? doorState(oldId) : null;
       const team = door?.reinforced ? this.world.doorTeams.get(`${x},${door.upper ? y - 1 : y},${z}`) ?? null : undefined;
       this.pendingBlockChanges.set(`${x},${y},${z}`, { x, y, z, id,
         ...(team !== undefined ? { team } : {}) });
       this.garrison?.nav.changed(x, y, z);
+      this.monkeys?.changed(x,y,z);
       this.water.enqueueAround(x, y, z);
       this.leafDecay.changed(x, y, z, id, oldId);
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
@@ -457,6 +474,7 @@ export class Game {
     this.spawnCrawlers();
     this.spawnEels();
     this.spawnNpcs();
+    this.monkeys.spawn();
     this.garrison = new Garrison(this);
     this.garrison.update(this.tick);
     for (const player of this.players.values()) this.sendWelcome(player);
@@ -615,8 +633,9 @@ export class Game {
 
   updateRiftOrbs() {
     const moving = [];
-    for (const orb of this.riftOrbs.values()) {
+    for (const orb of this.riftOrbs.activeValues()) {
       const result = orb.step(this.world);
+      this.riftOrbs.relocate(orb);
       if (!result) { moving.push(orb); continue; }
       this.riftOrbs.delete(orb.id);
       this.broadcast({ type: S2C.ENTITY_DESPAWN, id: orb.id });
@@ -880,14 +899,21 @@ export class Game {
     const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
     const boxes = { cow: COW_BOX, dragon: DRAGON_BOX, crawler: CRAWLER_BOX, voidEel: EEL_BOX };
     const role = roleOf(egg.type);
-    if (GOBLINS[role] && !player.creative) return;
-    const box = boxes[egg.type] ?? (GOBLINS[role] ? goblinBox(role) : null);
+    if ((GOBLINS[role] || egg.npc) && !player.creative) return;
+    const box = boxes[egg.type] ?? NPC_DEFS[egg.npc]?.box ?? (GOBLINS[role] ? goblinBox(role) : null);
     if (!box || !playerFitsAt(this.world, { x, y, z, box }, y)) return;
     const island = this.world.islands?.length ? this.world.islands.reduce((best, candidate) =>
       Math.hypot(x - candidate.x, z - candidate.z) < Math.hypot(x - best.x, z - best.z) ? candidate : best)
       : { x, z, radius: 16, surfaceY: y, kind: 'team' };
     let mob;
     switch (egg.type) {
+      case 'npc':
+        mob = egg.npc === NPC_KIND.WORK_MONKEY
+          ? new WorkMonkey(this.nextId++, this.monkeys, { x, y, z })
+          : new Npc(this.nextId++, { npc: egg.npc, x, y, z, yaw: 0 },
+            egg.npc === NPC_KIND.WISE_MONKEY ? player.team : null, this.tick);
+        this.npcs.set(mob.id, mob);
+        break;
       case 'cow': {
         mob = new Cow(this.nextId++, new Herd(this.nextId++), x, y, z);
         this.cows.set(mob.id, mob);
@@ -1029,7 +1055,7 @@ export class Game {
   // open gets its new state when it changes (from ticking or anyone's click),
   // and is told to close if it's gone or out of reach.
   updateContainers() {
-    for (const [key, container] of this.world.tileEntities) {
+    for (const [key, container] of this.world.tileEntities.activeEntries()) {
       const wasLit = container.kind === 'furnace' && container.burn > 0;
       if (container.tick()) container.dirty = true;
       if (container.kind === 'furnace' && (container.burn > 0) !== wasLit) {
@@ -1048,7 +1074,7 @@ export class Game {
         this.send(player, { type: S2C.CONTAINER, x, y, z, ...container.view() });
       }
     }
-    for (const container of this.world.tileEntities.values()) container.dirty = false;
+    for (const container of this.world.tileEntities.activeValues()) container.dirty = false;
   }
 
   // Closing the screen (or leaving) puts the cursor stack back; what doesn't fit is dropped.
@@ -1120,7 +1146,7 @@ export class Game {
   // moved this tick, which are the only ones included in STATE.
   updateItems() {
     const moved = [];
-    for (const entity of this.items.values()) {
+    for (const entity of this.items.activeValues()) {
       if (--entity.despawnTicks <= 0) {
         this.removeItem(entity);
         continue;
@@ -1128,6 +1154,7 @@ export class Game {
       const s = entity.state;
       const { x, y, z } = s;
       stepItem(s, this.world);
+      this.items.relocate(entity);
       if (s.y < this.world.voidY) {
         this.removeItem(entity);
         continue;
@@ -1238,16 +1265,19 @@ export class Game {
   // just stuck.
   updateArrows() {
     const moved = [];
-    for (const arrow of this.arrows.values()) {
+    if(!this.arrows.active.size)return moved;
+    const players = [...this.players.values()], cows = [...this.cows.activeValues()], dragons = [...this.dragons.activeValues()],
+      mobs = [...this.mobs.activeValues()], npcs = [...this.npcs.activeValues()];
+    for (const arrow of this.arrows.activeValues()) {
       const flying = !arrow.stuckIn;
-      const targets = arrow.shooter.trap
-          ? [...this.players.values(), ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values()].filter(t => !isGoblin(t))
+      const targets = !flying ? [] : arrow.shooter.trap
+          ? [...players, ...cows, ...dragons, ...mobs].filter(t => !isGoblin(t))
           : arrow.shooter.turret
-          ? [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
-            ...this.dragons.values(), ...[...this.mobs.values()].filter((m) => m instanceof Crawler || m instanceof VoidEel)]
-          : [...[...this.players.values()].filter((p) => p.team !== arrow.shooter.team),
-            ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values(), ...this.npcs.values()];
+          ? [...players.filter((p) => p.team !== arrow.shooter.team),
+            ...dragons, ...mobs.filter((m) => m instanceof Crawler || m instanceof VoidEel)]
+          : [...players.filter((p) => p.team !== arrow.shooter.team), ...cows, ...dragons, ...mobs, ...npcs];
       const result = arrow.step(this.world, targets);
+      this.arrows.relocate(arrow);
       if (result === 'gone' || arrow.y < this.world.voidY) {
         this.removeArrow(arrow);
       } else if (result?.hit) {
@@ -1323,11 +1353,12 @@ export class Game {
   // Moves every cow; returns the ones that moved (for STATE).
   updateCows() {
     const moved = [];
-    for (const cow of this.cows.values()) {
+    for (const cow of this.cows.activeValues()) {
       const s = cow.state;
       const before = `${s.x},${s.y},${s.z},${s.yaw}`;
       cow.step(this.world, this.tick);
       steerGround(cow, this.world);
+      this.cows.relocate(cow);
       if (s.y < this.world.voidY) this.removeCow(cow);
       else if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(cow);
     }
@@ -1429,13 +1460,14 @@ export class Game {
   // Fire hits whoever is in the cone, except players in fire-immune armor.
   updateDragons() {
     const players = [...this.players.values()];
-    for (const dragon of this.dragons.values()) {
+    for (const dragon of this.dragons.activeValues()) {
       for (const target of dragon.step(this.world, players, this.tick)) {
         if (!target.fireImmune()) this.damage(target, DRAGON_FIRE_DAMAGE, dragon, DEATH_CAUSE.MOB);
       }
+      this.dragons.relocate(dragon);
     }
     // Flight and fire are sent every tick so the flame starts and stops promptly.
-    return [...this.dragons.values()];
+    return [...this.dragons.activeValues()];
   }
 
   // ---- Crawlers and Void Eels ----
@@ -1479,7 +1511,7 @@ export class Game {
   updateMobs() {
     const players = [...this.players.values()];
     const moved = [];
-    for (const mob of this.mobs.values()) {
+    for (const mob of this.mobs.activeValues()) {
       const s = mob.state;
       const before = `${s.x},${s.y},${s.z},${s.yaw}`;
       const time = this.dayTime();
@@ -1487,6 +1519,7 @@ export class Game {
         ? mob.step(this.world, players, this.tick, time >= 0.5 && time < 1)
         : mob.step(this.world, players, this.tick);
       if (mob instanceof Crawler) steerGround(mob, this.world);
+      this.mobs.relocate(mob);
       if (s.y < this.world.voidY) {
         this.removeMob(mob);
         continue;
@@ -1593,8 +1626,12 @@ export class Game {
 
   // Their snapshots reach clients through entityInterest when they change.
   updateNpcs() {
+    this.monkeys?.beginTick();
     const players = [...this.players.values()];
-    for (const npc of this.npcs.values()) npc.step(this.world, players, this.tick);
+    for (const npc of this.npcs.activeValues()) {
+      npc.step(this.world, players, this.tick);
+      this.npcs.relocate(npc);
+    }
   }
 
   // A Wise Monkey dies for the rest of the match, and its team's hints with it.
@@ -1620,6 +1657,7 @@ export class Game {
       Math.max(0, Math.abs(s.z - n.z) - box.halfW));
     if (gap > NPC.talkReach) return;
     player.nextTalkTick = this.tick + Math.round(NPC.talkCooldown * TICK_RATE);
+    if(npc instanceof WorkMonkey){this.monkeys.open(player,npc);return;}
     const line = npcLine(npc, player, { progress: this.teamProgress.of(player.team),
       features: { stormCloud: !!this.world.stormCloud, gorgeCave: !!this.world.gorgeCave } });
     this.send(player, { type: S2C.SPEAK, id: npc.id, name: npc.name, voice: npc.def.voice, ...line });
@@ -1967,6 +2005,7 @@ export class Game {
   update() {
     if (this.phase !== PHASE.PLAYING) return;
     this.tick++;
+    this.chunkLoading.update(this.players.values());
     this.water.tick(this.tick);
     for (const player of this.players.values()) {
       // Each queued input runs one deterministic physics tick.
@@ -2012,6 +2051,7 @@ export class Game {
       this.regen(player);
     }
 
+    this.chunkLoading.update(this.players.values());
     this.leafDecay.tick();
     this.saplings.tick(this.tick);
     this.quarry.tick(this.tick);
@@ -2024,11 +2064,12 @@ export class Game {
     this.updateContainers();
 
     this.garrison.update(this.tick);
-    const livingMobs = [...this.cows.values(), ...this.dragons.values(), ...this.mobs.values(), ...this.npcs.values()];
+    const livingMobs = [...this.cows.activeValues(), ...this.dragons.activeValues(), ...this.mobs.activeValues(), ...this.npcs.activeValues()];
     assignMobSteering(livingMobs);
     const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateRiftOrbs(), ...this.updateCows(), ...this.updateDragons(),
       ...this.updateMobs()];
     for (const mob of resolveMobOverlaps(this.world, livingMobs)) {
+      for (const map of [this.cows, this.dragons, this.mobs, this.npcs]) if (map.has(mob.id)) map.relocate(mob);
       if (!movedItems.includes(mob)) movedItems.push(mob);
     }
 

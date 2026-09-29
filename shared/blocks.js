@@ -72,6 +72,7 @@ export const BLOCK = {
   BRANCH: 102,
   // The Ancient Lightning Monkey's cloud. Kept clear of the plant range above.
   STORM_CLOUD: 120,
+  GLASS: 121,
 };
 
 export function isWater(id) {
@@ -255,6 +256,8 @@ define(BLOCK.SAPLING, 'sapling', { color: 0x50a346, solid: false, transparent: t
   breakTime: 0.15, drops: ITEM.TREE_SEED, shape: 'sapling' });
 define(BLOCK.PLANKS, 'planks', { color: 0xb58a55, breakTime: 0.8 });
 define(BLOCK.IRON_ORE, 'iron ore', { color: 0xb88a6a, hardness: 3, breakTime: 2 });
+define(BLOCK.GLASS, 'glass', { color: 0xc9edf5, transparent: true, lightOpaque: false,
+  hardness: 1, breakTime: 0.4, icon: '/textures/glass.svg' });
 define(BLOCK.SAND, 'sand', { color: 0xdccf8e, breakTime: 0.5 });
 // Right click opens a crafting screen. Transparent: the table is inset from its cell.
 define(BLOCK.WORKBENCH, 'workbench', { color: 0xa0703f, breakTime: 1, shape: 'workbench', transparent: true });

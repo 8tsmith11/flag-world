@@ -10,7 +10,7 @@ const keyOf = (x, y, z) => `${x},${y},${z}`;
 export class QuarryRegrowth {
   constructor(game) {
     this.game = game;
-    this.stones = new Map();
+    this.stones = game.chunkLoading ? game.chunkLoading.entityMap(p => p) : new Map();
     for (const pos of game.world.quarries ?? []) this.changed(pos.x, pos.y, pos.z, BLOCK.QUARRY_STONE);
   }
 
@@ -61,15 +61,16 @@ export class QuarryRegrowth {
       Object.assign(item.state, { x: nearest.x + 0.5, y: nearest.y + 0.2, z: nearest.z + 0.5,
         vx: 0, vy: 0, vz: 0, onGround: false });
       item.forceSnapshot = true;
+      this.game.items.relocate?.(item);
     }
   }
 
   tick(tick) {
     const world = this.game.world;
-    for (const stone of this.stones.values()) {
+    for (const stone of this.stones.activeValues?.() ?? this.stones.values()) {
       for (let face = 0; face < FACES.length; face++) {
         if (tick < stone.due[face]) continue;
-        stone.due[face] += INTERVAL;
+        stone.due[face] = tick + INTERVAL;
         const [dx, dy, dz] = FACES[face];
         const x = stone.x + dx, y = stone.y + dy, z = stone.z + dz;
         if (!world.inBounds(x, y, z) || world.getBlock(x, y, z) !== BLOCK.AIR || this.occupied(x, y, z)) continue;

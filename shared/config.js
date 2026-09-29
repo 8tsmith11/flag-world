@@ -18,6 +18,8 @@ export const CHUNK_SIZE = 16;
 export const VIEW_DISTANCE = 160;
 export const VIEW_DISTANCE_MIN = 64;
 export const VIEW_DISTANCE_MAX = 320;
+// Full-height simulation columns near players; all team islands stay active.
+export const CHUNK_LOADING = { simulationDistance: 8, teamMargin: 16 };
 
 
 // Simulation runs at a fixed rate. Every client input represents exactly one tick.
@@ -324,6 +326,16 @@ export const DAY_START = 0.04;
 
 // Furnace: seconds to smelt one item.
 export const SMELT_TIME = 5;
+export const ORE_SETTINGS = { ironDensity: 0.5 };
+export const MONKEY_WORK = {
+  maxRadius: 24, defaultRadius: 16, maxVertical: 3, maxSites: 16, maxFilter: 128,
+  box: { halfW: 0.4, height: 1.4 }, speed: 0.75, capacity: 16,
+  thinkTicks: 10, pathNodes: 600, pathsPerTick: 4, stuckTicks: 40,
+  chopTicks: 60, chopBlocksPerThink: 12, maxTreeHeight: 64, configureReach: 32,
+  spawnArea: 2200, minSpawns: 1, maxSpawns: 6, spawnAttempts: 160,
+  sessionTicks: 1200, simonStepTicks: 16, simonLength: 5,
+  cardPairs: 6, cardRevealTicks: 16, cupSwaps: 6, cupSwapTicks: 14,
+};
 
 // Reusable worldgen structure engine. Distances are in blocks; budgets are
 // total cut + fill volume, not a world-size multiplier.
@@ -378,7 +390,7 @@ export const LIGHTING = {
   voidTint: [0.65, 0.77, 1], voidDay: 0.3, voidNight: 0.045, ambientFloor: 0.008, nightSky: 0.035, daySky: 1,
   faceShades: [0.8, 0.8, 0.55, 1, 0.7, 0.7],
   blockStrength: 1.25, blockTint: [1, 0.72, 0.4], aoStrength: 0.18,
-  buildsPerFrame: 2, buildBudgetMs: 4, unloadMargin: 32, workerBatch: 4,
+  buildsPerFrame: 2, buildBudgetMs: 4, unloadMargin: 32, workerBatch: 4, meshWorkerBatch: 2,
   entitySmoothSeconds: 0.16, entityUpShade: 1, entityDownShade: 0.75,
   entityPlayerSample: 0.9, entityCrouchSampleScale: 0.85, entityTallThreshold: 2, entityHeadFraction: 0.8,
   entityItemSample: 0.125,

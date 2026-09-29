@@ -12,7 +12,7 @@ const wrap = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
 export class TurretController {
   constructor(game) {
     this.game = game;
-    this.turrets = new Map();
+    this.turrets = game.chunkLoading ? game.chunkLoading.entityMap(p => p) : new Map();
     this.grid = new Map();
     this.lastGridTick = -Infinity;
   }
@@ -33,7 +33,8 @@ export class TurretController {
 
   rebuildGrid(tick) {
     this.grid.clear();
-    const targetable = [...this.game.players.values(), ...this.game.mobs.values(), ...this.game.dragons.values()];
+    const targetable = [...this.game.players.values(), ...(this.game.mobs.activeValues?.() ?? this.game.mobs.values()),
+      ...(this.game.dragons.activeValues?.() ?? this.game.dragons.values())];
     const cell = TURRET.spatialCell;
     for (const target of targetable) {
       if (!huntable(target)) continue;
@@ -79,7 +80,7 @@ export class TurretController {
   step(tick) {
     if (!this.turrets.size) return;
     if (tick - this.lastGridTick >= TURRET.updateTicks) this.rebuildGrid(tick);
-    for (const turret of this.turrets.values()) {
+    for (const turret of this.turrets.activeValues?.() ?? this.turrets.values()) {
       const type = turretType(turret.id);
       if (tick % type.updateTicks !== Math.abs((turret.x * 31 + turret.z * 17) % type.updateTicks)) continue;
       let chosen = null;

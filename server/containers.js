@@ -19,7 +19,7 @@ import { canHaveMods, rollMods, sameKind } from '../shared/modifiers.js';
 // Moves as much of `stack` as fits into slots[index] (empty, or the same item
 // with room). Returns whether anything moved.
 // A modded stack only goes into an empty slot, modifiers and all.
-function mergeInto(slots, index, stack) {
+export function mergeInto(slots, index, stack) {
   const target = slots[index];
   if (target && !sameKind(target, stack)) return false;
   const room = maxStack(stack.item) - (target ? target.count : 0);

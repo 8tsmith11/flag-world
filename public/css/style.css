@@ -1130,3 +1130,32 @@ body.loading-world #status { font-size: 1.65em; }
 #fullscreen-return { z-index: 100; background: rgba(5, 7, 15, 0.8); }
 #fullscreen-return button { font: inherit; color: white; padding: 20px 30px; border: 1px solid #c5b99d; border-radius: 8px; background: #242b3d; cursor: pointer; }
 #lobby .settings input[type="range"] { width: 10em; }
+/* Team-owned working monkeys and their taming games. */
+.monkey-panel { width:min(700px,94vw); max-height:90vh; overflow:auto; text-align:left; }
+.monkey-heading,.monkey-target { display:flex; align-items:center; gap:12px; justify-content:space-between; }
+.monkey-heading h1 { margin:0; }
+.monkey-settings { display:flex; gap:16px; flex-wrap:wrap; margin:16px 0; }
+.monkey-settings label { display:flex; flex-direction:column; gap:6px; flex:1; }
+.monkey-settings input { width:100%; box-sizing:border-box; }
+.monkey-target { margin:10px 0; flex-wrap:wrap; }
+.monkey-target code { flex:1; text-align:right; }
+.monkey-sites { padding-left:20px; }
+.monkey-sites li { margin:8px 0; }
+.monkey-sites button { margin-left:16px; }
+.monkey-message { color:#ffd884; min-height:1.2em; }
+.monkey-status { color:#b5d7af; }
+.monkey-search { width:100%; box-sizing:border-box; margin:12px 0; }
+.monkey-filter { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:6px; max-height:180px; overflow:auto; margin-bottom:16px; }
+.monkey-filter-item { display:flex; gap:6px; align-items:center; padding:4px; font-size:12px; }
+.monkey-filter-item .slot { width:30px; height:30px; min-width:30px; }
+.monkey-filter-item.selected { background:#385c39; border-color:#8ce58a; }
+.monkey-avatar { font-size:78px; text-align:center; height:120px; padding-top:30px; transition:transform .18s; }
+.monkey-avatar.jump { transform:translateY(-30px); }
+.monkey-avatar.crouch { transform:scaleY(.65); transform-origin:bottom; }
+.monkey-cue { text-align:center; font-size:22px; }
+.monkey-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+.monkey-card { min-height:75px; font-size:32px; }
+.monkey-card.matched { background:#385c39; }
+.monkey-cups { position:relative; width:288px; height:150px; margin:24px auto; }
+.monkey-cup { position:absolute; top:0; left:0; width:80px; height:95px; border-radius:12px 12px 28px 28px; background:#9d6039; transition:transform .35s; font-size:26px; }
+.monkey-ball { position:absolute; top:110px; width:18px; height:18px; background:#ffc84c; border-radius:50%; }

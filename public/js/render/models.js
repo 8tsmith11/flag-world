@@ -1,3 +1,5 @@
+import { ANVIL_PARTS } from './anvilParts.js';
+import { mergeStaticMeshes } from './mergeStaticMeshes.js';
 // 3D models shared by the world, the first-person view and the inventory
 // preview: the player (body, head with a face, one arm with a fist that holds
 // the item in hand) and item models (block cubes and tools).
@@ -436,8 +438,9 @@ export function createDragonModel() {
   muzzle.position.set(0, 1.66, -1.85);
   group.add(body, underbelly, neck, head, muzzle);
   const legs = [];
+  const eyeMaterial = lambert(0xffd650);
   for (const side of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.03), lambert(0xffd650));
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.03), eyeMaterial);
     eye.position.set(side * 0.18, 1.91, -1.82);
     const hornMesh = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.42, 6), horn);
     hornMesh.position.set(side * 0.23, 2.25, -1.27);
@@ -490,6 +493,7 @@ export function createDragonModel() {
   flame.visible = false;
   group.add(flame);
   group.userData.dragon = { wings, legs, flame, phase: 0 };
+  mergeStaticMeshes(group);
   return group;
 }
 
@@ -675,15 +679,7 @@ export function createAnvilModel(size = 1) {
   return group;
 }
 // The same boxes as the mesher's anvil block (unit cell, facing north).
-export const ANVIL_PARTS = [
-  { box: [0.12, 0, 0.2, 0.88, 0.14, 0.8] },
-  { box: [0.22, 0.14, 0.3, 0.78, 0.26, 0.7] },
-  { box: [0.35, 0.26, 0.38, 0.65, 0.58, 0.62] },
-  { box: [0.14, 0.58, 0.28, 0.8, 0.9, 0.72] },
-  { box: [0.14, 0.88, 0.28, 0.8, 0.92, 0.72], light: true },
-  { box: [0.8, 0.64, 0.36, 0.92, 0.88, 0.64] },
-  { box: [0.92, 0.7, 0.42, 1, 0.84, 0.58] },
-];
+export { ANVIL_PARTS } from './anvilParts.js';
 
 // Dark overlapping scales for Dragonscale Armor, made once on first use.
 let scaleTexture = null;

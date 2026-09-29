@@ -25,6 +25,7 @@ import { LobbyScreen, MatchScreen, loadName } from './lobby.js';
 import { HealthBar, EventFeed, ProgressBar, Toast, Label } from './hud.js';
 import { FreeCamera } from './spectator.js';
 import { InventoryScreen, CONTAINERS } from './inventoryScreen.js';
+import { MonkeyScreen } from './monkeyScreen.js';
 import { createScene, setViewDistance } from './render/scene.js';
 import { Clouds } from './render/clouds.js';
 import { Sky } from './render/sky.js';
@@ -128,6 +129,10 @@ function stopLoading() {
 lobby.onStart=()=>beginLoading();
 const matchScreen = new MatchScreen(conn);
 const inventoryScreen = new InventoryScreen(conn);
+const monkeyScreen = new MonkeyScreen(conn);
+monkeyScreen.onOpen = () => { closeInventory(false); showScreen('monkey'); document.exitPointerLock(); input.release(); };
+monkeyScreen.onClose = relock => { showScreen(null); if (relock && lockable()) input.requestLock(); };
+monkeyScreen.onPick = () => { showScreen(null); toast.show('Right-click a block to select it. Esc cancels.'); input.requestLock(); };
 const creativeLabel = document.getElementById('creative-label');
 function setCreative(enabled) {
   creativeLabel.hidden = !enabled;
@@ -234,7 +239,7 @@ function showScreen(id) {
 
 // Modes where the mouse drives the game; Esc brings up the click-to-continue overlay.
 function lockable() {
-  return player && connected && !inventoryScreen.open && (mode === MODE.PLAY || mode === MODE.SPECTATE);
+  return player && connected && !inventoryScreen.open && !monkeyScreen.open && (mode === MODE.PLAY || mode === MODE.SPECTATE);
 }
 
 overlay.addEventListener('click', () => {
@@ -254,8 +259,11 @@ input.onLockChange = (locked) => {
 // playing. Esc closes it too, back to the game rather than the pause overlay,
 // but browsers don't let Esc recapture the mouse, so it waits for a click.
 input.onKey = (code) => {
-  if (code === 'KeyE' && mode === MODE.PLAY) openInventory('inventory', null);
+  if (code === 'KeyE' && mode === MODE.PLAY && !monkeyScreen.picking) openInventory('inventory', null);
 };
+window.addEventListener('keydown', e => {
+  if (e.code === 'Escape' && monkeyScreen.picking) { e.preventDefault(); monkeyScreen.cancelPick(); }
+});
 
 // View distance slider on the click-to-play overlay.
 const viewDistanceInput = document.getElementById('view-distance');
@@ -286,6 +294,7 @@ window.addEventListener('keydown', (e) => {
 
 // screen: 'inventory', 'workbench', 'furnace' or 'chest'; at: that block.
 function openInventory(screen, at) {
+  if (monkeyScreen.open || monkeyScreen.picking) monkeyScreen.close(false);
   // Visible first: the preview sizes itself from its canvas.
   showScreen('inventory');
   inventoryScreen.show(player.color, screen, at);
@@ -369,6 +378,7 @@ function deathText({ id, killerId, cause }) {
 function enterDeath(msg, isEliminated) {
   // The server has already dropped everything, cursor stack included.
   closeInventory(false, false);
+  monkeyScreen.close(false);
   mode = MODE.DEAD;
   drawTicks = 0;
   stepCrossbow(false, false, false);
@@ -409,6 +419,7 @@ function startSpectating() {
 
 function endMatch(winnerId, winnerTeam, members = []) {
   closeInventory(false);
+  monkeyScreen.close(false);
   mode = MODE.ENDED;
   fullscreen.stop();
   document.body.classList.remove('dead');
@@ -600,6 +611,7 @@ conn.on(S2C.CONTAINER, (msg) => {
 conn.on(S2C.CONTAINER_CLOSE, () => {
   if (inventoryScreen.open && CONTAINERS.includes(inventoryScreen.mode)) closeInventory(false);
 });
+conn.on(S2C.MONKEY, msg => { if (mode === MODE.PLAY) monkeyScreen.receive(msg); });
 conn.on(S2C.FURNACE_LIT, (msg) => furnaceEffects?.setLit(msg.x, msg.y, msg.z, msg.lit));
 
 function applyBlockChange(msg) {
@@ -655,7 +667,8 @@ conn.onClose(() => {
   stopLoading();
   status.textContent = 'Disconnected from server. Refresh to reconnect.';
   connected = false;
-  fullscreen.stop();music.fadeOut();audioMixer.stop();dialogue.stop();chunks?.lighting.dispose();
+  monkeyScreen.close(false, false);
+  fullscreen.stop();music.fadeOut();audioMixer.stop();dialogue.stop();chunks?.dispose();
   showScreen('overlay');
   document.exitPointerLock();
 });
@@ -747,6 +760,11 @@ function frame(now) {
     accumulator -= TICK_DT;
     const controls = input.sample();
     localTick++;
+    if (monkeyScreen.picking) {
+      if (controls.place && target) monkeyScreen.choose(target);
+      controls.place = controls.attack = controls.drop = false;
+      input.primaryDown = input.secondaryDown = false;
+    }
     // Right click on an NPC talks to it instead of anything else.
     if (controls.place && targetPlayer !== null && entities.entities.get(targetPlayer)?.info.type === ENTITY_TYPE.NPC) {
       conn.send({ type: C2S.TALK, id: targetPlayer });
@@ -854,11 +872,11 @@ function frame(now) {
     camera.updateProjectionMatrix();
   }
 
-  chunks.update(camera.position.x, camera.position.z);
+  chunks.update(camera.position.x, camera.position.z, camera);
   if(loading) {
     const total=chunks.queue.length,done=chunks.queue.filter(({chunk})=>chunks.meshes.has(chunk.cx+4096*(chunk.cz+4096*chunk.cy))).length;
     updateLoading(100*(LOBBY_MEDIA.serverProgressWeight+LOBBY_MEDIA.localProgressWeight+LOBBY_MEDIA.meshProgressWeight*(total?done/total:0)));
-    if(chunks.lighting.error){stopLoading();status.textContent=`Could not light the world: ${chunks.lighting.error.message}`;}
+    if(chunks.error){stopLoading();status.textContent=`Could not render the world: ${chunks.error.message}`;}
     else if(total&&done===total){stopLoading();music.fadeOut();audioMixer.start(world);status.textContent='Click to play';showScreen(mode===MODE.DEAD?'death':mode===MODE.ENDED?'end':'overlay');}
   }
   clouds?.update(dt);

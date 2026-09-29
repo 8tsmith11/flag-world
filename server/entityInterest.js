@@ -9,21 +9,20 @@ export class EntityInterest {
   }
 
   collect(game) {
-    for (const map of [game.mobs, game.cows, game.dragons, game.npcs]) for (const entity of map.values()) {
+    const next = new Map();
+    for (const map of [game.mobs, game.cows, game.dragons, game.npcs]) for (const entity of map.activeValues?.() ?? map.values()) {
+      if (entity.dead) continue;
       const snapshot = entity.snapshot();
       const key = JSON.stringify(snapshot), old = this.snapshots.get(entity.id);
-      if (!old || old.key !== key) this.snapshots.set(entity.id, { entity, snapshot, key });
+      next.set(entity.id, old?.key === key ? old : { entity, snapshot, key });
     }
-    for (const [id, record] of this.snapshots) {
-      if (record.entity.dead || !(game.mobs.has(id) || game.cows.has(id) || game.dragons.has(id) || game.npcs.has(id))) {
-        this.snapshots.delete(id);
-      }
-    }
+    this.snapshots = next;
   }
 
   forPlayer(game, player, result) {
     const sent = player.entityLast ??= new Map();
     for (const { entity, snapshot, key } of this.snapshots.values()) {
+      if (game.chunkLoading && !game.chunkLoading.has(entity.state.x, entity.state.z)) continue;
       const distance = Math.hypot(player.state.x - entity.state.x,
         player.state.y - entity.state.y, player.state.z - entity.state.z);
       const every = UPDATE_TICKS[distance < NEAR_RANGE ? 0 : distance < MIDDLE_RANGE ? 1 : 2];

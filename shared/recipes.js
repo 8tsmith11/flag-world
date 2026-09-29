@@ -53,11 +53,14 @@ export const ANVIL_REROLL_COST = needs([ITEM.IRON_INGOT, 2]);
 // Furnace: what each input smelts into, and how many items one fuel item
 // smelts. Smelting one item takes SMELT_TIME (shared/config.js).
 export const SMELTING = {
+  [BLOCK.WOOD]: ITEM.CHARCOAL,
+  [BLOCK.SAND]: BLOCK.GLASS,
   [BLOCK.IRON_ORE]: ITEM.IRON_INGOT,
   [ITEM.BEEF]: ITEM.COOKED_BEEF,
 };
 
 export const FUEL = {
+  [ITEM.CHARCOAL]: 8,
   [BLOCK.WOOD]: 2,
   [BLOCK.PLANKS]: 1,
 };
