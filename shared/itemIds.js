@@ -62,6 +62,7 @@ export const ITEM = {
   BRONZE_INGOT: METALS.itemIds.bronzeIngot,
   BRONZE_HAMMER: METALS.itemIds.bronzeHammer,
   BRONZE_ARMOR: METALS.itemIds.bronzeArmor,
+  BRONZE_SWORD: METALS.itemIds.bronzeSword,
   IRON_DUST: FLUID.itemIds.ironDust,
   COPPER_DUST: FLUID.itemIds.copperDust,
   TIN_DUST: FLUID.itemIds.tinDust,

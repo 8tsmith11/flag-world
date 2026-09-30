@@ -7,7 +7,8 @@ import { mergeStaticMeshes } from './mergeStaticMeshes.js';
 import * as THREE from 'three';
 import { PLAYER_HEIGHT, LIGHTING, VEGETATION, TREE_SETTINGS, GLASS_SETTINGS } from '/shared/config.js';
 import { getItemDef } from '/shared/items.js';
-import { BLOCK, getBlockDef } from '/shared/blocks.js';
+import { BLOCK, getBlockDef, blockBase } from '/shared/blocks.js';
+import { PUMP_PARTS, BOILER_PARTS, CRUSHER_PARTS, pipeParts, tankFrameParts } from '/shared/fluidModels.js';
 import { ITEM } from '/shared/itemIds.js';
 
 const plantItemTextures=new Map();
@@ -753,6 +754,25 @@ function createFlatItem(kind, color, size) {
 // blocks as a small cube of the block's color.
 export function createItemModel(item, blockSize = 0.25) {
   const def = getItemDef(item);
+  const block=def.block===null?null:blockBase(def.block).base;
+  const fluidParts=block===BLOCK.BRONZE_PIPE?pipeParts():block===BLOCK.FLUID_TANK?tankFrameParts()
+    :block===BLOCK.FLUID_PUMP?PUMP_PARTS:block===BLOCK.BOILER?BOILER_PARTS
+      :block===BLOCK.CRUSHER?CRUSHER_PARTS:null;
+  if(fluidParts) {
+    const group=new THREE.Group();
+    for(const {box,color} of fluidParts) {
+      const [x0,y0,z0,x1,y1,z1]=box;
+      const mesh=new THREE.Mesh(new THREE.BoxGeometry((x1-x0)*blockSize,(y1-y0)*blockSize,(z1-z0)*blockSize),lambert(color));
+      mesh.position.set((x0+x1-1)*blockSize/2,(y0+y1)*blockSize/2,(z0+z1-1)*blockSize/2);
+      group.add(mesh);
+    }
+    if(block===BLOCK.FLUID_TANK) {
+      const pane=new THREE.Mesh(new THREE.BoxGeometry(blockSize*0.96,blockSize*0.75,blockSize*0.96),
+        new THREE.MeshLambertMaterial({color:0xa9d5df,transparent:true,opacity:0.34,depthWrite:false}));
+      pane.position.y=blockSize/2;group.add(pane);
+    }
+    return group;
+  }
   if(def.block!==null&&getBlockDef(def.block).shape==='branch') {
     const mesh=new THREE.Mesh(new THREE.BoxGeometry(blockSize*TREE_SETTINGS.branchWidth,blockSize*TREE_SETTINGS.branchWidth,blockSize*TREE_SETTINGS.branchWidth),lambert(def.color));
     mesh.position.y=blockSize*TREE_SETTINGS.branchWidth/2;return mesh;

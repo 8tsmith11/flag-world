@@ -3,7 +3,7 @@
 import { BLOCK, blockBase, fluidKind } from '../shared/blocks.js';
 import { FLUID, TICK_RATE } from '../shared/config.js';
 import { S2C } from '../shared/protocol.js';
-import { FLUID_FACES, fluidFace, oppositeFluidFace } from '../shared/fluidFaces.js';
+import { FLUID_FACES, fluidFace, oppositeFluidFace, configurableFluidFaces } from '../shared/fluidFaces.js';
 
 export { FLUID_FACES, fluidFace };
 const key = (x,y,z) => `${x},${y},${z}`;
@@ -19,8 +19,12 @@ export class FluidSystem {
     if (!next && !old) return;
     const k=key(x,y,z),prev=this.nodes.get(k);
     if(next) {
-      const faces=next==='pipe'?null:prev?.kind===next?prev.faces:Array(FLUID_FACES.length).fill(FLUID.faceNone);
-      if(next==='pump' && !prev) faces[[4,1,5,0][blockBase(id).facing]]=FLUID.faceOutput;
+      const faces=next==='pipe'?null:prev?.kind===next?prev.faces:
+        Array(FLUID_FACES.length).fill(next==='crusher'?FLUID.faceInput:FLUID.faceNone);
+      if(next==='pump') {
+        faces.fill(FLUID.faceNone);
+        faces[[4,1,5,0][blockBase(id).facing]]=FLUID.faceOutput;
+      }
       this.nodes.set(k,{x,y,z,key:k,kind:next,faces,container:prev?.container??null,tank:prev?.tank??null});
     } else this.nodes.delete(k);
     this.rebuild();this.broadcast(true);
@@ -31,7 +35,7 @@ export class FluidSystem {
   }
   cycle(x,y,z,face) {
     const node=this.nodes.get(key(x,y,z));
-    if(!node||node.kind==='pipe'||face<0||face>=FLUID_FACES.length)return false;
+    if(!node||!configurableFluidFaces(node.kind)||face<0||face>=FLUID_FACES.length)return false;
     node.faces[face]=(node.faces[face]+1)%3;
     this.rebuild();this.broadcast(true);
     return true;

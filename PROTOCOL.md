@@ -103,11 +103,14 @@ front that faces the player who placed them. They have one id per facing
 | 34–37 | chest (hardness 1) | 34, 35, 36, 37 |
 | 53–56 | anvil (hardness 2) | 53, 54, 55, 56. The horn is at the east end when it faces north |
 | 124–127 | alloy furnace (hardness 2) | 124, 125, 126, 127 |
-| 130–133 | water pump (hardness 3) | 130, 131, 132, 133 |
+| 130–133 | fluid pump (hardness 3) | 130, 131, 132, 133 |
 
 Blocks 128–129 are Bronze Pipe and Fluid Tank; 134–135 are Boiler and Crusher.
-The tank is a translucent frame. Pumps face the placer; their front port starts
-in output mode. Face modes of tanks, pumps, boilers and crushers are server-owned.
+Connected tanks share a frame and expose glass only on their outside faces;
+their fluid surface joins across blocks. Pipes, the Fluid Pump, Boiler and
+Crusher have distinct block and held-item models. Pumps face the placer and
+always output through their front; crushers accept steam through every face.
+Only tank and boiler face modes can be changed.
 
 Block 122 is copper ore and 123 is tin ore (both hardness 3). Team islands
 contain common copper and rare tin, with no iron. Tiny island stone contains
@@ -136,7 +139,9 @@ its item.
 Items 311–315 are copper ingot, tin ingot, bronze ingot, bronze hammer and
 bronze armor. Bronze hammer strength is 4, between stone (3) and iron (5);
 bronze armor gives 5 armor points. Both accept their normal modifier pools.
-Items 316–318 are Iron Dust, Copper Dust and Tin Dust.
+Items 316–318 are Iron Dust, Copper Dust and Tin Dust. Item 319 is the Bronze
+Sword (5 damage, 2 bronze ingots and 1 wood at a workbench); it takes melee
+modifiers.
 `290` is reserved after removal of the Flight Orb. `291`–`294` are Cow,
 Dragon, Crawler and Void Eel spawn eggs; `295`–`299` and `301`–`304` are unused.
 Active egg definitions live in `shared/mobEggs.js`. All egg types are
@@ -352,6 +357,8 @@ within reach: the server starts sending you
 its state (`container`) until you close the screen, walk out of reach, or it's
 broken (`containerClose`). Anyone can open any container, and any number of
 players can have the same one open.
+Crouch and right click while holding a placeable block to place it against an
+interactable block instead of opening or toggling that block.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -387,17 +394,20 @@ leather armor (3 leather), iron armor (10 iron ingots), a glider
 Dragon Scales). Crafted items have no modifiers. Furnaces smelt raw beef into cooked beef in 5 s.
 Furnaces also smelt copper and tin ores into their ingots. A workbench crafts
 an alloy furnace from a furnace and 4 copper ingots, a bronze hammer from 3
-bronze ingots and 2 wood, and bronze armor from 10 bronze ingots. The alloy
+bronze ingots and 2 wood, bronze armor from 10 bronze ingots, and a bronze
+sword from 2 bronze ingots and 1 wood. The alloy
 furnace combines 3 copper and 1 tin ingot in either input order into 4 bronze
 ingots in 5 s, using the furnace fuel rules.
 Further workbench recipes: 1 Bronze Ingot → 4 Bronze Pipes; Fluid Tank from 4
-Bronze Ingots and 4 Glass; Water Pump from 3 Bronze Ingots and 1 pipe; Boiler
+Bronze Ingots and 4 Glass; Fluid Pump from 3 Bronze Ingots and 1 pipe; Boiler
 from 1 Furnace and 4 Bronze Ingots; Crusher from 4 Bronze Ingots, 2 Stone and
-1 pipe. Crusher recipes are Stone → Sand and each iron/copper/tin ore → 2
+1 pipe. The catalogue calls the pump recipe `fluid_pump`; the old
+`water_pump` recipe id remains accepted. Crusher recipes are Stone → Sand and each iron/copper/tin ore → 2
 matching Dust. A furnace smelts each Dust into one matching ingot.
 While creative mode is enabled, `creative:<itemId>` recipes provide every
 canonical block and non-block item for free, without a station or
-modifiers. The server rejects those recipe ids for other players.
+modifiers. The same output-name search bar filters this catalogue. The server
+rejects those recipe ids for other players.
 Normal inventory and workbench crafting screens show recipes once anyone on
 the player's team has held at least one ingredient. Search filters these by
 output name. Recipes still require all ingredients in the player's own
@@ -507,7 +517,7 @@ Match players only. Sent once per simulation tick (20 per wall-clock second). Ea
 | `slot`    | int    | Selected hotbar slot, 0..8: the item in hand (tool strength, placing, dropping, `held`) |
 | `breaking`| BlockPos \| null | Block the player is holding the break button on this tick, or `null` |
 | `place`   | `{ x, y, z, nx, ny, nz }` \| null | Place the selected item in cell x, y, z this tick (right click), or `null`. `n` is the normal of the face that was clicked (one axis ±1), pointing into this cell |
-| `use`     | `{x,y,z,nx,ny,nz}` \| null | Right click on a door or water source, or crouch-right-click a fluid block face with an empty hand. The normal names the clicked face. The server checks the raycast before cycling `none → input → output → none` |
+| `use`     | `{x,y,z,nx,ny,nz}` \| null | Right click on a door or water source, or crouch-right-click a tank or boiler face with an empty hand. The normal names the clicked face. The server checks the raycast before cycling `none → input → output → none` |
 | `drop`    | bool   | Throw one of the selected item this tick (Q) |
 | `attack`  | bool   | Punch this tick (a left click with a player under the crosshair) |
 
@@ -1069,7 +1079,9 @@ carries this list as `fluidNodes`.
 `FluidNode` has `{x,y,z,kind,faces,fluid,amount,capacity,fill}`. `kind` is
 `"pipe"`, `"tank"`, `"pump"`, `"boiler"` or `"crusher"`. Non-pipe `faces`
 has six modes in order west, east, bottom, top, north, south: 0 none, 1 input,
-2 output. Pipes have `faces: null`. `fluid` is `"water"`, `"steam"` or null;
+2 output. Pipes have `faces: null`. Pump faces have one fixed front output;
+all crusher faces are fixed inputs. Only tanks and boilers cycle face modes.
+`fluid` is `"water"`, `"steam"` or null;
 the amount and capacity are the whole connected tank's units. `fill` (0..1)
 is the fill of this block's vertical layer for rendering.
 

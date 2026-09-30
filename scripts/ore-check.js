@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { generateWorld } from '../shared/worldgen.js';
 import { BLOCK, canBreak } from '../shared/blocks.js';
 import { ITEM } from '../shared/itemIds.js';
-import { HAMMERS } from '../shared/tools.js';
+import { HAMMERS, SWORDS } from '../shared/tools.js';
 import { RECIPES } from '../shared/recipes.js';
 import { Furnace, AlloyFurnace } from '../server/containers.js';
 import { MonkeyWorkers } from '../server/monkeyWorkers.js';
@@ -67,13 +67,16 @@ for (const reversed of [false, true]) {
   MonkeyWorkers.prototype.deliver.call({ container: () => alloy }, courier);
   assert.equal(alloy.slots[2]?.item, BLOCK.PLANKS);
 }
-for (const id of ['alloy_furnace', 'bronze_hammer', 'bronze_armor']) {
+for (const id of ['alloy_furnace', 'bronze_hammer', 'bronze_armor', 'bronze_sword']) {
   assert.ok(RECIPES.find(r => r.id === id && r.station === 'workbench'));
 }
 const inventory = new Inventory();
-inventory.add(ITEM.BRONZE_INGOT, METALS.crafting.bronzeHammerIngots + METALS.crafting.bronzeArmorIngots);
-inventory.add(BLOCK.WOOD, METALS.crafting.bronzeHammerWood);
-for (const id of ['bronze_hammer', 'bronze_armor']) assert.ok(inventory.craft(RECIPES.find(r => r.id === id)));
+inventory.add(ITEM.BRONZE_INGOT, METALS.crafting.bronzeHammerIngots + METALS.crafting.bronzeArmorIngots
+  + METALS.crafting.bronzeSwordIngots);
+inventory.add(BLOCK.WOOD, METALS.crafting.bronzeHammerWood + METALS.crafting.bronzeSwordWood);
+for (const id of ['bronze_hammer', 'bronze_armor', 'bronze_sword']) assert.ok(inventory.craft(RECIPES.find(r => r.id === id)));
 assert.ok(inventory.slots.some(s => s?.item === ITEM.BRONZE_HAMMER));
 assert.ok(inventory.slots.some(s => s?.item === ITEM.BRONZE_ARMOR));
+assert.ok(inventory.slots.some(s => s?.item === ITEM.BRONZE_SWORD));
+assert.equal(SWORDS[ITEM.BRONZE_SWORD].damage,METALS.bronzeSwordDamage);
 console.log('OK: smelting, alloying, courier output/input, recipes and mining tiers');

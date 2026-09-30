@@ -35,7 +35,7 @@ export const RECIPES = [
     inputs: needs([ITEM.BRONZE_INGOT, FLUID.craft.pipeBronze]) },
   { id: 'fluid_tank', station: 'workbench', output: BLOCK.FLUID_TANK, count: FLUID.craft.machineCount,
     inputs: needs([ITEM.BRONZE_INGOT, FLUID.craft.tankBronze], [BLOCK.GLASS, FLUID.craft.tankGlass]) },
-  { id: 'water_pump', station: 'workbench', output: BLOCK.WATER_PUMP, count: FLUID.craft.machineCount,
+  { id: 'fluid_pump', station: 'workbench', output: BLOCK.FLUID_PUMP, count: FLUID.craft.machineCount,
     inputs: needs([ITEM.BRONZE_INGOT, FLUID.craft.pumpBronze], [BLOCK.BRONZE_PIPE, FLUID.craft.pumpPipes]) },
   { id: 'boiler', station: 'workbench', output: BLOCK.BOILER, count: FLUID.craft.machineCount,
     inputs: needs([BLOCK.FURNACE, FLUID.craft.boilerFurnaces], [ITEM.BRONZE_INGOT, FLUID.craft.boilerBronze]) },
@@ -47,6 +47,8 @@ export const RECIPES = [
   { id: 'stone_sword', station: 'workbench', output: ITEM.STONE_SWORD, count: 1, inputs: needs([BLOCK.STONE, 2], [BLOCK.WOOD, 1]) },
   { id: 'bow', station: 'workbench', output: ITEM.BOW, count: 1, inputs: needs([BLOCK.PLANKS, 3], [BLOCK.WOOD, 2]) },
   { id: 'iron_sword', station: 'workbench', output: ITEM.IRON_SWORD, count: 1, inputs: needs([ITEM.IRON_INGOT, 2], [BLOCK.WOOD, 1]) },
+  { id: 'bronze_sword', station: 'workbench', output: ITEM.BRONZE_SWORD, count: 1,
+    inputs: needs([ITEM.BRONZE_INGOT, METALS.crafting.bronzeSwordIngots], [BLOCK.WOOD, METALS.crafting.bronzeSwordWood]) },
   { id: 'bucket', station: 'workbench', output: ITEM.EMPTY_BUCKET, count: 1, inputs: needs([ITEM.COPPER_INGOT, METALS.crafting.bucketCopper]) },
   { id: 'leather_armor', station: 'workbench', output: ITEM.LEATHER_ARMOR, count: 1, inputs: needs([ITEM.LEATHER, 3]) },
   { id: 'iron_armor', station: 'workbench', output: ITEM.IRON_ARMOR, count: 1, inputs: needs([ITEM.IRON_INGOT, 10]) },
@@ -94,7 +96,8 @@ export const FUEL = {
 };
 
 export function getRecipe(id) {
-  return RECIPES.find((r) => r.id === id) ?? creativeById.get(id) ?? null;
+  const canonical=id==='water_pump'?'fluid_pump':id;
+  return RECIPES.find((r) => r.id === canonical) ?? creativeById.get(id) ?? null;
 }
 
 // Recipes usable at a station (null = just the inventory screen).
@@ -104,10 +107,13 @@ export function recipesAt(station, creative = false) {
 
 // A team discovers a recipe as soon as anyone has held one ingredient.
 // Search is by the output's display name, not its internal recipe id.
-export function browserRecipes(station, obtained, query = '') {
+export function filterRecipesByOutput(recipes, query = '') {
   const needle = query.trim().toLocaleLowerCase();
-  return recipesAt(station).filter(recipe => recipe.inputs.some(({ item }) => obtained.has(item))
-    && (!needle || getItemDef(recipe.output).name.toLocaleLowerCase().includes(needle)));
+  return needle ? recipes.filter(recipe => getItemDef(recipe.output).name.toLocaleLowerCase().includes(needle)) : recipes;
+}
+
+export function browserRecipes(station, obtained, query = '') {
+  return filterRecipesByOutput(recipesAt(station).filter(recipe => recipe.inputs.some(({ item }) => obtained.has(item))),query);
 }
 
 // Total count of each item across inventory slots (null = empty).

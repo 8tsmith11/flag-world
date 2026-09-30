@@ -19,7 +19,7 @@ const CHEST_SIZE = 27;
 export const CONTAINERS = ['furnace', 'alloyFurnace', 'tank', 'boiler', 'crusher', 'chest', 'anvil'];
 import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
-import { recipesAt, browserRecipes, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
+import { recipesAt, browserRecipes, filterRecipesByOutput, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
 import { canHaveMods, modLines, stackName } from '/shared/modifiers.js';
 import { renderStack } from './itemIcon.js';
 import { createPlayerModel, animatePlayer } from './render/models.js';
@@ -159,7 +159,6 @@ export class InventoryScreen {
     document.getElementById('inv-chest-panel').hidden = mode !== 'chest';
     document.getElementById('inv-anvil').hidden = mode !== 'anvil';
     document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : mode === 'workbench' ? 'Workbench' : 'Crafting';
-    this.recipeSearch.hidden = this.creative;
     this.creativeControls.hidden = !this.creative || container;
     // Empty until the server's first CONTAINER message arrives.
     if (mode === 'furnace') this.setContainer({ kind: 'furnace', slots: [null, null, null], burn: 0, progress: 0 });
@@ -176,7 +175,6 @@ export class InventoryScreen {
   setCreative(enabled) {
     this.creative = !!enabled;
     this.creativeControls.hidden = !this.creative || CONTAINERS.includes(this.mode);
-    this.recipeSearch.hidden = this.creative;
     if (this.open) {
       document.getElementById('inv-crafting-title').textContent = this.creative ? 'Creative' : this.mode === 'workbench' ? 'Workbench' : 'Crafting';
       this.update(this.inventory);
@@ -274,7 +272,7 @@ export class InventoryScreen {
   // player's current inventory. Creative keeps its complete catalogue.
   renderRecipes() {
     const station = this.mode === 'workbench' ? 'workbench' : null;
-    const recipes = this.creative ? recipesAt(station, true)
+    const recipes = this.creative ? filterRecipesByOutput(recipesAt(station, true),this.recipeSearch.value)
       : browserRecipes(station, this.obtained, this.recipeSearch.value);
     const counts = countItems(this.inventory.slots);
     this.recipeList.replaceChildren(...recipes.map((recipe) => {
@@ -304,8 +302,8 @@ export class InventoryScreen {
     if (!this.recipeList.children.length) {
       const li = document.createElement('li');
       li.className = 'hint';
-      li.textContent = this.creative ? 'No creative recipes.'
-        : this.recipeSearch.value.trim() ? 'No matching recipes.' : 'Find ingredients to discover recipes.';
+      li.textContent = this.recipeSearch.value.trim() ? 'No matching recipes.'
+        : this.creative ? 'No creative recipes.' : 'Find ingredients to discover recipes.';
       this.recipeList.append(li);
     }
   }

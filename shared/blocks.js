@@ -11,7 +11,8 @@
 //   drops        - item id dropped when broken (default: the block's own id), or null
 //   shape        - null for a plain cube, or a name the mesher draws from boxes
 //                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil',
-//                   'sapling', 'branch', 'pipe', 'fluidTank')
+//                   'sapling', 'branch', 'pipe', 'fluidTank', 'fluidPump',
+//                   'boiler', 'crusher')
 //
 // Ladders and doors keep their state in the block id:
 //   ladder: LADDER + facing, where facing is the side of the cell it hangs on
@@ -80,7 +81,8 @@ export const BLOCK = {
   ALLOY_FURNACE: METALS.blockIds.alloyFurnace[0],
   BRONZE_PIPE: FLUID.blockIds.pipe,
   FLUID_TANK: FLUID.blockIds.tank,
-  WATER_PUMP: FLUID.blockIds.pump[0],
+  FLUID_PUMP: FLUID.blockIds.pump[0],
+  WATER_PUMP: FLUID.blockIds.pump[0], // Historical source-code alias; same block id.
   BOILER: FLUID.blockIds.boiler,
   CRUSHER: FLUID.blockIds.crusher,
 };
@@ -105,7 +107,7 @@ export const FACED = {
   [BLOCK.CHEST]: [BLOCK.CHEST, 35, 36, 37],
   [BLOCK.ANVIL]: [BLOCK.ANVIL, 54, 55, 56],
   [BLOCK.ALLOY_FURNACE]: METALS.blockIds.alloyFurnace,
-  [BLOCK.WATER_PUMP]: FLUID.blockIds.pump,
+  [BLOCK.FLUID_PUMP]: FLUID.blockIds.pump,
 };
 
 FACED[BLOCK.TORCH] = [85, 86, 87, 88];
@@ -129,7 +131,7 @@ export function fluidKind(id) {
   const base = blockBase(id).base;
   if (base === BLOCK.BRONZE_PIPE) return 'pipe';
   if (base === BLOCK.FLUID_TANK) return 'tank';
-  if (base === BLOCK.WATER_PUMP) return 'pump';
+  if (base === BLOCK.FLUID_PUMP) return 'pump';
   if (base === BLOCK.BOILER) return 'boiler';
   if (base === BLOCK.CRUSHER) return 'crusher';
   return null;
@@ -300,11 +302,14 @@ define(BLOCK.BRONZE_PIPE, 'bronze pipe', { color: 0xb8793e, hardness: FLUID.bloc
   transparent: true, lightOpaque: false, shape: 'pipe' });
 define(BLOCK.FLUID_TANK, 'fluid tank', { color: 0x8c9a9d, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.tankBreakTime,
   transparent: true, lightOpaque: false, shape: 'fluidTank', tileEntity: 'tank' });
-for (const id of FACED[BLOCK.WATER_PUMP]) define(id, 'water pump', {
-  color: 0x98683e, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.pumpBreakTime, drops: BLOCK.WATER_PUMP,
+for (const id of FACED[BLOCK.FLUID_PUMP]) define(id, 'fluid pump', {
+  color: 0x98683e, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.pumpBreakTime, drops: BLOCK.FLUID_PUMP,
+  shape: 'fluidPump', transparent: true,
 });
-define(BLOCK.BOILER, 'boiler', { color: 0x797b7c, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.boilerBreakTime, tileEntity: 'boiler' });
-define(BLOCK.CRUSHER, 'crusher', { color: 0x555c61, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.crusherBreakTime, tileEntity: 'crusher' });
+define(BLOCK.BOILER, 'boiler', { color: 0x797b7c, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.boilerBreakTime,
+  tileEntity: 'boiler', shape: 'boiler', transparent: true });
+define(BLOCK.CRUSHER, 'crusher', { color: 0x555c61, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.crusherBreakTime,
+  tileEntity: 'crusher', shape: 'crusher', transparent: true });
 for (const id of FACED[BLOCK.CHEST]) {
   define(id, 'chest', {
     color: 0x9c6b30, breakTime: 1, tileEntity: 'chest', shape: 'chest', transparent: true, drops: BLOCK.CHEST,

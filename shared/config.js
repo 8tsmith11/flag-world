@@ -329,15 +329,17 @@ export const SMELT_TIME = 5;
 // Ore and bronze progression. Keep assigned ids stable across worlds.
 export const METALS = {
   blockIds: { copperOre: 122, tinOre: 123, alloyFurnace: [124, 125, 126, 127] },
-  itemIds: { copperIngot: 311, tinIngot: 312, bronzeIngot: 313, bronzeHammer: 314, bronzeArmor: 315 },
+  itemIds: { copperIngot: 311, tinIngot: 312, bronzeIngot: 313, bronzeHammer: 314, bronzeArmor: 315,
+    bronzeSword: 319 },
   ore: { team: { copper: 0.35, tin: 0.04, iron: 0 }, tiny: { copper: 0, tin: 0.4, iron: 0.04 },
     center: { copper: 0.4, tin: 0.45, iron: 0.15 } },
   hardness: { copperOre: 3, tinOre: 3, ironOre: 4, ironTierBlocks: 5 },
   hammer: { bronzeStrength: 4, bronzeSpeed: 1.75, ironStrength: 5 },
+  bronzeSwordDamage: 5,
   bronzeArmorPoints: 5,
   alloy: { copper: 3, tin: 1, output: 4, seconds: 5 },
   crafting: { alloyFurnaceCopper: 4, bronzeHammerIngots: 3, bronzeHammerWood: 2,
-    bronzeArmorIngots: 10, bucketCopper: 1 },
+    bronzeArmorIngots: 10, bronzeSwordIngots: 2, bronzeSwordWood: 1, bucketCopper: 1 },
 };
 export const ORE_SETTINGS = METALS.ore;
 export const QUARRY_SURFACE = { countsByUnderground: { 2: 1, 3: 2, 4: 3 },

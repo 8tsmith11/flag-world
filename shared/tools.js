@@ -33,6 +33,7 @@ export const HAMMERS = {
 export const SWORDS = {
   [ITEM.WOOD_SWORD]: { damage: 3, cooldown: SWORD_COOLDOWN },
   [ITEM.STONE_SWORD]: { damage: 4, cooldown: SWORD_COOLDOWN },
+  [ITEM.BRONZE_SWORD]: { damage: METALS.bronzeSwordDamage, cooldown: SWORD_COOLDOWN },
   [ITEM.IRON_SWORD]: { damage: 6, cooldown: SWORD_COOLDOWN },
   [ITEM.WIND_AXE]: { damage: 3, cooldown: 0.8, knockback: 3, lift: KNOCKBACK_UP * 1.8, breaks: false },
   [ITEM.ICE_SWORD]: { damage: 5, cooldown: SWORD_COOLDOWN, frost: true },

@@ -61,6 +61,7 @@ import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
 import { FluidSystem, fluidFace } from './fluids.js';
+import { configurableFluidFaces } from '../shared/fluidFaces.js';
 import { EntityInterest } from './entityInterest.js';
 import { MonkeyWorkers, WorkMonkey } from './monkeyWorkers.js';
 import { ChunkLoading } from './chunkLoading.js';
@@ -780,7 +781,7 @@ export class Game {
   // Right click on a door: open or close both halves. A door can't close on a player.
   stepUse(player, pos, crouch = false) {
     const id = this.world.getBlock(pos.x, pos.y, pos.z);
-    if (fluidKind(id) && fluidKind(id) !== 'pipe' && crouch && player.held() === null
+    if (configurableFluidFaces(fluidKind(id)) && crouch && player.held() === null
       && this.inReach(player,pos)) {
       const face=fluidFace(pos.nx,pos.ny,pos.nz);
       const eye={x:player.state.x,y:player.state.y+eyeHeight(player.state),z:player.state.z};

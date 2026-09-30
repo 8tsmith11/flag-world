@@ -4,7 +4,7 @@ import { TeamProgress } from '../server/teamProgress.js';
 import { Inventory } from '../server/inventory.js';
 import { BLOCK } from '../shared/blocks.js';
 import { ITEM } from '../shared/itemIds.js';
-import { browserRecipes, canAfford, countItems, getRecipe, recipesAt } from '../shared/recipes.js';
+import { browserRecipes, filterRecipesByOutput, canAfford, countItems, getRecipe, recipesAt } from '../shared/recipes.js';
 
 const progress = new TeamProgress();
 const one = {team:0,inventory:new Inventory()};
@@ -31,4 +31,5 @@ assert.equal(canAfford(alloy,one.inventory.slots),true);
 assert.equal(one.inventory.craft(alloy),true);
 assert.equal(countItems(one.inventory.slots).get(BLOCK.ALLOY_FURNACE),1);
 assert.equal(recipesAt('workbench',true).length>copperRecipes.length,true);
+assert.deepEqual(filterRecipesByOutput(recipesAt('workbench',true),'bronze sword').map(r=>r.output),[ITEM.BRONZE_SWORD]);
 console.log('OK: team copper discovery, station filter, output search, have/need and crafting');

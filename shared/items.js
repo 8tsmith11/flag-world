@@ -52,6 +52,7 @@ defineItem(ITEM.IRON_DUST, 'iron dust', { shape: 'dust', color: IRON_COLOR });
 defineItem(ITEM.COPPER_DUST, 'copper dust', { shape: 'dust', color: COPPER_COLOR });
 defineItem(ITEM.TIN_DUST, 'tin dust', { shape: 'dust', color: TIN_COLOR });
 defineItem(ITEM.BRONZE_HAMMER, 'bronze hammer', { maxStack: 1, tool: 'hammer', color: BRONZE_COLOR, modCategory: 'hammer' });
+defineItem(ITEM.BRONZE_SWORD, 'bronze sword', { maxStack: 1, tool: 'sword', color: BRONZE_COLOR, modCategory: 'melee' });
 defineItem(ITEM.CHARCOAL, 'charcoal', { color: 0x292b30, icon: '/textures/charcoal.svg' });
 // Hold right click to draw, release to shoot (arrows are unlimited).
 defineItem(ITEM.BOW, 'bow', { maxStack: 1, tool: 'bow', color: 0x8a5a2b, modCategory: 'ranged' });

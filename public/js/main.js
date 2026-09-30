@@ -36,6 +36,8 @@ import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
 import { FluidRenderer } from './render/fluidRenderer.js';
+import { configurableFluidFaces } from '/shared/fluidFaces.js';
+import { placesThroughInteraction } from '/shared/interactions.js';
 import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
 import { TurretRenderer } from './render/turretRenderer.js';
@@ -821,9 +823,10 @@ function frame(now) {
     controls.attack = controls.attack && targetPlayer !== null;
     controls.breaking = breakTarget();
     // Right click on a workbench, furnace or chest opens its screen instead of placing.
-    const changingFace=controls.place&&target&&fluidKind(target.id)&&fluidKind(target.id)!=='pipe'
+    const changingFace=controls.place&&target&&configurableFluidFaces(fluidKind(target.id))
       &&controls.crouch&&heldItem()===null;
-    const station = controls.place && target && !changingFace && stationKind(target.id);
+    const placingWhileCrouched=placesThroughInteraction(controls.crouch,heldItem());
+    const station = controls.place && target && !changingFace && !placingWhileCrouched && stationKind(target.id);
     if (station) {
       const at = { x: target.x, y: target.y, z: target.z };
       if (CONTAINERS.includes(station)) conn.send({ type: C2S.OPEN_CONTAINER, ...at });
@@ -831,7 +834,8 @@ function frame(now) {
       controls.place = false;
     }
     // Right click on a door opens or closes it instead of placing.
-    const useTarget = controls.place && target && (changingFace || isDoor(target.id) || (target.id === BLOCK.WATER && heldItem() === ITEM.EMPTY_BUCKET));
+    const useTarget = controls.place && target && (changingFace || (!placingWhileCrouched && isDoor(target.id))
+      || (target.id === BLOCK.WATER && heldItem() === ITEM.EMPTY_BUCKET));
     controls.use = useTarget ? { x: target.x, y: target.y, z: target.z,
       nx:target.nx,ny:target.ny,nz:target.nz } : null;
     controls.place = controls.place && !useTarget && !aiming ? placeTarget() : null;

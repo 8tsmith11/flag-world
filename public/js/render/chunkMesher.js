@@ -7,6 +7,8 @@ import { atlasUV } from '/shared/blockTextures.js';
 import { chunkKey, Chunk } from '/shared/world.js';
 import { CHUNK_SIZE, LIGHTING as C, VEGETATION as P } from '/shared/config.js';
 import { BLOCK, getBlockDef, LADDER_DEPTH, ladderFacing, doorState, blockBase, isWater, waterLevel, isSolid, branchBoxes, fluidKind } from '/shared/blocks.js';
+import { PUMP_PARTS, BOILER_PARTS, CRUSHER_PARTS, pipeParts, tankFrameParts } from '/shared/fluidModels.js';
+import { FLUID_FACES } from '/shared/fluidFaces.js';
 import { ANVIL_PARTS } from './anvilParts.js';
 
 // Workers load Three from its vendor URL; pages use the import map.
@@ -337,12 +339,6 @@ export function createChunkMesher(THREE) {
     { box: [0.2, 0.5, -0.015, 0.8, 0.58, 0.02], color: 0x9c9ca2 },
     { box: [0.35, 1, 0.35, 0.65, 1.01, 0.65], color: 0x2a2a2a },
   ];
-  const TANK = [
-    { box: [0.08,0.04,0.08,0.92,0.13,0.92], color: 0xb8793e },
-    { box: [0.08,0.87,0.08,0.92,0.96,0.92], color: 0xb8793e },
-    ...[0.08,0.84].flatMap(x=>[0.08,0.84].map(z=>({box:[x,0.13,z,x+0.08,0.87,z+0.08],color:0xb8793e}))),
-  ];
-
   // Chest: a wooden box a little smaller than its cell, a dark band where the
   // lid meets the base, and a gold latch on the front.
   const CHEST = [
@@ -369,7 +365,8 @@ export function createChunkMesher(THREE) {
 
   const MUSHROOM = [{ box: [0.4, 0, 0.4, 0.6, 0.4, 0.6], color: 0xc8bb92 },
     { box: [0.15, 0.35, 0.15, 0.85, 0.55, 0.85], color: 0x9f705c }];
-  const SHAPES = { mushroom: MUSHROOM, workbench: WORKBENCH, furnace: FURNACE, fluidTank:TANK,
+  const SHAPES = { mushroom: MUSHROOM, workbench: WORKBENCH, furnace: FURNACE,
+    fluidPump:PUMP_PARTS, boiler:BOILER_PARTS, crusher:CRUSHER_PARTS,
     chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL };
 
   // [{ box, color }] for a shaped block, turned to its facing.
@@ -382,14 +379,9 @@ export function createChunkMesher(THREE) {
         {box:[0.5-w, h-hh,centerZ-w,0.5+w,h+hh,centerZ+w],color:0xffe8aa}],wall?blockBase(id).facing:0);
     }
     if(def.shape==='pipe') {
-      const parts=[{box:[0.34,0.34,0.34,0.66,0.66,0.66]}];
-      for(const [dx,dy,dz] of [[-1,0,0],[1,0,0],[0,-1,0],[0,1,0],[0,0,-1],[0,0,1]]) {
-        if(!fluidKind(meshBlock(x+dx,y+dy,z+dz)))continue;
-        parts.push({box:[dx<0?0:0.34,dy<0?0:0.34,dz<0?0:0.34,
-          dx>0?1:0.66,dy>0?1:0.66,dz>0?1:0.66]});
-      }
-      return parts;
+      return pipeParts(i=>{const [dx,dy,dz]=FLUID_FACES[i];return !!fluidKind(meshBlock(x+dx,y+dy,z+dz));});
     }
+    if(def.shape==='fluidTank')return tankFrameParts((dx,dy,dz)=>meshBlock(x+dx,y+dy,z+dz)===BLOCK.FLUID_TANK);
     if (def.shape === 'ladder') return turn(LADDER, ladderFacing(id));
     if (def.shape === 'door') {
       const { facing, open, upper } = doorState(id);

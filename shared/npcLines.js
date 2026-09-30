@@ -14,7 +14,7 @@ import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
 
 const HAMMERS = [ITEM.WOOD_HAMMER, ITEM.STONE_HAMMER, ITEM.BRONZE_HAMMER, ITEM.IRON_HAMMER];
-const WEAPONS = [ITEM.WOOD_SWORD, ITEM.STONE_SWORD, ITEM.IRON_SWORD, ITEM.BOW];
+const WEAPONS = [ITEM.WOOD_SWORD, ITEM.STONE_SWORD, ITEM.BRONZE_SWORD, ITEM.IRON_SWORD, ITEM.BOW];
 const ARMOR = [ITEM.LEATHER_ARMOR, ITEM.BRONZE_ARMOR, ITEM.IRON_ARMOR, ITEM.DRAGONSCALE_ARMOR];
 // Crafted, or placed (blocks from loot or trades count too).
 const made = (...ids) => ({ any: [{ crafted: ids }, { placed: ids }] });
@@ -65,7 +65,7 @@ export const WISE_MONKEY_HINTS = [
     'The small islands hold a little iron. The great central island holds much.',
     'Seek iron on the small islands, or far more at the center.',
   ] },
-  { id: 'pumpsPipes', done: { all: [made(BLOCK.WATER_PUMP), made(BLOCK.BRONZE_PIPE)] }, lines: [
+  { id: 'pumpsPipes', done: { all: [made(BLOCK.FLUID_PUMP), made(BLOCK.BRONZE_PIPE)] }, lines: [
     'A pump must touch water. Crouch and right-click faces for input or output.',
     'Lay bronze pipes by water. Crouch and right-click faces for input or output.',
   ] },
