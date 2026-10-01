@@ -5,12 +5,12 @@
 import {
   TICK_DT, TICK_RATE, PLAYER_EYE_HEIGHT, REACH_DISTANCE, RESPAWN_DELAY,
   BOW_COOLDOWN, DAY_LENGTH,
-  VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX, LIGHTING, LOBBY_MEDIA,
+  VIEW_DISTANCE, VIEW_DISTANCE_MIN, VIEW_DISTANCE_MAX, LIGHTING, LOBBY_MEDIA, DRAGON_LORD,
 } from '/shared/config.js';
 import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT, TEAMS, ENTITY_TYPE } from '/shared/protocol.js';
 import { generateClientWorld } from './worldGeneration.js';
 import {
-  BLOCK, blocksAttack, canBreak, breakTicks, getBlockDef, isTargetable, isWater, isDoor, doorState, isFurnace, isChest, isAnvil, isFlowingWater, fluidKind,
+  BLOCK, blocksAttack, canBreak, breakTicks, getBlockDef, isTargetable, isLava, isLiquid, isDoor, doorState, isFurnace, isChest, isAnvil, isFlowingWater, fluidKind,
 } from '/shared/blocks.js';
 import { breakingStats, rangedStats } from '/shared/tools.js';
 import { getItemDef, ITEM } from '/shared/items.js';
@@ -50,6 +50,11 @@ import { AudioSettings } from './audioSettings.js';
 import { AudioMixer } from './audioMixer.js';
 import { Dialogue } from './dialogue.js';
 import { StormEffects } from './render/stormEffects.js';
+import { DragonLordRenderer } from './render/dragonLordRenderer.js';
+import { ArenaEffects } from './render/arenaEffects.js';
+import { BattleMusic } from './battleMusic.js';
+import { inDragonArena, inFireSanctum } from '/shared/fireTempleArena.js';
+import { MOB_SOUNDS } from '/shared/audio.js';
 
 // Cap on ticks simulated in one frame so a long stall doesn't burst-send inputs.
 const MAX_TICKS_PER_FRAME = 5;
@@ -99,6 +104,8 @@ const toast = new Toast(document.getElementById('toast'));
 const carryLabel = new Label(document.getElementById('carry'));
 const entities = new EntityRenderer(scene);
 const portals = new PortalRenderer(scene);
+const bossRenderer = new DragonLordRenderer(scene);
+const arenaEffects = new ArenaEffects(scene);
 const turretRenderer = new TurretRenderer(scene);
 // The local player's grappling hook rope (remote players' are on their models).
 const grappleLine = new GrappleLine(scene);
@@ -107,6 +114,7 @@ const audioMixer = new AudioMixer(audioSettings);
 const sounds = new Sounds(audioMixer);
 const dialogue = new Dialogue(document.getElementById('subtitle'), audioSettings, audioMixer);
 const music=new LobbyMusic(audioSettings);
+const battleMusic = new BattleMusic(audioSettings);
 const fullscreen=new MatchFullscreen(input);
 fullscreen.onResume=()=>{if(lockable())input.requestLock();};
 document.addEventListener('pointerdown', () => sounds.unlock());
@@ -257,6 +265,7 @@ renderer.domElement.addEventListener('click', () => {
   if (lockable() && !loading && !fullscreen.paused && currentScreen === null) input.requestLock();
 });
 const resumeHint = document.getElementById('resume-hint');
+const pipeModeHint = document.getElementById('pipe-mode-hint');
 input.onLockChange = (locked) => {
   if (lockable() && !loading) showScreen(locked ? null : 'overlay');
 };
@@ -380,6 +389,8 @@ function deathText({ id, killerId, cause }) {
   const killer = killerId === null ? null : nameOf(killerId);
   if (cause === DEATH_CAUSE.VOID) return killer ? `${killer} knocked ${victim} into the void` : `${victim} fell into the void`;
   if (cause === DEATH_CAUSE.FALL && !killer) return `${victim} fell from a high place`;
+  if (cause === DEATH_CAUSE.LAVA) return `${victim} fell into lava`;
+  if (cause === DEATH_CAUSE.MAGMA) return `${victim} burned on magma`;
   return `${killer} killed ${victim}`;
 }
 
@@ -398,6 +409,8 @@ function enterDeath(msg, isEliminated) {
   let cause = '';
   if (msg?.cause === DEATH_CAUSE.VOID) cause = msg.killerId === null ? 'You fell into the void' : `${nameOf(msg.killerId)} knocked you into the void`;
   else if (msg?.cause === DEATH_CAUSE.FALL && msg.killerId === null) cause = 'You fell from a high place';
+  else if (msg?.cause === DEATH_CAUSE.LAVA) cause = 'You fell into lava';
+  else if (msg?.cause === DEATH_CAUSE.MAGMA) cause = 'You burned on magma';
   else if (msg) cause = `Killed by ${nameOf(msg.killerId)}`;
   deathCause.textContent = eliminated ? `${cause}${cause ? '. ' : ''}You have no flag, so you are eliminated.` : cause;
   document.body.classList.add('dead');
@@ -512,13 +525,15 @@ function startGame(msg, generated) {
   }
   for (const { x, y, z } of msg.litFurnaces ?? []) furnaceEffects.setLit(x, y, z, true);
   for (const portal of msg.portals ?? []) portals.add(portal);
+  portals.setWorld(world);
+  bossRenderer.setState(msg.boss);
   self = msg.players.find((p) => p.id === msg.id);
   audioSettings.setPlayer(self.name);
   player = new LocalPlayer(msg.id, msg.color, self, world);
   inventoryScreen.setObtained(msg.teamObtained ?? []);
   setCreative(!!msg.creative);
   inventoryScreen.setCreativeState({ immortal: !!msg.immortal, flying: !!msg.flying,
-    invisible: !!msg.invisible });
+    invisible: !!msg.invisible, breakAny: !!msg.breakAny, speed: msg.speed ?? 1 });
   for (const p of msg.players) {
     names.set(p.id, p.name);
     playerTeams.set(p.id, p.team);
@@ -596,12 +611,31 @@ conn.on(S2C.ENTITY_SPAWN, (msg) => {
 conn.on(S2C.ENTITY_DESPAWN, (msg) => entities.remove(msg.id));
 conn.on(S2C.PORTAL_SPAWN, (msg) => portals.add(msg.portal));
 conn.on(S2C.PORTAL_DESPAWN, (msg) => portals.remove(msg.id));
+conn.on(S2C.BOSS_STATE, msg => {
+  const wasSleeping = bossRenderer.state?.status === 'sleeping';
+  bossRenderer.setState(msg.boss);
+  if (wasSleeping && msg.boss.status === 'active' && world
+    && player && inDragonArena(world, player.state.x, player.state.z))
+    audioMixer.play(MOB_SOUNDS.dragon.attack, DRAGON_LORD.roarGain, msg.boss, DRAGON_LORD.roarRange);
+});
+conn.on(S2C.BOSS_VICTORY, msg => {
+  feed.add(`${msg.name} has slain the Dragon Lord.`, 'win');
+  if (world && player && inDragonArena(world, player.state.x, player.state.z)) {
+    battleMusic.playVictory();
+    const arena = world.dragonArena;
+    portals.burst(arena.x + 0.5, arena.y + 4, arena.z + 0.5);
+  }
+});
 conn.on(S2C.EMBER_BURST, (msg) => portals.burst(msg.x, msg.y, msg.z));
 conn.on(S2C.QUARRY_PUFF, (msg) => quarryEffects?.puff(msg.x, msg.y, msg.z));
+conn.on(S2C.STEAM_PUFF, (msg) => quarryEffects?.steam(msg.x,msg.y,msg.z));
 conn.on(S2C.CREATIVE, (msg) => {
   setCreative(msg.enabled);
   inventoryScreen.setCreativeState(msg);
-  if (player) player.state.flying = !!msg.flying;
+  if (player) {
+    player.state.flying = !!msg.flying;
+    player.state.creativeSpeed = msg.speed ?? 1;
+  }
 });
 conn.on(S2C.CAPTURE_LOBBY,()=>downloadLobbyView(renderer,scene,camera).catch(error=>toast.show(error.message)));
 conn.on(S2C.DAY_TIME, (msg) => {
@@ -684,7 +718,7 @@ conn.onClose(() => {
   status.textContent = 'Disconnected from server. Refresh to reconnect.';
   connected = false;
   monkeyScreen.close(false, false);
-  fullscreen.stop();music.fadeOut();audioMixer.stop();dialogue.stop();chunks?.dispose();fluidRenderer?.dispose();
+  fullscreen.stop();music.fadeOut();battleMusic.stop();audioMixer.stop();dialogue.stop();chunks?.dispose();fluidRenderer?.dispose();
   showScreen('overlay');
   document.exitPointerLock();
 });
@@ -696,7 +730,12 @@ let accumulator = 0;
 // server makes the final call; skipping blocks it would refuse saves bandwidth.
 function breakTarget() {
   const tool = heldTool();
-  if (!input.primaryDown || targetPlayer !== null || !target || !canBreak(target.id, tool.strength)) {
+  if (!input.primaryDown || targetPlayer !== null || !target
+    || inDragonArena(world, player.state.x, player.state.z)
+    || inDragonArena(world, target.x, target.z)
+    || inFireSanctum(world, target.x, target.y, target.z)
+    || !(inventoryScreen.creative && inventoryScreen.creativeState.breakAny
+      ? target.id !== BLOCK.AIR && !isLiquid(target.id) : canBreak(target.id, tool.strength))) {
     breaking = null;
     return null;
   }
@@ -712,7 +751,8 @@ function breakTarget() {
 // that face's normal (ladders need to know which side they hang on).
 function placeTarget() {
   if (!target || (target.nx === 0 && target.ny === 0 && target.nz === 0)) return null;
-  if (isFlowingWater(target.id)) return { x: target.x, y: target.y, z: target.z, nx: target.nx, ny: target.ny, nz: target.nz };
+  if (isFlowingWater(target.id) || isLava(target.id) && target.id !== BLOCK.LAVA)
+    return { x: target.x, y: target.y, z: target.z, nx: target.nx, ny: target.ny, nz: target.nz };
   const { nx, ny, nz } = target;
   return { x: target.x + nx, y: target.y + ny, z: target.z + nz, nx, ny, nz };
 }
@@ -820,11 +860,12 @@ function frame(now) {
     }
     // Any click swings the arm; it only punches with a player under the crosshair.
     if (controls.attack) viewModel.swing();
-    controls.attack = controls.attack && targetPlayer !== null;
+    controls.attack = controls.attack && (targetPlayer !== null
+      || inDragonArena(world, player.state.x, player.state.z));
     controls.breaking = breakTarget();
     // Right click on a workbench, furnace or chest opens its screen instead of placing.
     const changingFace=controls.place&&target&&configurableFluidFaces(fluidKind(target.id))
-      &&controls.crouch&&heldItem()===null;
+      &&controls.crouch;
     const placingWhileCrouched=placesThroughInteraction(controls.crouch,heldItem());
     const station = controls.place && target && !changingFace && !placingWhileCrouched && stationKind(target.id);
     if (station) {
@@ -835,7 +876,7 @@ function frame(now) {
     }
     // Right click on a door opens or closes it instead of placing.
     const useTarget = controls.place && target && (changingFace || (!placingWhileCrouched && isDoor(target.id))
-      || (target.id === BLOCK.WATER && heldItem() === ITEM.EMPTY_BUCKET));
+      || ((target.id === BLOCK.WATER || target.id === BLOCK.LAVA) && heldItem() === ITEM.EMPTY_BUCKET));
     controls.use = useTarget ? { x: target.x, y: target.y, z: target.z,
       nx:target.nx,ny:target.ny,nz:target.nz } : null;
     controls.place = controls.place && !useTarget && !aiming ? placeTarget() : null;
@@ -861,15 +902,19 @@ function frame(now) {
   const dir = lookDirection(input.yaw, input.pitch);
   // Mine decorations normally, but aim combat through them on the client
   // as well as the server. Most frames need just the one shared block ray.
-  const miningBlock=playing?raycastBlock(world,camera.position,dir,REACH_DISTANCE,(id)=>isTargetable(id)&&!isWater(id)):null;
+  const miningBlock=playing?raycastBlock(world,camera.position,dir,REACH_DISTANCE,(id)=>isTargetable(id)&&!isLiquid(id)):null;
   const combatBlock=miningBlock&&!getBlockDef(miningBlock.id).blocksAttack
     ?raycastBlock(world,camera.position,dir,REACH_DISTANCE,blocksAttack):miningBlock;
   const hit=playing?raycastPlayers(camera.position,dir,combatBlock?combatBlock.t:REACH_DISTANCE,
     entities.attackTargets(),(p)=>playerBoxOf(p.state)):null;
   targetPlayer=hit?hit.player.id:null;
   // Only buckets target water. Other actions reach the block behind it.
-  const bucket=heldItem()===ITEM.EMPTY_BUCKET||heldItem()===ITEM.WATER_BUCKET;
+  const bucket=heldItem()===ITEM.EMPTY_BUCKET||heldItem()===ITEM.WATER_BUCKET||heldItem()===ITEM.LAVA_BUCKET;
   target=hit?null:bucket&&playing?raycastBlock(world,camera.position,dir,REACH_DISTANCE,isTargetable):miningBlock;
+  const pipeMode=target?.id===BLOCK.BRONZE_PIPE
+    ? fluidRenderer?.modeAt(target.x,target.y,target.z) : undefined;
+  pipeModeHint.hidden=!(playing&&pipeMode!==undefined);
+  if(!pipeModeHint.hidden)pipeModeHint.textContent=`CHANGE DOT: ${pipeMode===1?'INPUT':pipeMode===2?'OUTPUT':'AUTOMATIC'} · Shift + Right-click`;
   // Looking away (or the block breaking) resets progress, as on the server.
   if (!sameBlock(breaking, target)) breaking = null;
   highlight.update(target, breaking ? breaking.ticks / breakTicks(target.id, heldTool().speed) : 0);
@@ -907,7 +952,11 @@ function frame(now) {
     const ticks = dayClock.tick - dayClock.baseTick + Math.min(1, (now - dayClock.at) / 1000 * TICK_RATE);
     const time = (dayClock.baseTime + ticks / (DAY_LENGTH * TICK_RATE)) % 1;
     audioDayTime = time;
-    sky.update(time, camera);
+    const inArena = !!world && inDragonArena(world, camera.position.x, camera.position.z);
+    sky.update(time, camera, inArena);
+    if (clouds) clouds.visible = !inArena;
+    bossRenderer.setArena(inArena);
+    battleMusic.setActive(inArena && bossRenderer.state?.status === 'active');
     chunks.daylight.value=LIGHTING.nightSky+(LIGHTING.daySky-LIGHTING.nightSky)*sky.daylight;
     chunks.daylight.tint.value.copy(sky.light.color);
     setViewDistance(scene, camera, viewDistance, sky.fogScale);
@@ -918,6 +967,10 @@ function frame(now) {
   quarryEffects?.update(dt, camera.position, chunks.viewDistance);
   stormEffects?.update(dt, camera.position, mode === MODE.PLAY || mode === MODE.SPECTATE);
   portals.update(dt, camera);
+  arenaEffects.update(dt, camera, !!world && inDragonArena(world, camera.position.x, camera.position.z));
+  if (world?.dragonArena) bossRenderer.update(dt, camera, world,
+    dayClock ? dayClock.tick + (now - dayClock.at) / 1000 * TICK_RATE : 0);
+  battleMusic.update(dt);
   entities.update(dt, world, chunks.daylight, camera);
   turretRenderer.update(dt,world,chunks.daylight);
   audioMixer.update(dt, camera.position, input.yaw, audioDayTime);

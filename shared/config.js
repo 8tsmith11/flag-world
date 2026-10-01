@@ -29,7 +29,7 @@ export const QUARRY_REGROW_TIME = 5;
 // Saplings: the chance breaking leaves drops one, and how long a planted one
 // takes to grow into a tree (seconds, a random time in this range).
 export const SAPLING_DROP_CHANCE = 0.1;
-export const SAPLING_GROW_TIME = [180, 300];
+export const SAPLING_GROW_TIME = [30, 30];
 
 // Player physics (blocks, seconds).
 export const PLAYER_WIDTH = 0.6;
@@ -37,6 +37,7 @@ export const PLAYER_HEIGHT = 1.8;
 export const PLAYER_EYE_HEIGHT = 1.62;
 export const WALK_SPEED = 4.3;
 export const FLIGHT_SPEED = WALK_SPEED * 2;
+export const CREATIVE_SPEED = { min: 0.25, max: 4, step: 0.25 };
 export const SPRINT_SPEED_SCALE = 1.5;
 export const JUMP_VELOCITY = 8.4;
 export const GRAVITY = 28;
@@ -362,7 +363,91 @@ export const FLUID = {
   epsilon: 1e-7,
   faceNone: 0, faceInput: 1, faceOutput: 2,
 };
-export const GLASS_SETTINGS = { opacity: 0.22 };
+// Volcanic/frozen island generation and environmental rules. IDs follow the
+// fluid machinery range; historical and reserved IDs remain untouched.
+export const ELEMENTAL = {
+  enabled: true, rollPerSeed: false, rollChance: 0.5,
+  blockIds: { lava: 136, lavaFlow1: 137, lavaFlow3: 139, basalt: 140,
+    ash: 141, magma: 142, snow: 143, packedIce: 144, ice: 145, cobble: 146,
+    basaltBricks: 147, chiseledBasalt: 148, firePortal: 149, obsidian: 150 },
+  itemIds: { lavaBucket: 320, ancientFireMonkeyEgg: 321, dragonCrown: 322, dragonHeart: 323 },
+  blocks: { basaltHardness:3, ashBreakTime:0.5, magmaHardness:3,
+    snowBreakTime:0.5, packedIceHardness:2, iceHardness:1,
+    cobbleHardness:2, rockBreakTime:1.5, iceBreakTime:0.7 },
+  colors: { lava:0xff6322, basalt:0x36383c, ash:0x77716e,
+    magma:0xb44920, snow:0xe5f3f7, packedIce:0x90c6e6,
+    ice:0xa6d9f1, cobble:0x747478 },
+  radius: { small: 25, medium: 30, large: 35 },
+  angleSalt: 0x6f273ab1, terrainSalt: 0x4b5e1a27,
+  separation: 16, surfaceBelowCenter: 64,
+  depth: 13, rimDepth: 3, edgeJitter: 0.08, surfaceVariation: 2,
+  templeSize: 21, templeFlatY: 0,
+  ashDepth: 3, surfaceBasaltChance: 0.28, magmaChance: 0.035,
+  spireCount: 12, spireHeight: [3, 9],
+  spireDistance: [0.52, 0.82], poolDistance: [0.7, 0.86],
+  lavaPools: 5, lavaPoolRadius: [2, 4], lavaFalls: 4,
+  oreChance: 0.08, copperFraction: 0.55,
+  lakeRadius: 7, lakeDepth: 2, lakeOffset: 0.5, glacierRadius: 10, glacierHeight: 13,
+  glacierOffset: -0.25,
+  cavityRadius: 5, cavityHeight: 5, icePatchChance: 0.12,
+  waterFreezeSeconds: 5,
+  lavaFlowDistance: 3, lavaTickPeriod: 9, lavaTickBudget: 240,
+  lavaDamagePerSecond: 4, magmaDamagePerSecond: 1, dragonscaleLavaFactor: 0.5,
+  lavaEmission: 15, magmaEmission: 8,
+  furnaceLavaItems: 100, boilerLavaSeconds: 500,
+  iceMomentum: 0.96, normalMomentum: 0,
+};
+export const FIRE_TEMPLE = {
+  portalGated: false, brickHardness: 5, brickBreakTime: 3,
+  portalEmission: 13, brazierEmission: 12, obsidianHardness: 5,
+  hallHalfWidth: 7, hallFront: -10, hallBack: 10, wallHeight: 6,
+  sanctumFront: 2, sanctumBack: 9, stairCount: 3,
+  portalWidth: 5, portalHeight: 7, portalZ: 13,
+  throneZ: 6, pillarOffset: 5, pillarZ: [-6, -2, 2, 6],
+  lavaChannelOffset: 5, entranceZ: -12,
+  teleportCooldownSeconds: 1.5,
+};
+export const DRAGON_ARENA = {
+  gap: 256, regionHalfWidth: 96, regionHalfDepth: 96,
+  floorY: 36, lakeRadius: 72, lavaDepth: 4, mainRadius: 20,
+  edgePlatformCount: 6, edgePlatformRadius: 4, edgePlatformDistance: 37,
+  pillarCount: 6, pillarDistance: 14, pillarHeight: 8,
+  perchDistance: 55, perchRadius: 9, perchHeight: 10,
+  spawnOffset: -15, exitOffset: -18, exitHeight: 7,
+  lavaKillDepth: 1.5, skyColor: 0x190809, fogColor: 0x502015,
+  hazeColor: 0x8f3920, ambientColor: 0xffaa76, ambientIntensity: 0.45,
+  sunColor: 0xff6b38, sunIntensity: 0.55, fogScale: 0.52,
+  ashCount: 180, ashRadius: 65, ashHeight: 28,
+  horizonFormations: 16, horizonRadius: 83, horizonHeight: [16, 35],
+  rumbleGain: 0.3, portalRange: 24, portalGain: 0.18,
+};
+export const DRAGON_LORD = {
+  baseHp: 400, hpPerExtraPlayer: 150, wakeDistance: 20,
+  groundPhaseEnd: 0.7, airPhaseEnd: 0.4, collapseThreshold: 0.1,
+  bodyHalfWidth: 3.2, bodyHeight: 7.5, groundSpeed: 2.4,
+  swipeWindup: 0.8, swipeRange: 8, swipeHalfAngle: 0.75, swipeDamage: 5,
+  tailWindup: 1, tailRange: 10, tailDamage: 4, jumpHeight: 1.4,
+  stompWindup: 1.2, shockwaveSpeed: 10, shockwaveMaxRadius: 17,
+  shockwaveWidth: 1.1, stompDamage: 5, stunSeconds: 2,
+  enragedWindupScale: 0.7, attackPause: 1.1,
+  fireballSpeed: 12, fireballRadius: 0.55, fireballBlastRadius: 2.5,
+  fireballDamage: 3, reflectedDamage: 35, aimedCount: 3,
+  aimedInterval: 0.5, fanCount: 6, fanSpread: 0.55,
+  rainCount: 5, rainWarning: 1.5, rainHeight: 15,
+  volleysBeforeDive: 3, diveWarning: 1.5, diveSeconds: 1.1,
+  diveDamage: 6, diveWidth: 3, landingSeconds: 6,
+  pillarHits: 3, pillarRadius: 1.8,
+  breathWindup: 1, breathSeconds: 3, breathRange: 19,
+  breathHalfAngle: 0.42, breathArc: 1.5, breathDamage: 2,
+  breathHitInterval: 0.6, lavaCycle: 20, lavaWarning: 2,
+  lavaDuration: 8, lavaRingInner: 16, lavaRingOuter: 20,
+  collapseSeconds: 5, deathSeconds: 4,
+  scalesDrop: [8, 12], snapshotTicks: 2,
+  musicFade: 1.5, musicGain: 0.75, victoryGain: 0.9,
+  roarRange: 45, roarGain: 1,
+};
+export const WORLDGEN_RETRY = { attempts: 8, salt: 0x4f9a2c71 };
+export const GLASS_SETTINGS = { opacity: 0.14, edgeWidth: 0.035 };
 export const MONKEY_WORK = {
   wildColor: 0x756044,
   maxRadius: 24, defaultRadius: 16, maxVertical: 3, maxSites: 16, maxFilter: 128,
@@ -370,6 +455,7 @@ export const MONKEY_WORK = {
   thinkTicks: 10, pathNodes: 600, pathsPerTick: 4, stuckTicks: 40,
   chopTicks: 60, chopBlocksPerThink: 12, maxTreeHeight: 64, configureReach: 32,
   spawnArea: 2200, minSpawns: 1, maxSpawns: 6, spawnAttempts: 160,
+  tinyIslandChance: 0.1, tinyIslandCount: [1, 2],
   sessionTicks: 1200, simonStepTicks: 16, simonLength: 5,
   cardPairs: 6, cardRevealTicks: 16, cupSwaps: 6, cupSwapTicks: 14,
 };
@@ -423,7 +509,7 @@ export const BLOCK_TEXTURE = { tileSize: 64, tileStride: 128, atlasColumns: 4 };
 
 // Baked voxel illumination. Runtime edits are bounded by maxLevel.
 export const LIGHTING = {
-  maxLevel: 12, torchEmission: 12, openAirLoss: 3, voidLevel: 5,
+  maxLevel: ELEMENTAL.lavaEmission, torchEmission: 12, openAirLoss: 3, voidLevel: 5,
   voidTint: [0.65, 0.77, 1], voidDay: 0.3, voidNight: 0.045, ambientFloor: 0.008, nightSky: 0.035, daySky: 1,
   faceShades: [0.8, 0.8, 0.55, 1, 0.7, 0.7],
   blockStrength: 1.25, blockTint: [1, 0.72, 0.4], aoStrength: 0.18,

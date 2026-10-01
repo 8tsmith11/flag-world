@@ -21,8 +21,10 @@ export class EntityInterest {
 
   forPlayer(game, player, result) {
     const sent = player.entityLast ??= new Map();
+    const loaded = new Set();
     for (const { entity, snapshot, key } of this.snapshots.values()) {
       if (game.chunkLoading && !game.chunkLoading.has(entity.state.x, entity.state.z)) continue;
+      loaded.add(entity.id);
       const distance = Math.hypot(player.state.x - entity.state.x,
         player.state.y - entity.state.y, player.state.z - entity.state.z);
       const every = UPDATE_TICKS[distance < NEAR_RANGE ? 0 : distance < MIDDLE_RANGE ? 1 : 2];
@@ -31,6 +33,12 @@ export class EntityInterest {
       result.push({ ...snapshot, u: every });
       sent.set(entity.id, { key, tick: game.tick, every });
     }
-    for (const id of sent.keys()) if (!this.snapshots.has(id)) sent.delete(id);
+    for (const id of sent.keys()) if (!loaded.has(id)) {
+      // The entity still exists, but its simulation column is asleep.
+      // Clear the client's last pose until an active snapshot arrives again.
+      if (game.cows.has(id) || game.dragons.has(id) || game.mobs.has(id) || game.npcs.has(id))
+        result.push({ id, unloaded: true });
+      sent.delete(id);
+    }
   }
 }

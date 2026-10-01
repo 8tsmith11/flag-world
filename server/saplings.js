@@ -39,7 +39,7 @@ export class SaplingGrowth {
 
   canGrow(x, y, z, top) {
     const world = this.world;
-    if (!canGrowTree(world, x, y - 1, z, top)) return false;
+    if (!canGrowTree(world, x, y - 1, z, top, { straightTrunk: true })) return false;
     if (this.occupied(x, y, z, top)) return false;
     return true;
   }
@@ -70,7 +70,7 @@ export class SaplingGrowth {
         continue;
       }
       this.scheduled.delete(key);
-      growTree(this.world, x, y - 1, z, top);
+      growTree(this.world, x, y - 1, z, top, { straightTrunk: true });
     }
   }
 }

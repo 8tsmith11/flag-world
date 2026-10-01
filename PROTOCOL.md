@@ -45,6 +45,7 @@ unique within the lobby (ignoring case).
 | `type`     | string  | Entity type, `"player"` |
 | `x`,`y`,`z`| number  | Position |
 | `vx`,`vy`,`vz` | number | Velocity (blocks/s); needed for client reconciliation |
+| `ix`,`iz` | number | Ground momentum used by predicted movement on Packed Ice and Ice |
 | `kx`,`kz`  | number  | Knockback velocity (blocks/s), added to movement and decaying each tick; also needed for reconciliation |
 | `yaw`,`pitch` | number | Look direction |
 | `onGround` | bool    | Standing on a solid block |
@@ -108,9 +109,13 @@ front that faces the player who placed them. They have one id per facing
 Blocks 128–129 are Bronze Pipe and Fluid Tank; 134–135 are Boiler and Crusher.
 Connected tanks share a frame and expose glass only on their outside faces;
 their fluid surface joins across blocks. Pipes, the Fluid Pump, Boiler and
-Crusher have distinct block and held-item models. Pumps face the placer and
-always output through their front; crushers accept steam through every face.
-Only tank and boiler face modes can be changed.
+Crusher have distinct block and held-item models. Pumps output through any
+connected side; crushers accept steam through any connected side. Pipes default
+to automatic flow and can be switched to input or output at the pipe itself.
+Blocks 136–139 are lava source and three flowing strengths. Blocks 140–146 are
+Basalt, Ash, Magma Block, Snow Block, Packed Ice, Ice and Cobble. Blocks
+147–150 are Basalt Bricks, Chiseled Basalt, Fire Portal and Obsidian. Item 320
+is a Lava Bucket; it places lava source 136. Historic and reserved IDs remain intact.
 
 Block 122 is copper ore and 123 is tin ore (both hardness 3). Team islands
 contain common copper and rare tin, with no iron. Tiny island stone contains
@@ -141,12 +146,14 @@ bronze armor. Bronze hammer strength is 4, between stone (3) and iron (5);
 bronze armor gives 5 armor points. Both accept their normal modifier pools.
 Items 316–318 are Iron Dust, Copper Dust and Tin Dust. Item 319 is the Bronze
 Sword (5 damage, 2 bronze ingots and 1 wood at a workbench); it takes melee
-modifiers.
+modifiers. Item 320 is a Lava Bucket. Item 321 is the Ancient Fire Monkey spawn
+egg. Items 322–323 are the loot-only Dragon Crown (+5 maximum HP and immunity
+to fire damage) and Dragon Heart (reserved material, no current use).
 `290` is reserved after removal of the Flight Orb. `291`–`294` are Cow,
 Dragon, Crawler and Void Eel spawn eggs; `295`–`299` and `301`–`304` are unused.
 Active egg definitions live in `shared/mobEggs.js`. All egg types are
 creative-only to obtain, but anyone holding one can use it. Grass and dirt
-both drop dirt. Block ids `59`–`61` and `79`–`82` are unused.
+both drop dirt. Historic and reserved block IDs remain assigned or reserved.
 Buckets, armor, accessories, gliders, hammers, swords, bows, crossbows, Wind
 Axes and grappling hooks have stack size 1;
 ordinary items stack to 64. What held tools do is in `shared/tools.js`.
@@ -225,7 +232,7 @@ snapshots at distance cadence.
 |-------|------|-------|
 | `id` | int | Entity id |
 | `type` | string | `"npc"` |
-| `npc` | string | `"wiseMonkey"`, `"workMonkey"`, `"ancientWaterMonkey"` or `"ancientLightningMonkey"` |
+| `npc` | string | `"wiseMonkey"`, `"workMonkey"`, `"ancientWaterMonkey"`, `"ancientLightningMonkey"` or `"ancientFireMonkey"` |
 | `name` | string | `"Wise Blue Monkey"`, `"Ancient Water Monkey"`, ... |
 | `team` | int \| null | A Wise or tamed working monkey's team (`TEAMS` index; its fur color), else `null` |
 | `x`,`y`,`z` | number | Feet (seat) position; box from `NPC_DEFS[npc].box` |
@@ -386,6 +393,7 @@ items). Inputs come out of the main grid before the hotbar.
 |----------|--------|-------|
 | `recipe` | string | Recipe `id` from `shared/recipes.js` |
 | `at`     | BlockPos? | A workbench in reach. Required for recipes with `station: "workbench"`; ignored otherwise |
+| `shift`  | bool? | For a creative recipe, grants one full stack (the item's `maxStack`); ignored for ordinary recipes |
 
 Recipes with `station: null` (planks, ladder, workbench) work anywhere; the
 rest only at a workbench. New recipes include an empty bucket (1 copper ingot),
@@ -406,7 +414,7 @@ from 1 Furnace and 4 Bronze Ingots; Crusher from 4 Bronze Ingots, 2 Stone and
 matching Dust. A furnace smelts each Dust into one matching ingot.
 While creative mode is enabled, `creative:<itemId>` recipes provide every
 canonical block and non-block item for free, without a station or
-modifiers. The same output-name search bar filters this catalogue. The server
+modifiers. Shift-clicking a creative recipe grants a full stack. The same output-name search bar filters this catalogue. The server
 rejects those recipe ids for other players.
 Normal inventory and workbench crafting screens show recipes once anyone on
 the player's team has held at least one ingredient. Search filters these by
@@ -422,9 +430,12 @@ The server responds only to that connection with `creative`.
 
 ### `creativeAction`
 
-`{action}` from the local creative host during a match. Accepted actions are
+`{action, value?}` from the local creative host during a match. Accepted actions are
 `"setDay"` (noon), `"setNight"` (midnight), `"toggleImmortal"`,
-`"toggleFlight"`, `"toggleInvisible"` and `"captureLobby"`. Invisibility is a server player
+`"toggleFlight"`, `"toggleInvisible"`, `"toggleBreakAny"`, `"setSpeed"` and `"captureLobby"`.
+`setSpeed` requires a finite numeric `value`, rounded to 0.25 steps and clamped
+to 0.25–4× for walking and flight while creative is active. `toggleBreakAny`
+allows mining normally unbreakable non-water blocks without a tool. Invisibility is a server player
 flag consumed by mob and turret targeting.
 The server replies with `creative`; time changes also broadcast `dayTime`.
 Immortality prevents damage and returns a player who falls into the void to
@@ -457,7 +468,8 @@ can continue within 32 blocks. Sessions expire after 60 seconds.
 | `cup` | `session`, integer `value` 0–2 | Choose the final cup position after the watch timer |
 | `retry` | — | Start another random game on a wild monkey |
 | `configure` | `config`, `revision` | Owning team only; reject stale settings rather than overwrite a teammate |
-| `inventory` | `grid:"player"\|"monkey"\|"cargo"`, integer `slot`, `button:"left"\|"right"`, optional `shift` | Owning team with this monkey open only; normal cursor clicks, half stacks/right-click singles, or shift transfers between player and monkey storage (cargo to player). Storage has nine slots; cargo has one |
+| `inventory` | `grid:"player"\|"monkey"`, integer `slot`, `button:"left"\|"right"`, optional `shift` | Owning team with this monkey open only; normal cursor clicks, half stacks/right-click singles, or shift transfers between player and the monkey's nine inventory slots |
+| `teleportHome` | — | Owning team only; move the monkey to a clear space beside the team's keep |
 | `close` | — | Close this player's view/session |
 
 Simon Says runs in the world: the monkey demonstrates actual jumps and crouch
@@ -468,20 +480,20 @@ sequence remains server-only. Memory and cup shuffle stay in the GUI; cups
 have identical, unlabeled appearances.
 
 The filter grid copies the type of the player's cursor stack into the local
-configuration draft and saves through `configure`. It never transfers or
-consumes that stack. Saplings live in the monkey's storage inventory, which
-the lumberjack uses as its reserve. The carried delivery stack is also
-interactive. Closing configuration stows the player's cursor as for other
-inventory screens.
+configuration draft and automatically sends `configure`. It never transfers or
+consumes that stack. Saplings and deliveries use the monkey's inventory.
+Closing configuration stows the player's cursor as for other inventory screens.
 
-`config` is `{role, target, from, to, radius, vertical, sites, filter}`.
+`config` is `{role, target, from, to, home, radius, vertical, sites, filter}`.
 Roles: `idle`, `collector`, `courier`, `lumberjack`. Targets are BlockPos or
 null; `sites` is up to 16 explicit tree-base/planting BlockPos entries (a soil
 selection becomes the cell above it). Radius is 1–24 blocks, vertical range
 0–3 blocks above/below the delivery target. Filter is
 `{mode:"whitelist"|"blacklist", items: ItemId[]}`, up to 128 registered items.
 Courier `from` must be a container within range of `to`; `target` becomes `to`.
-Every non-idle role needs a target. Settings changes retain carried items.
+Every non-idle role needs a target. `home` is an optional idle location; the
+monkey returns there only when no task is available and can travel beyond its
+original work range to reach the configured work area. Settings changes retain inventory items.
 
 ### `reclaim`
 
@@ -517,7 +529,7 @@ Match players only. Sent once per simulation tick (20 per wall-clock second). Ea
 | `slot`    | int    | Selected hotbar slot, 0..8: the item in hand (tool strength, placing, dropping, `held`) |
 | `breaking`| BlockPos \| null | Block the player is holding the break button on this tick, or `null` |
 | `place`   | `{ x, y, z, nx, ny, nz }` \| null | Place the selected item in cell x, y, z this tick (right click), or `null`. `n` is the normal of the face that was clicked (one axis ±1), pointing into this cell |
-| `use`     | `{x,y,z,nx,ny,nz}` \| null | Right click on a door or water source, or crouch-right-click a tank or boiler face with an empty hand. The normal names the clicked face. The server checks the raycast before cycling `none → input → output → none` |
+| `use`     | `{x,y,z,nx,ny,nz}` \| null | Right click on a door or water/lava source, or crouch-right-click a bronze pipe. The server checks the raycast before cycling that pipe `automatic → input → output → automatic` |
 | `drop`    | bool   | Throw one of the selected item this tick (Q) |
 | `attack`  | bool   | Punch this tick (a left click with a player under the crosshair) |
 
@@ -546,7 +558,7 @@ and is outside every keep's volume. Then, by item:
   and no player is in either cell. It's placed closed, facing the way the
   player looks.
 - **Sapling:** right click the top of grass or dirt to plant it. It grows a
-  tree after 3–5 minutes (`SAPLING_GROW_TIME`) if the trunk has room; blocked
+  tree after 30 seconds (`SAPLING_GROW_TIME`) if the trunk has room; blocked
   saplings retry.
 - **Rope Bundle:** any clicked face, or an existing rope column to extend it
   downward from its bottom end. Rope fills each cell straight below the
@@ -559,9 +571,9 @@ one item from `slot` along the look direction. Both are applied after that
 tick's movement.
 
 `use` opens or closes the door there (both halves) for anyone in reach. An
-empty bucket uses a source there to remove it and becomes a water bucket;
-flowing water cannot be collected. Placing a water bucket creates a source
-in the targeted cell and returns an empty bucket. Buckets have stack size 1. A
+empty bucket uses a water or lava source there to remove it and becomes the
+matching bucket; flowing liquids cannot be collected. Placing either bucket
+creates its source in the targeted cell and returns an empty bucket. Buckets have stack size 1. A
 door won't close on a player standing in it.
 
 Breaking: either half of a door removes the whole door and drops one door.
@@ -764,21 +776,23 @@ reclaim.
 | `tick`    | int           | Current server tick |
 | `dayTime` | number        | Time of day at `tick`, 0..1 (see **Day and night**). Clients advance it with the ticks in `state` |
 | `creative` | bool | Whether this connection's player has creative mode active |
-| `immortal`,`flying`,`invisible` | bool | Creative control state |
+| `immortal`,`flying`,`invisible`,`breakAny` | bool | Creative control state |
+| `speed` | number | Creative player speed multiplier, 0.25–4× |
 | `blocks`  | BlockChange[] | Every edit since generation; apply after world generation |
 | `doorTeams` | `{key,team}[]` | Reinforced door ownership by lower-half block coordinate key |
 | `turrets` | `{x,y,z,id,team,yaw,pitch}[]` | Current turret bases and head angles |
 | `litFurnaces` | `{x,y,z}[]` | Furnaces currently burning; restore fire and smoke when joining |
-| `fluidNodes` | FluidNode[] | Current pipes, face modes and tank contents; see `fluidState` |
+| `fluidNodes` | FluidNode[] | Current pipes, pipe modes and tank contents; see `fluidState` |
 | `litBoilers` | `{x,y,z}[]` | Boilers currently converting water to steam; restore their plumes |
 | `teamObtained` | int[] | Item ids that a member of your team has ever held in an inventory; seeds normal recipe discovery |
 | `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Orb portals; `expiresTick` is a server tick |
+| `boss` | BossState \| null | Current Dragon Lord state, including HP, phase, telegraphs and fireballs |
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
 | `flags`   | FlagInfo[]    | One flag per occupied team |
 | `winnerId`| int \| null   | Set if the match is already over |
 | `winnerTeam` | int \| null | Winning team index, if over |
 | `winnerMembers` | string[] | Names on the winning team, if over |
-| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | Dropped items, projectiles and mobs currently in the world |
+| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | Dropped items, projectiles and mobs currently in the world. Mob entries include `loaded: false` when their simulation column is asleep |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
@@ -790,7 +804,7 @@ or at least 160 blocks. Final stopped positions are retained until sent.
 | Field      | Type             | Notes |
 |------------|------------------|-------|
 | `tick`     | int              | Server tick number |
-| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | All players; moved items/projectiles; changed mob snapshots at each viewer’s distance cadence. Final stopped positions are retained until sent. `u` is that mob’s interval in ticks (1/3/6). An omitted entity retains its last state |
+| `entities` | (PlayerSnapshot \| ItemSnapshot \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| `{id, unloaded: true}`)[] | All players; moved items/projectiles; changed mob snapshots at each viewer’s distance cadence. `u` is that mob’s interval in ticks (1/3/6). An omitted entity retains its last state. An unload marker hides a sleeping mob until its next full snapshot |
 | `flags`    | FlagState[] | Every flag |
 | `turrets` | `{x,y,z,id,team,yaw,pitch}[]` | Current turret bases and head angles |
 
@@ -800,6 +814,24 @@ or at least 160 blocks. Final stopped positions are retained until sent.
 creates a portal. `portalDespawn` broadcasts `{id}` when it expires.
 `emberBurst` broadcasts `{id,x,y,z}` when a player's Ember Heart breaks;
 clients render a burst of ember particles at that player.
+
+The Fire Temple and arena exit portals are permanent worldgen features in
+`world.fireTemple.portal` and `world.dragonArena.portal`, so they do not send
+`portalSpawn` or `portalDespawn`. Contact with a portal teleports the player;
+flag carriers cannot enter the temple portal. The client's next player
+snapshot reconciles the teleport.
+
+### `bossState`, `bossVictory`
+
+`bossState` broadcasts `{boss: BossState}` at the configured cadence and on
+major changes. `BossState` contains `status` (`sleeping`, `active`, `dying` or
+`dead`), `name`, `hp`, `maxHp`, `phase`, `x,y,z,yaw`, `action` (kind, stage,
+start/until ticks and attack geometry), `fireballs` (id, position, reflected),
+`marks` (rain target circles), `lavaState`, `lavaUntil`, `deathTick` and `tick`.
+Clients draw the model, health bar and telegraphs only while viewing the arena.
+`bossVictory` broadcasts `{name}` to every player after the death animation;
+the feed displays “<name> has slain the Dragon Lord.” The victory sting plays
+for players in the arena. The battle music starts only when he wakes.
 
 ### `blockChange`
 
@@ -823,9 +855,10 @@ single-change form.
 ### `creative`
 
 Sent only to the localhost player after an accepted `creativeToggle` or
-`creativeAction`: `{enabled, immortal, flying, invisible}`. The flags update
+`creativeAction`: `{enabled, immortal, flying, invisible, breakAny, speed}`. The flags update
 the private Creative Mode label, controls and crafting catalogue. Turning
-creative mode off disables flight, immortality and invisibility, and keeps acquired items.
+creative mode off disables flight, immortality, invisibility and breaking any block,
+resets speed to 1×, and keeps acquired items.
 
 ### `dayTime`
 
@@ -838,6 +871,11 @@ Clients restart their visual day clock from this pair.
 stone particle puff. The block itself arrives through `blockChange`. Each
 Quarry Stone face retries independently every 5 s; occupied player and mob
 cells are skipped, while dropped items are moved to nearby air.
+
+### `steamPuff`
+
+`{x,y,z}` marks placed water evaporating on the fire island. Clients draw a
+short white steam puff. The server also sends the resulting air block change.
 
 ### `entitySpawn`
 
@@ -915,7 +953,7 @@ Private reply/view for a working monkey. Common fields: `{id,name,team}`;
 | Mode | Additional fields |
 |------|-------------------|
 | `tame` | `session`, `game:"simon"|"memory"|"cups"`, `waitMs`, `stepMs`, `progress`; Simon includes `length` and keeps movement controls active; memory includes `cards` (hidden entries null), `matched` indices and `hideMs`; cups include initial `ball` and ordered `swaps` of positions |
-| `configure` | `editable`, `config`, `revision`, `slots` (nine `Stack|null` entries), `seeds` (sapling count in storage), `cargo:Stack|null`, `status`, optional `message` |
+| `configure` | `editable`, `config`, `revision`, `slots` (nine `Stack|null` entries), `seeds` (sapling count in inventory), `status`, optional `message` |
 | `result` | `won:false`, `message` (retry allowed) |
 
 The final cup answer and unrevealed card faces remain server-only. Winning
@@ -959,7 +997,7 @@ A player died. Broadcast to every match player, for the kill feed. Their
 |------------|-------------|-------|
 | `id`       | int         | Player who died |
 | `killerId` | int \| null | Player or mob who killed them. For `void`, whoever hit them in the last 5 s, else `null` |
-| `cause`    | string      | `"player"`, `"mob"` (dragon fire, a Crawler or Void Eel bite), `"void"` or `"fall"` (`DEATH_CAUSE`). Feed text: "X killed Y" (fall with a killer too), "X knocked Y into the void", "Y fell into the void", "Y fell from a high place" |
+| `cause`    | string      | `"player"`, `"mob"` (dragon fire, a Crawler or Void Eel bite), `"void"`, `"fall"`, `"lava"` or `"magma"` (`DEATH_CAUSE`). Feed text: "X killed Y" (fall with a killer too), "X knocked Y into the void", "Y fell into the void", "Y fell from a high place" |
 | `eliminated` | bool      | They were flagless, so this death knocks them out of the match (see below) |
 
 ### `flagEvent`
@@ -1072,33 +1110,35 @@ when it is broken. `{x,y,z,lit}` uses the same position and boolean types as
 ### `fluidState`
 
 Authoritative full snapshot `{nodes: FluidNode[]}`. Sent when a pipe or fluid
-block is placed or broken, when a face mode changes, and at most every four ticks
+block is placed or broken, when a pipe mode changes, and at most every four ticks
 when tank levels change. Clients replace their previous node list. `welcome` also
 carries this list as `fluidNodes`.
 
-`FluidNode` has `{x,y,z,kind,faces,fluid,amount,capacity,fill}`. `kind` is
-`"pipe"`, `"tank"`, `"pump"`, `"boiler"` or `"crusher"`. Non-pipe `faces`
-has six modes in order west, east, bottom, top, north, south: 0 none, 1 input,
-2 output. Pipes have `faces: null`. Pump faces have one fixed front output;
-all crusher faces are fixed inputs. Only tanks and boilers cycle face modes.
+`FluidNode` has `{x,y,z,kind,mode,fluid,amount,capacity,fill}`. `kind` is
+`"pipe"`, `"tank"`, `"pump"`, `"boiler"` or `"crusher"`. Pipe `mode` is
+0 automatic, 1 input from an adjacent machine into the pipe, or 2 output from
+the pipe into an adjacent machine. Explicit modes draw blue input or orange
+output dots flush on all six faces of the pipe's center junction. Aiming at a
+pipe shows its mode and the change control. Other nodes have `mode:null`. Pumps output
+water, boilers accept water and output steam, crushers accept steam, and tanks
+transfer fluid in either direction on any connected side by default.
 `fluid` is `"water"`, `"steam"` or null;
 the amount and capacity are the whole connected tank's units. `fill` (0..1)
 is the fill of this block's vertical layer for rendering.
 
-Pipes connect to adjacent pipes unconditionally and to other fluid blocks only
-at configured ports. Graphs rebuild on placement, break and face changes, and
+Pipes connect to adjacent pipes unconditionally and to adjacent fluid blocks.
+Graphs rebuild on placement, break and pipe mode changes, and
 sleep with their chunks. Each pipe buffers 50 units of one fluid. A filled
 network rejects the other fluid until empty. Connecting two filled networks
 with different fluids retains the larger amount and discards the incompatible
 contents. Outputs transfer before inputs;
 when supply is short, all consumers receive the same fraction of demand. A
-tank connected to the same network by both input and output ports transfers
-nothing through that network. Adjacent tanks form one 4000-unit-per-block
+tank does not cycle fluid back into the same network. Adjacent tanks form one 4000-unit-per-block
 group; breaking a block divides its contents proportionally among the pieces.
 Merging tanks that contain different fluids retains the larger amount and
 discards the incompatible contents.
 
-A pump touching a source water block on any face except its output produces 50
+A pump touching a source water block on any face except the pipe-facing side produces 50
 water/s without using up that source. A boiler consumes 10 water/s and emits
 10 steam/s while output space and fuel remain; charcoal burns for 40 s, wood
 for 10 s. A crusher draws 5 steam/s while working and takes 2 s per item at
@@ -1211,13 +1251,15 @@ Leaves without a path to wood through at most six adjacent leaves decay and
 are sent as ordinary `blockChange` messages. Each decayed leaf has a 4%
 chance to drop a sapling, and breaking leaves drops one 10% of the time
 (`SAPLING_DROP_CHANCE`). The server schedules planted saplings to grow in
-3–5 minutes (`SAPLING_GROW_TIME`),
+30 seconds (`SAPLING_GROW_TIME`),
 sending the resulting tree as `blockChange` messages.
 
 ## Tiny islands
 
 `WORLD_SIZES` in `shared/worldgen.js` holds the numbers. Small, Medium and
 Large have 22–30, 34–45 and 50–66 tiny islands of radius 4–14, 5–17 and 5–20.
+Each tiny island has a 10% chance to spawn one or two wild monkeys when there
+is clear grass or dirt for them to stand on.
 Each has an irregular, lobed outline, a grass surface over dirt with slight
 height variation, and a stone underside tapering from about 0.6× its radius
 deep in the middle, with root-like spurs. They have no caves or ponds. Radius
@@ -1401,3 +1443,63 @@ Iron generation retains half of its original seeded candidates. New creative
 eggs 306–309 spawn working, Wise, Ancient Water and Ancient Lightning Monkeys;
 310 spawns a Goblin Totem. Every living creature/NPC kind has a creative egg.
 Historic and reserved ids remain intact.
+
+## Elemental islands and lava
+
+When `ELEMENTAL.enabled` is true, seeded generation adds one fire and one ice
+island on opposite sides of the central island, outside the normal island ring.
+Their radii are 25/30/35 for Small/Medium/Large. They sit low above the void eel
+band and have no bridges. `world.specialIslands` records the fire temple's
+21×21 flat area and the ice glacier's hollow cavity.
+`ELEMENTAL.rollPerSeed` can later switch the always-present pair to a seeded
+chance.
+
+Lava sources spread at most three horizontal blocks. Their flow simulation runs
+once per nine server ticks, one third of water's rate. Lava emits block light
+15 and destroys dropped items. Contact with water turns a lava source to stone
+and flowing lava to stone or cobble. Players and mobs in lava take four damage
+per second without armor reduction; Dragonscale Armor halves lava damage.
+Standing on a Magma Block deals one damage per second unless crouching or
+wearing Dragonscale Armor. Packed Ice and Ice have low ground friction in the
+shared predicted physics. Water placed on the fire island evaporates with a
+`steamPuff`; water placed on the ice island freezes to Ice after five seconds.
+A Lava Bucket fuels 100 furnace smelts or 500 seconds of boiler burn, then
+returns an empty bucket in the fuel slot or as a dropped item if occupied.
+
+## Fire Temple, arena and Dragon Lord
+
+The seeded Fire Temple occupies the fire island's recorded flat area. Its
+stepped entrance leads past lit braziers into a pillared hall with two lava
+channels, an inner sanctum with a throne, and a rear portal room. The sanctum
+and portal frame reject breaking, even with creative breaking enabled. The
+Ancient Fire Monkey spawns on the throne, uses the Ancient Monkey's sounds and
+restless behavior, and cannot yet be damaged. Its egg is item 321.
+
+The fire portal is a 5×7 Chiseled Basalt frame with a glowing 3×5 interior.
+`FIRE_TEMPLE.portalGated` in `shared/config.js` is false by default. The portal
+leads to a separate arena region in sparse world chunks beyond the playable
+islands; its exit portal returns to the temple. `world.dragonArena.bounds` and
+the player's server-owned `inArena` track arena membership. Clients detect it
+from position and switch sky, fog and ambience. Arena chunks are meshed only
+within the player's view distance and simulated only while a player is nearby.
+All player building, breaking, Rope Bundle placement, Rift Orbs and spawn eggs
+are rejected in the arena. Boss scripts alone may remove/restore pillars and
+raise/lower the outer lava ring. Falling into its lava lake is lethal. Items
+dropped on safe arena ground remain there until recovered or destroyed by lava.
+
+The Dragon Lord sleeps until a player approaches within 20 blocks. On wake,
+his HP is 400 plus 150 per additional player then in the arena. He has ground,
+air and enraged phases at 70% and 40% HP. Each attack announces its direction,
+area or impact location before damage. During the air phase he hovers at the
+perch, shoots aimed/fan/rain volleys, and dives after three volleys. Melee hits
+reflect fireballs; arrows and bolts can hit him on the perch. Pillars crumble
+after several fireball hits and restore on reset. The fight resets when no
+living player remains in the arena; after death he never respawns. His death
+animation ends with a Dragon Crown, 8–12 Dragon Scales and a Dragon Heart
+dropped on the main platform. The boss music uses the existing music volume
+setting and starts on wake, fading on death or reset.
+
+If a requested seed fails the gorge or required village placement constraints,
+`generateWorld` tries deterministic derived seeds up to `WORLDGEN_RETRY.attempts`.
+The requested seed remains in `welcome.seed`; both server and client resolve it
+to the same successful world and record the resolved seed as `world.seed`.

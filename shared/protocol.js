@@ -15,7 +15,7 @@ export const C2S = {
   OPEN_CONTAINER: 'openContainer',
   ANVIL_REROLL: 'anvilReroll',
   CREATIVE_TOGGLE: 'creativeToggle',
-  CREATIVE_ACTION: 'creativeAction', // {action}
+  CREATIVE_ACTION: 'creativeAction', // {action,value?}
   TALK: 'talk', // {id}: right click on an NPC
   MONKEY_ACTION: 'monkeyAction', // {id,action,...}: GUI games, configuration, inventory slots, close
 };
@@ -47,9 +47,12 @@ export const S2C = {
   FLUID_STATE: 'fluidState',
   PORTAL_SPAWN: 'portalSpawn',
   PORTAL_DESPAWN: 'portalDespawn',
+  BOSS_STATE: 'bossState', // {boss}: Dragon Lord HP, phase, telegraphs and fireballs
+  BOSS_VICTORY: 'bossVictory', // {name}: global slayer announcement
   EMBER_BURST: 'emberBurst',
   QUARRY_PUFF: 'quarryPuff',
-  CREATIVE: 'creative', // {enabled,immortal,flying,invisible}
+  STEAM_PUFF: 'steamPuff',
+  CREATIVE: 'creative', // {enabled,immortal,flying,invisible,breakAny,speed}
   DAY_TIME: 'dayTime',
   SPEAK: 'speak', // {id,name,voice,text,sound}: private NPC line with a subtitle
   MONKEY: 'monkey', // Private taming/configuration/inventory view; Simon uses world movement
@@ -79,6 +82,8 @@ export const DEATH_CAUSE = {
   FALL: 'fall',
   // A dragon, Crawler or Void Eel.
   MOB: 'mob',
+  LAVA: 'lava',
+  MAGMA: 'magma',
 };
 
 // Server phases.

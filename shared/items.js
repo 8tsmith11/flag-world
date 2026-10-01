@@ -16,8 +16,8 @@
 //   armorPoints   - armor: damage reduction (see Game.damage); fireImmune: no dragon fire damage
 //   texture       - armor: 'scales' draws the pieces with a scaled texture
 
-import { MAX_STACK, METALS } from './config.js';
-import { BLOCK, getBlockDef, registeredBlockIds, ladderBlock, doorBlock, blockBase, isLadder, isDoor, doorState, isWater } from './blocks.js';
+import { MAX_STACK, METALS, ELEMENTAL } from './config.js';
+import { BLOCK, getBlockDef, registeredBlockIds, ladderBlock, doorBlock, blockBase, isLadder, isDoor, doorState, isWater, isLava } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { ACCESSORIES, RIFT_ORB } from './accessories.js';
 import { MOB_EGGS } from './mobEggs.js';
@@ -63,6 +63,7 @@ defineItem(ITEM.COOKED_BEEF, 'cooked beef', { shape: 'beef', color: 0x8b4d35, fo
 defineItem(ITEM.GOLDEN_BEEF, 'golden beef', { maxStack: 4, shape: 'beef', color: 0xe9bd3e, food: 1, instantHeal: true });
 defineItem(ITEM.EMPTY_BUCKET, 'bucket', { maxStack: 1, shape: 'bucket', color: IRON_COLOR });
 defineItem(ITEM.WATER_BUCKET, 'water bucket', { maxStack: 1, block: BLOCK.WATER, shape: 'bucket', color: 0x3a6fd8 });
+defineItem(ITEM.LAVA_BUCKET, 'lava bucket', { maxStack: 1, block: BLOCK.LAVA, shape: 'bucket', color: ELEMENTAL.colors.lava });
 defineItem(ITEM.LEATHER_ARMOR, 'leather armor', { maxStack: 1, shape: 'armor', color: 0x87512f, armorPoints: 3, modCategory: 'armor' });
 defineItem(ITEM.IRON_ARMOR, 'iron armor', { maxStack: 1, shape: 'armor', color: IRON_COLOR, armorPoints: 8, modCategory: 'armor' });
 defineItem(ITEM.BRONZE_ARMOR, 'bronze armor', { maxStack: 1, shape: 'armor', color: BRONZE_COLOR,
@@ -72,6 +73,7 @@ defineItem(ITEM.DRAGONSCALE_ARMOR, 'dragonscale armor', {
   maxStack: 1, shape: 'armor', color: 0x3a2a30, armorPoints: 9, fireImmune: true, texture: 'scales', modCategory: 'armor',
 });
 defineItem(ITEM.DRAGON_SCALE, 'dragon scale', { shape: 'scale', color: 0x7a2f2c });
+defineItem(ITEM.DRAGON_HEART, 'dragon heart', { maxStack: 1, shape: 'heart', color: 0xe64b26 });
 // Dropped by Crawlers. No use yet.
 defineItem(ITEM.SILK, 'silk', { shape: 'silk', color: 0xeeeae0 });
 defineItem(ITEM.GLIDER, 'glider', { maxStack: 1, shape: 'glider', color: 0x9b5e2f });
@@ -127,6 +129,8 @@ export function creativeItemIds() {
     if (isLadder(id)) return ITEM.LADDER;
     if (isDoor(id)) return doorState(id).reinforced ? ITEM.REINFORCED_DOOR : ITEM.DOOR;
     if (isWater(id)) return BLOCK.WATER;
+    if (isLava(id)) return BLOCK.LAVA;
+    if (id === BLOCK.FIRE_PORTAL) return null;
     return id < 256 ? blockBase(id).base : id;
   });
   return [...new Set(ids.filter(id => id !== null))];

@@ -15,6 +15,7 @@ import { Inventory } from '../server/inventory.js';
 import { mulberry32 } from '../shared/structures.js';
 import { createPlayerState, stepPlayer } from '../shared/physics.js';
 import { Game } from '../server/game.js';
+import { SaplingGrowth } from '../server/saplings.js';
 
 assert.equal(SMELTING[BLOCK.WOOD], ITEM.CHARCOAL);
 assert.equal(SMELTING[BLOCK.SAND], BLOCK.GLASS);
@@ -134,10 +135,10 @@ function fixture() {
   assert.equal(player.inventory.cursor.count,8,'Filter consumed its sample');
   workers.action(player,{id:monkey.id,action:'inventory',grid:'monkey',slot:0,button:'right'});
   assert.equal(monkey.inventory.slots[0].count,1);assert.equal(player.inventory.cursor.count,7);
-  workers.action(player,{id:monkey.id,action:'inventory',grid:'cargo',slot:0,button:'left'});
-  assert.equal(monkey.cargo.count,7);
-  workers.action(player,{id:monkey.id,action:'inventory',grid:'cargo',slot:0,button:'left',shift:true});
-  assert.equal(monkey.cargo,null);assert.equal(player.inventory.slots[0].count,7);
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'monkey',slot:1,button:'left'});
+  assert.equal(monkey.inventory.slots[1].count,7);
+  workers.action(player,{id:monkey.id,action:'inventory',grid:'monkey',slot:1,button:'left',shift:true});
+  assert.equal(monkey.inventory.slots[1],null);assert.equal(player.inventory.slots[0].count,7);
 }
 {
   const {world,game,workers,monkey,player}=fixture();
@@ -191,8 +192,9 @@ function fixture() {
   world.setBlock(cell.x,cell.y,cell.z,BLOCK.STONE);assert.equal(monkey.routes.has('from'),false,'Route edit did not invalidate cache');
   const output=new Furnace();output.slots[INPUT]={item:BLOCK.SAND,count:4};output.slots[FUEL_SLOT]={item:ITEM.CHARCOAL,count:2};
   output.slots[OUTPUT]={item:BLOCK.GLASS,count:2};world.tileEntities.set('12,5,20',output);
-  Object.assign(monkey.state,{x:13.5,y:5,z:20.5});monkey.cargo=null;workers.courier(monkey);
-  assert.equal(monkey.cargo.item,BLOCK.GLASS);assert.equal(output.slots[INPUT].count,4);assert.equal(output.slots[FUEL_SLOT].count,2);
+  Object.assign(monkey.state,{x:13.5,y:5,z:20.5});workers.courier(monkey);
+  assert.equal(monkey.inventory.slots.find(s=>s?.item===BLOCK.GLASS)?.count,2);
+  assert.equal(output.slots[INPUT].count,4);assert.equal(output.slots[FUEL_SLOT].count,2);
 }
 {
   const {world,workers,monkey}=fixture();monkey.team=0;
@@ -211,12 +213,12 @@ function fixture() {
   const {game,workers,monkey,dropped}=fixture();monkey.team=0;
   monkey.config={...defaultMonkeyConfig(),role:'collector',target:{x:20,y:4,z:20}};
   const mods=[{id:'damage',value:2}],drop={id:40,item:ITEM.IRON_SWORD,count:1,pickupTicks:0,mods,state:{x:21.5,y:5,z:20.5}};
-  game.items.set(drop.id,drop);workers.collect(monkey);assert.deepEqual(monkey.cargo.mods,mods);
+  game.items.set(drop.id,drop);workers.collect(monkey);assert.deepEqual(monkey.inventory.slots[0].mods,mods);
   workers.deliver(monkey);assert.deepEqual(dropped[0].mods,mods);
   game.items.set(41,{id:41,item:BLOCK.WOOD,count:2,pickupTicks:0,state:{x:20.5,y:5,z:20.5}});
-  workers.collect(monkey);assert.equal(monkey.cargo,null,'Collected its own delivery pile');
+  workers.collect(monkey);assert.equal(monkey.inventory.slots.filter(Boolean).length,0,'Collected its own delivery pile');
   monkey.config.filter={mode:'whitelist',items:[ITEM.CHARCOAL]};game.items.set(42,{...drop,id:42,item:BLOCK.WOOD});
-  workers.collect(monkey);assert.equal(monkey.cargo,null,'Ignored whitelist');
+  workers.collect(monkey);assert.equal(monkey.inventory.slots.filter(Boolean).length,0,'Ignored whitelist');
 }
 {
   const {world,game,workers,monkey}=fixture();monkey.team=0;
@@ -228,10 +230,10 @@ function fixture() {
   monkey.seeds=1;workers.lumberjack(monkey,0);assert.ok(monkey.woodJob);
   workers.lumberjack(monkey,C.chopTicks);
   assert.equal(world.getBlock(21,5,20),BLOCK.SAPLING);assert.equal(world.getBlock(22,9,20),BLOCK.WOOD,'Expanded outside a marked column');
-  assert.equal(monkey.cargo.count,6);assert.equal(monkey.seeds,1);
+  assert.equal(monkey.inventory.slots.find(s=>s?.item===BLOCK.WOOD)?.count,6);assert.equal(monkey.seeds,1);
   assert.equal('grownTrees' in world,false);assert.equal('treeRecords' in world,false);
   // Trees outside the list never become candidates.
-  monkey.cargo=null;monkey.config.sites=[];world.setBlock(22,10,20,BLOCK.LEAVES);
+  monkey.inventory.slots.fill(null);monkey.config.sites=[];world.setBlock(22,10,20,BLOCK.LEAVES);
   workers.lumberjack(monkey,200);assert.equal(monkey.woodJob,null);
 }
 {
@@ -239,9 +241,54 @@ function fixture() {
   monkey.config={...defaultMonkeyConfig(),role:'lumberjack',target:{x:18,y:4,z:20},sites:[{x:21,y:5,z:20}]};
   const seed={id:50,item:ITEM.TREE_SEED,count:3,pickupTicks:0,state:{x:21.5,y:5,z:20.5}};
   game.items.set(50,seed);workers.lumberjack(monkey,0);
-  assert.equal(monkey.seeds,1);assert.deepEqual(monkey.cargo,{item:ITEM.TREE_SEED,count:2,mods:undefined});
+  assert.equal(monkey.seeds,3);assert.equal(workers.deliveryStack(monkey).count,2);
   workers.deliver(monkey);assert.equal(dropped[0].item,ITEM.TREE_SEED);assert.equal(dropped[0].count,2);
   game.items.set(51,{...seed,id:51,count:3,state:{x:18.5,y:5,z:20.5}});
   assert.equal(workers.collectTreeSaplings(monkey),false,'Lumberjack looped on its own sapling pile');
+}
+{
+  const {world,workers,monkey}=fixture();monkey.team=0;
+  const site={x:21,y:5,z:20};world.setBlock(site.x,site.y,site.z,BLOCK.SAPLING);
+  const growth=new SaplingGrowth(world,()=>false,()=>30);growth.planted(site.x,site.y,site.z,0);
+  assert.equal(growth.scheduled.get('21,5,20'),30*TICK_RATE);
+  growth.tick(30*TICK_RATE);
+  assert.equal(world.getBlock(site.x,site.y,site.z),BLOCK.WOOD,'Sapling did not grow at 30 seconds');
+  for(const chunk of world.chunks.values())for(let i=0;i<chunk.blocks.length;i++)if(chunk.blocks[i]===BLOCK.WOOD) {
+    const localX=i%16,localZ=Math.floor(i/16)%16;
+    assert.equal(chunk.cx*16+localX,site.x,'Sapling trunk leaned sideways');
+    assert.equal(chunk.cz*16+localZ,site.z,'Sapling trunk leaned sideways');
+  }
+  monkey.config={...defaultMonkeyConfig(),role:'lumberjack',target:{x:20,y:4,z:20},sites:[site]};monkey.seeds=1;
+  workers.lumberjack(monkey,0);assert.ok(monkey.woodJob,'Lumberjack missed sapling-grown tree');
+  for(let tick=C.chopTicks;monkey.woodJob&&tick<C.chopTicks+20*C.thinkTicks;tick+=C.thinkTicks)
+    workers.lumberjack(monkey,tick);
+  assert.equal(monkey.woodJob,null,'Lumberjack did not finish sapling-grown tree');
+  assert.equal(world.getBlock(site.x,site.y,site.z),BLOCK.SAPLING,'Lumberjack did not replant');
+  assert.ok(monkey.inventory.slots.some(s=>s?.item===BLOCK.WOOD),'Lumberjack did not collect the wood');
+}
+{
+  const {world,game,workers,monkey,player,enemy,sent}=fixture();monkey.team=0;
+  player.keep={cx:10,cz:10,floorY:4};enemy.keep=player.keep;
+  monkey.config={...defaultMonkeyConfig(),home:{x:12,y:5,z:10}};
+  workers.open(player,monkey);
+  workers.action(enemy,{id:monkey.id,action:'teleportHome'});
+  assert.equal(monkey.state.x,20.5,'Enemy teleported another team’s monkey');
+  workers.action(player,{id:monkey.id,action:'teleportHome'});
+  assert.equal(monkey.state.x,12.5);assert.equal(monkey.state.z,10.5);
+  assert.ok(sent.some(msg=>msg.closed&&msg.player===player.id));
+  Object.assign(monkey.state,{x:20.5,y:5,z:20.5});
+  for(game.tick=1;game.tick<1800&&!workers.near(monkey,monkey.config.home);game.tick++) {
+    workers.beginTick();monkey.step(world,[],game.tick);
+  }
+  assert.ok(workers.near(monkey,monkey.config.home),'Idle monkey did not return to its configured home');
+}
+{
+  const {world,game}=fixture();game.npcs.clear();world.keeps=[];
+  world.islands=[{kind:'tiny',x:32,z:32,radius:8}];
+  new MonkeyWorkers(game,()=>0.5).spawn();
+  assert.equal(game.npcs.size,0,'Tiny island ignored its spawn chance');
+  const rolls=[0,0.99,0,0,0.5,0.5];
+  new MonkeyWorkers(game,()=>rolls.shift()??0.2).spawn();
+  assert.equal(game.npcs.size,2,'Selected tiny island did not spawn two monkeys');
 }
 console.log('OK: charcoal/glass, every creative egg, authoritative taming/team access, courier cache/furnace slots, filters/modifiers, marked-column lumberjack and saplings');

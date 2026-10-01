@@ -83,6 +83,32 @@ function stoneBrickTexture(variant = 'plain') {
   return texture;
 }
 
+function basaltTempleTexture(chiseled = false) {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+  const c = canvas.getContext('2d');
+  c.fillStyle = '#2c292e'; c.fillRect(0, 0, 64, 64);
+  if (chiseled) {
+    c.strokeStyle = '#514348'; c.lineWidth = 3;
+    c.strokeRect(4, 4, 56, 56); c.strokeRect(11, 11, 42, 42);
+    c.beginPath(); c.moveTo(32, 14); c.lineTo(50, 32); c.lineTo(32, 50);
+    c.lineTo(14, 32); c.closePath(); c.stroke();
+    c.fillStyle = '#8d492d'; c.fillRect(28, 28, 8, 8);
+  } else {
+    c.fillStyle = '#49434a';
+    for (let row = 0; row < 4; row++) {
+      const y = row * 16;
+      c.fillRect(0, y, 64, 2);
+      for (let x = row % 2 ? 16 : 0; x < 64; x += 32) c.fillRect(x, y, 2, 16);
+    }
+    c.fillStyle = '#211f24';
+    for (let row = 0; row < 4; row++) c.fillRect(0, row * 16 + 15, 64, 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  return texture;
+}
+
 function patternedTexture(kind) {
   const size = 64;
   const canvas = document.createElement('canvas');
@@ -178,12 +204,28 @@ function goblinBrickTexture() {
   return texture;
 }
 
+function lavaTexture() {
+  const canvas=document.createElement('canvas');canvas.width=canvas.height=32;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#a62d12';ctx.fillRect(0,0,32,32);
+  for(let y=0;y<32;y+=4)for(let x=0;x<32;x+=4){
+    const n=(Math.imul(x+19,1103515245)^Math.imul(y+7,12345))>>>0;
+    ctx.fillStyle=n%5===0?'#ffe46b':n%3===0?'#ff9e31':'#e6501d';
+    ctx.fillRect(x+(n%3),y+((n>>>3)%3),3,2);
+  }
+  const texture=new THREE.CanvasTexture(canvas);
+  texture.colorSpace=THREE.SRGBColorSpace;texture.magFilter=THREE.NearestFilter;
+  texture.minFilter=THREE.NearestMipmapNearestFilter;
+  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
+  return texture;
+}
+
 
 // Extruded gutters isolate tiles through the useful mip levels.
 function blockAtlas(renderer) {
   const sources = { ore: ironTexture(), copperOre: ironTexture('#9d4c30', '#eba36c', '#c67645'),
     tinOre: ironTexture('#788e9b', '#d9e5e8', '#a9bdc7'), bricks: stoneBrickTexture(), mossyBricks: stoneBrickTexture('mossy'),
-    crackedBricks: stoneBrickTexture('cracked'), planks: patternedTexture('planks'),
+    crackedBricks: stoneBrickTexture('cracked'), basaltBricks: basaltTempleTexture(), chiseledBasalt: basaltTempleTexture(true), planks: patternedTexture('planks'),
     woodSides: patternedTexture('woodSides'), woodEnds: patternedTexture('woodEnds'), quarry: patternedTexture('quarry') };
   sources.goblinBricks = goblinBrickTexture();
   const torchCanvas=document.createElement('canvas');torchCanvas.width=torchCanvas.height=32;
@@ -247,6 +289,8 @@ export class ChunkRenderer {
       depthWrite: false,
       side: THREE.DoubleSide,
     }),this.daylight);
+    this.lavaTexture=lavaTexture();
+    this.lavaMaterial=new THREE.MeshBasicMaterial({map:this.lavaTexture,vertexColors:true,side:THREE.DoubleSide});
     this.glassMaterial = litMaterial(new THREE.MeshBasicMaterial({ vertexColors: true,
       transparent: true, opacity: GLASS_SETTINGS.opacity, depthWrite: false }),this.daylight);
     const plants=plantMaterial(this.daylight,this.windTime,renderer);this.plantMaterial=plants.material;this.plantReady=plants.ready;
@@ -288,6 +332,7 @@ export class ChunkRenderer {
   update(x, z, camera) {
     if(this.disposed)return;
     this.windTime.value=performance.now()/1000;
+    this.lavaTexture.offset.set(this.windTime.value*0.015,this.windTime.value*0.01);
     if(camera)camera.getWorldDirection(this.viewDirection);
     if(camera)for(const entry of this.meshes.values()) {
       for(const mesh of entry.draws) {
@@ -359,9 +404,10 @@ export class ChunkRenderer {
       textured: geo.textured && new THREE.Mesh(geo.textured, this.texturedMaterial),
       glow: geo.glow && new THREE.Mesh(geo.glow, this.glowMaterial),
       transparent: geo.transparent && new THREE.Mesh(geo.transparent, this.transparentMaterial),
+      lava: geo.lava && new THREE.Mesh(geo.lava, this.lavaMaterial),
       glass: geo.glass && new THREE.Mesh(geo.glass, this.glassMaterial),
     };
-    entry.draws=[entry.opaque,entry.textured,entry.glow,entry.transparent,entry.glass,entry.plants].filter(Boolean);
+    entry.draws=[entry.opaque,entry.textured,entry.glow,entry.transparent,entry.lava,entry.glass,entry.plants].filter(Boolean);
     for(const mesh of entry.draws) {
       // Terrain vertices already use world coordinates; these transforms never change.
       mesh.matrixAutoUpdate=false;
@@ -375,6 +421,7 @@ export class ChunkRenderer {
       entry.transparent.renderOrder = 1;
       this.scene.add(entry.transparent);
     }
+    if(entry.lava){entry.lava.renderOrder=2;this.scene.add(entry.lava);}
     if (entry.glass) { entry.glass.renderOrder = 1; this.scene.add(entry.glass); }
     this.meshes.set(key, entry);
     this.lastRemeshMs=performance.now()-started;this.buildCount++;
@@ -400,5 +447,6 @@ export class ChunkRenderer {
     this.disposed=true;
     this.lighting.dispose();this.meshing.dispose();
     for(const key of this.meshes.keys())this.unload(key);
+    this.lavaTexture.dispose();this.lavaMaterial.dispose();
   }
 }

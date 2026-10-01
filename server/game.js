@@ -20,10 +20,10 @@ import {
   FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS, DRAGON_LEASH, CRAWLER_DROPS, EEL_BAND, EEL_DROPS,
   EEL_GLIDE_BREAK, CRAWLER_DAMAGE, EEL_DAMAGE,
   DAY_LENGTH, DAY_START, BIOME_SETTINGS,
-  SAPLING_DROP_CHANCE, TREE_SETTINGS, ARROW_DRAG,
+  SAPLING_DROP_CHANCE, TREE_SETTINGS, ARROW_DRAG, CREATIVE_SPEED, ELEMENTAL,
 } from '../shared/config.js';
 import {
-  BLOCK, branchBoxes, blocksAttack, isSolid, isWater, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock, fluidKind,
+  BLOCK, branchBoxes, blocksAttack, isSolid, isWater, isLava, isLiquid, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock, fluidKind,
   ladderBlock, isLadder, ladderFacing, doorBlock, isDoor, doorState,
 } from '../shared/blocks.js';
 import { getItemDef, ITEM } from '../shared/items.js';
@@ -57,6 +57,7 @@ import { Player, GRAB_TICKS } from './player.js';
 import { Flag } from './flag.js';
 import { ItemEntity } from './item.js';
 import { WaterSimulation } from './water.js';
+import { LavaSimulation } from './lava.js';
 import { LeafDecay } from './leafDecay.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
@@ -72,6 +73,9 @@ import { Npc, npcLine } from './npcs.js';
 import { TeamProgress } from './teamProgress.js';
 import { NPC } from '../shared/config.js';
 import { NPC_KIND, NPC_DEFS } from '../shared/npcs.js';
+import { inDragonArena, inFireSanctum } from '../shared/fireTempleArena.js';
+import { FIRE_TEMPLE, DRAGON_ARENA } from '../shared/config.js';
+import { DragonLord } from './dragonLord.js';
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -176,6 +180,7 @@ export class Game {
     this.mobs = this.chunkLoading.entityMap();
     // Wise and Ancient Monkeys by entity id; what each team has done, for hints.
     this.npcs = this.chunkLoading.entityMap();
+    this.boss = null;
     this.teamProgress = new TeamProgress();
     this.portals = new Map();
     // Sessions on the "match in progress" screen.
@@ -265,7 +270,7 @@ export class Game {
         this.toggleCreative(session);
         break;
       case C2S.CREATIVE_ACTION:
-        this.creativeAction(session, msg.action);
+        this.creativeAction(session, msg.action, msg.value);
         break;
       case C2S.TALK:
         if (session.player) this.talk(session.player, msg.id);
@@ -295,6 +300,8 @@ export class Game {
         player.state.flying = false;
         player.immortal = false;
         player.invisible = false;
+        player.breakAny = false;
+        player.state.creativeSpeed = 1;
       }
     }
     this.sendCreativeState(session);
@@ -303,10 +310,11 @@ export class Game {
   sendCreativeState(session) {
     sendTo(session.socket, { type: S2C.CREATIVE, enabled: !!session.creative,
       immortal: !!session.player?.immortal, flying: !!session.player?.state.flying,
-      invisible: !!session.player?.invisible });
+      invisible: !!session.player?.invisible, breakAny: !!session.player?.breakAny,
+      speed: session.player?.state.creativeSpeed ?? 1 });
   }
 
-  creativeAction(session, action) {
+  creativeAction(session, action, value) {
     const player = session.player;
     if (!session.localHost || !session.creative || !player?.creative || player.dead) return;
     if (action === 'captureLobby') {
@@ -316,6 +324,12 @@ export class Game {
     if (action === 'toggleImmortal') player.immortal = !player.immortal;
     else if (action === 'toggleInvisible') player.invisible = !player.invisible;
     else if (action === 'toggleFlight') player.state.flying = !player.state.flying;
+    else if (action === 'toggleBreakAny') player.breakAny = !player.breakAny;
+    else if (action === 'setSpeed') {
+      if (!Number.isFinite(value)) return;
+      player.state.creativeSpeed = Math.min(CREATIVE_SPEED.max, Math.max(CREATIVE_SPEED.min,
+        Math.round(value / CREATIVE_SPEED.step) * CREATIVE_SPEED.step));
+    }
     else if (action === 'setDay' || action === 'setNight') {
       const target = action === 'setDay' ? 0.25 : 0.75;
       this.dayOffset = target - DAY_START - this.tick / (DAY_LENGTH * TICK_RATE);
@@ -413,6 +427,8 @@ export class Game {
     this.fortressTraps = new FortressTraps(this);
     this.turretController = new TurretController(this);
     this.water = new WaterSimulation(this.world, this.chunkLoading);
+    this.lava = new LavaSimulation(this.world, this.chunkLoading);
+    this.waterFreeze = new Map();
     this.monkeys = new MonkeyWorkers(this);
     this.leafDecay = new LeafDecay(this.world, (x, y, z, id) => {
       if (id === BLOCK.LEAVES && Math.random() < TREE_SETTINGS.decaySaplingChance) this.dropAt(ITEM.TREE_SEED, x, y, z);
@@ -435,6 +451,17 @@ export class Game {
       this.garrison?.nav.changed(x, y, z);
       this.monkeys?.changed(x,y,z);
       this.water.enqueueAround(x, y, z);
+      this.lava.enqueueAround(x, y, z);
+      const iceIsland=this.world.specialIslands?.ice;
+      const fireIsland=this.world.specialIslands?.fire;
+      const positionKey=`${x},${y},${z}`;
+      if(id===BLOCK.WATER && fireIsland && Math.hypot(x-fireIsland.x,z-fireIsland.z)<=fireIsland.radius*(1+ELEMENTAL.edgeJitter)){
+        this.world.setBlock(x,y,z,BLOCK.AIR);
+        this.broadcast({type:S2C.STEAM_PUFF,x,y,z});
+      }
+      if(id===BLOCK.WATER && iceIsland && Math.hypot(x-iceIsland.x,z-iceIsland.z)<=iceIsland.radius*(1+ELEMENTAL.edgeJitter))
+        this.waterFreeze.set(positionKey,this.tick+Math.round(ELEMENTAL.waterFreezeSeconds*TICK_RATE));
+      else this.waterFreeze.delete(positionKey);
       this.leafDecay.changed(x, y, z, id, oldId);
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
       if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
@@ -470,6 +497,7 @@ export class Game {
     this.members.clear();
     this.hostId = null;
     this.phase = PHASE.PLAYING;
+    this.boss = this.world.dragonArena ? new DragonLord(this) : null;
     console.log(`Match started: seed ${this.seed}, ${this.playerCount} player(s), `
       + `${WORLD_SIZES[this.worldSize].label} world ${this.world.sizeX}x${this.world.sizeZ}x${this.world.sizeY} `
       + `(generated in ${Math.round(performance.now() - started)} ms)`);
@@ -504,7 +532,7 @@ export class Game {
     player.attach(session.socket);
     player.creative = session.localHost && player.creative;
     player.state.creative = player.creative;
-    if (!player.creative) {player.state.flying = false;player.invisible=false;}
+    if (!player.creative) {player.state.flying = false;player.invisible=false;player.breakAny=false;player.state.creativeSpeed=1;}
     session.creative = player.creative;
     console.log(`${player.name} reconnected`);
     this.sendWelcome(player);
@@ -546,6 +574,8 @@ export class Game {
       immortal: player.immortal,
       flying: player.state.flying,
       invisible: !!player.invisible,
+      breakAny: !!player.breakAny,
+      speed: player.state.creativeSpeed,
       blocks: [...this.blockChanges.values()],
       doorTeams: [...this.world.doorTeams].map(([key, team]) => ({ key, team })),
       turrets: this.turretController.snapshot(),
@@ -559,11 +589,12 @@ export class Game {
         .map(([key]) => { const [x,y,z]=key.split(',').map(Number);return {x,y,z}; }),
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
       entities: [...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
-        ...this.mobs.values(), ...this.npcs.values()].map((e) => e.describe()),
+        ...this.mobs.values(), ...this.npcs.values()].map((e) => ({ ...e.describe(), loaded: this.chunkLoading.has(e.state.x, e.state.z) })),
       inventory: player.inventory,
       teamObtained: [...this.teamProgress.of(player.team).obtained],
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
       portals: [...this.portals.values()].map(({ id, x, y, z, expiresTick }) => ({ id, x, y, z, expiresTick })),
+      boss: this.boss?.snapshot() ?? null,
       winnerId: this.winnerId,
       winnerTeam: this.winnerId === null ? null : this.flags.get(this.winnerId)?.team,
       winnerMembers: this.winnerId === null ? [] : [...this.players.values()].filter((p) => p.team === this.flags.get(this.winnerId)?.team).map((p) => p.name),
@@ -619,6 +650,7 @@ export class Game {
   }
 
   stepRift(player) {
+    if (inDragonArena(this.world, player.state.x, player.state.z)) return;
     if (player.held() !== ITEM.RIFT_ORB) return;
     const state = player.state;
     const direction = lookDirection(state.yaw, state.pitch);
@@ -675,6 +707,23 @@ export class Game {
   }
 
   updatePortals() {
+    if (!FIRE_TEMPLE.portalGated) for (const player of this.players.values()) {
+      if (player.dead || player.carrying || this.tick < (player.portalCooldownTick ?? 0)) continue;
+      const s = player.state;
+      const entering = this.world.fireTemple?.portal;
+      const leaving = this.world.dragonArena?.portal;
+      const target = inDragonArena(this.world, s.x, s.z) ? leaving : entering;
+      if (!target || Math.abs(s.x - target.x) > target.width / 2
+        || Math.abs(s.z - target.z) > 0.7 || s.y < target.y
+        || s.y > target.y + target.height) continue;
+      const destination = target === entering ? this.world.dragonArena?.spawn : this.world.fireTemple?.returnSpawn;
+      if (!destination) continue;
+      Object.assign(s, destination, { vx: 0, vy: 0, vz: 0, kx: 0, kz: 0,
+        onGround: false, grapple: null, springCharge: 0, springBouncing: false });
+      player.inArena = inDragonArena(this.world, s.x, s.z);
+      player.fallTop = null;
+      player.portalCooldownTick = this.tick + ticks(FIRE_TEMPLE.teleportCooldownSeconds);
+    }
     for (const portal of this.portals.values()) {
       if (this.tick >= portal.expiresTick) {
         this.portals.delete(portal.id);
@@ -702,9 +751,16 @@ export class Game {
   // One tick of holding the break button. Progress only accumulates while the
   // same breakable block stays targeted and in reach; anything else resets it.
   stepBreaking(player, pos) {
+    if (inDragonArena(this.world, player.state.x, player.state.z)
+      || (pos && (inDragonArena(this.world, pos.x, pos.z)
+        || inFireSanctum(this.world, pos.x, pos.y, pos.z)))) {
+      player.breaking = null; return;
+    }
     const id = pos && this.world.getBlock(pos.x, pos.y, pos.z);
     const tool = player.breakingStats();
-    if (!pos || !canBreak(id, tool.strength) || !this.inReach(player, pos)) {
+    const breakable = player.creative && player.breakAny
+      ? id !== BLOCK.AIR && !isLiquid(id) : canBreak(id, tool.strength);
+    if (!pos || !breakable || !this.inReach(player, pos)) {
       player.breaking = null;
       return;
     }
@@ -781,19 +837,19 @@ export class Game {
   // Right click on a door: open or close both halves. A door can't close on a player.
   stepUse(player, pos, crouch = false) {
     const id = this.world.getBlock(pos.x, pos.y, pos.z);
-    if (configurableFluidFaces(fluidKind(id)) && crouch && player.held() === null
+    if (configurableFluidFaces(fluidKind(id)) && crouch
       && this.inReach(player,pos)) {
       const face=fluidFace(pos.nx,pos.ny,pos.nz);
       const eye={x:player.state.x,y:player.state.y+eyeHeight(player.state),z:player.state.z};
       const hit=raycastBlock(this.world,eye,lookDirection(player.state.yaw,player.state.pitch),REACH_DISTANCE,isTargetable);
       if(hit && hit.x===pos.x && hit.y===pos.y && hit.z===pos.z
-        && fluidFace(hit.nx,hit.ny,hit.nz)===face)this.fluids.cycle(pos.x,pos.y,pos.z,face);
+        && fluidFace(hit.nx,hit.ny,hit.nz)===face)this.fluids.cycle(pos.x,pos.y,pos.z);
       return;
     }
-    if (id === BLOCK.WATER && player.held() === ITEM.EMPTY_BUCKET && this.inReach(player, pos)) {
+    if ((id === BLOCK.WATER || id === BLOCK.LAVA) && player.held() === ITEM.EMPTY_BUCKET && this.inReach(player, pos)) {
       this.world.setBlock(pos.x, pos.y, pos.z, BLOCK.AIR);
       player.inventory.takeOne(player.selected);
-      player.inventory.add(ITEM.WATER_BUCKET, 1);
+      player.inventory.add(id === BLOCK.LAVA ? ITEM.LAVA_BUCKET : ITEM.WATER_BUCKET, 1);
       player.inventoryDirty = true;
       this.swing(player);
       return;
@@ -812,6 +868,8 @@ export class Game {
   // Places the block in `slot` at `pos`: an in-reach air cell next to a block,
   // not overlapping any player.
   stepPlace(player, pos, slot) {
+    if (inDragonArena(this.world, player.state.x, player.state.z)
+      || (pos && inDragonArena(this.world, pos.x, pos.z))) return;
     const stack = player.inventory.get(slot);
     if (!pos || !stack || !this.inReach(player, pos)) return;
     const def = getItemDef(stack.item);
@@ -873,7 +931,7 @@ export class Game {
         || this.playerIn(pos.x, pos.y + 1, pos.z))) return;
       const attached = NEIGHBOURS.some(([dx, dy, dz]) => {
         const id = this.world.getBlock(pos.x + dx, pos.y + dy, pos.z + dz);
-        return isTargetable(id) && !isWater(id);
+        return isTargetable(id) && !isLiquid(id);
       });
       if (!attached) return;
       // Nobody may be in the way, except that a player jumping up can place
@@ -894,7 +952,7 @@ export class Game {
     }
     this.teamProgress.placed(player.team, stack.item);
     player.inventory.takeOne(slot);
-    if (stack.item === ITEM.WATER_BUCKET) player.inventory.add(ITEM.EMPTY_BUCKET, 1);
+    if (stack.item === ITEM.WATER_BUCKET || stack.item === ITEM.LAVA_BUCKET) player.inventory.add(ITEM.EMPTY_BUCKET, 1);
     if (lift) {
       player.state.y = pos.y + 1;
       player.state.vy = Math.max(player.state.vy, 0);
@@ -912,6 +970,8 @@ export class Game {
   }
 
   stepSpawnEgg(player, pos, slot) {
+    if (inDragonArena(this.world, player.state.x, player.state.z)
+      || (pos && inDragonArena(this.world, pos.x, pos.z))) return;
     const egg = eggForItem(player.inventory.get(slot)?.item);
     if (!egg || !pos || !this.inReach(player, pos) || !isSolid(this.world.getBlock(pos.x, pos.y, pos.z))) return;
     const x = pos.x + 0.5, y = pos.y + 1, z = pos.z + 0.5;
@@ -967,7 +1027,7 @@ export class Game {
   // Air or water (placing into water replaces it), and outside every keep's no-build zone.
   buildable(x, y, z) {
     const id = this.world.getBlock(x, y, z);
-    return (id === BLOCK.AIR || isWater(id)) && this.world.inBounds(x, y, z) && !keepAt(this.world, x, y, z);
+    return (id === BLOCK.AIR || isLiquid(id)) && this.world.inBounds(x, y, z) && !keepAt(this.world, x, y, z);
   }
 
   // In the air, feet at least TOWER_MIN_HEIGHT up the cell (and still in it),
@@ -1077,6 +1137,11 @@ export class Game {
       const isOven = container.kind === 'furnace' || container.kind === 'alloyFurnace';
       const wasLit = isOven && container.burn > 0;
       if (!['tank','boiler','crusher'].includes(container.kind) && container.tick()) container.dirty = true;
+      if(container.pendingReturns?.length){
+        const [x,y,z]=key.split(',').map(Number);
+        for(const stack of container.pendingReturns)this.spawnItem(stack.item,stack.count,x+0.5,y+1,z+0.5,0,ITEM_POP_SPEED,0,ITEM_PICKUP_DELAY);
+        container.pendingReturns.length=0;
+      }
       if (isOven && (container.burn > 0) !== wasLit) {
         const [x, y, z] = key.split(',').map(Number);
         this.broadcast({ type: S2C.FURNACE_LIT, x, y, z, lit: container.burn > 0 });
@@ -1116,7 +1181,8 @@ export class Game {
       const at = parseBlockPos(this.world, msg.at);
       if (!at || this.world.getBlock(at.x, at.y, at.z) !== BLOCK.WORKBENCH || !this.inReach(player, at)) return;
     }
-    if (!player.inventory.craft(recipe)) return;
+    const count = recipe.creative && msg.shift === true ? getItemDef(recipe.output).maxStack : recipe.count;
+    if (!player.inventory.craft({ ...recipe, count })) return;
     player.inventoryDirty = true;
     if (!recipe.creative) this.teamProgress.crafted(player.team, recipe.output);
   }
@@ -1166,13 +1232,17 @@ export class Game {
   updateItems() {
     const moved = [];
     for (const entity of this.items.activeValues()) {
-      if (--entity.despawnTicks <= 0) {
+      if (!inDragonArena(this.world, entity.state.x, entity.state.z) && --entity.despawnTicks <= 0) {
         this.removeItem(entity);
         continue;
       }
       const s = entity.state;
       const { x, y, z } = s;
       stepItem(s, this.world);
+      if (isLava(this.world.getBlock(Math.floor(s.x),Math.floor(s.y+ITEM_SIZE/2),Math.floor(s.z)))) {
+        this.removeItem(entity);
+        continue;
+      }
       this.items.relocate(entity);
       if (s.y < this.world.voidY) {
         this.removeItem(entity);
@@ -1294,7 +1364,8 @@ export class Game {
           : arrow.shooter.turret
           ? [...players.filter((p) => p.team !== arrow.shooter.team),
             ...dragons, ...mobs.filter((m) => m instanceof Crawler || m instanceof VoidEel)]
-          : [...players.filter((p) => p.team !== arrow.shooter.team), ...cows, ...dragons, ...mobs, ...npcs];
+          : [...players.filter((p) => p.team !== arrow.shooter.team), ...cows, ...dragons, ...mobs, ...npcs,
+            ...(this.boss?.status === 'active' ? [this.boss] : [])];
       const result = arrow.step(this.world, targets);
       this.arrows.relocate(arrow);
       if (result === 'gone' || arrow.y < this.world.voidY) {
@@ -1302,10 +1373,12 @@ export class Game {
       } else if (result?.hit) {
         const target = result.hit, t = target.state;
         // A small push along the arrow's flight.
-        t.kx += result.dir.x * ARROW_KNOCKBACK;
-        t.kz += result.dir.z * ARROW_KNOCKBACK;
-        t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
-        t.onGround = false;
+        if (target !== this.boss) {
+          t.kx += result.dir.x * ARROW_KNOCKBACK;
+          t.kz += result.dir.z * ARROW_KNOCKBACK;
+          t.vy = Math.max(t.vy, ARROW_KNOCKBACK * 0.6);
+          t.onGround = false;
+        }
         this.hurt(target, arrow.damage * (result.damageScale ?? 1), arrow.shooter,
           DEATH_CAUSE.PLAYER);
         if (arrow.poison && !target.dead) this.fortressTraps.infect(target);
@@ -1602,7 +1675,8 @@ export class Game {
 
   // Damage to anything a player can hit: a player, cow, dragon, Crawler or Eel.
   hurt(target, amount, attacker, cause = DEATH_CAUSE.PLAYER) {
-    if (target instanceof Cow) this.hurtCow(target, amount, attacker);
+    if (target === this.boss) this.boss.hurt(amount, attacker);
+    else if (target instanceof Cow) this.hurtCow(target, amount, attacker);
     else if (target instanceof Dragon) this.hurtDragon(target, amount, attacker);
     else if (target instanceof Crawler || target instanceof VoidEel || target.goblin) this.hurtMob(target, amount, attacker);
     else if (target instanceof Npc) this.hurtNpc(target, amount, attacker);
@@ -1638,7 +1712,7 @@ export class Game {
       this.npcs.set(npc.id, npc);
       if (site.fallback) console.log(`${npc.name}: no gorge cave, so it sits in the gorge river`);
     }
-    for (const kind of ['ancientWaterMonkey', 'ancientLightningMonkey']) {
+    for (const kind of ['ancientWaterMonkey', 'ancientLightningMonkey', 'ancientFireMonkey']) {
       if (![...this.npcs.values()].some((npc) => npc.npc === kind)) console.log(`No site for ${kind} in this world`);
     }
   }
@@ -1696,23 +1770,26 @@ export class Game {
     const s = player.state;
     const eye = { x: s.x, y: s.y + eyeHeight(s), z: s.z };
     const dir = lookDirection(s.yaw, s.pitch);
+    if (this.boss?.status === 'active' && this.boss.reflectFireball(eye, dir, REACH_DISTANCE, player)) return;
     const block = raycastBlock(this.world, eye, dir, REACH_DISTANCE, blocksAttack);
     const targets = [...this.players.values(), ...this.cows.values(), ...this.dragons.values(), ...this.mobs.values(),
-      ...this.npcs.values()]
+      ...this.npcs.values(), ...(this.boss?.status === 'active' ? [this.boss] : [])]
       .filter((p) => p !== player && (!(p instanceof Player) || p.team !== player.team) && !p.dead && p.connected);
     const hit = raycastPlayers(eye, dir, block ? block.t : REACH_DISTANCE, targets, (p) => playerBoxOf(p.state), HIT_TOLERANCE);
     if (!hit) return;
 
     const target = hit.player, t = target.state;
     // Away from the attacker; straight along the look direction if they overlap.
-    let dx = t.x - s.x, dz = t.z - s.z;
-    const len = Math.hypot(dx, dz);
-    if (len > 1e-6) { dx /= len; dz /= len; } else { dx = dir.x; dz = dir.z; }
-    const push = KNOCKBACK_SPEED * (weapon.knockback ?? 1);
-    t.kx = dx * push;
-    t.kz = dz * push;
-    t.vy = Math.max(t.vy, weapon.lift ?? KNOCKBACK_UP);
-    t.onGround = false;
+    if (target !== this.boss) {
+      let dx = t.x - s.x, dz = t.z - s.z;
+      const len = Math.hypot(dx, dz);
+      if (len > 1e-6) { dx /= len; dz /= len; } else { dx = dir.x; dz = dir.z; }
+      const push = KNOCKBACK_SPEED * (weapon.knockback ?? 1);
+      t.kx = dx * push;
+      t.kz = dz * push;
+      t.vy = Math.max(t.vy, weapon.lift ?? KNOCKBACK_UP);
+      t.onGround = false;
+    }
     if (weapon.frost && (target instanceof Player || target instanceof Cow || target instanceof Crawler)) {
       t.slowTicks = ticks(FROST.seconds);
     }
@@ -1730,7 +1807,8 @@ export class Game {
     if (target.immortal) return;
     if (attacker && attacker.team === target.team) return;
     if (this.tick < target.invulnerableUntilTick) return;
-    if (cause !== DEATH_CAUSE.FALL && cause !== DEATH_CAUSE.VOID) {
+    if (cause !== DEATH_CAUSE.FALL && cause !== DEATH_CAUSE.VOID
+      && cause !== DEATH_CAUSE.LAVA && cause !== DEATH_CAUSE.MAGMA) {
       amount = amount * 10 / (10 + target.armorPoints());
     }
     const hp = Math.max(0, target.hp - amount);
@@ -1842,6 +1920,7 @@ export class Game {
     if (player.immortal) {
       const spawn = this.keepSpawn(player.keep);
       Object.assign(player.state, { ...spawn, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, grapple: null });
+      player.inArena = false;
       player.fallTop = null;
       return;
     }
@@ -1853,6 +1932,7 @@ export class Game {
     const { yaw, pitch } = player.state;
     const spawn = this.keepSpawn(player.keep);
     player.state = createPlayerState(spawn.x, spawn.y, spawn.z);
+    player.inArena = false;
     Object.assign(player.state, { yaw, pitch });
     player.state.creative = player.creative;
     player.hp = player.maxHp();
@@ -2009,6 +2089,24 @@ export class Game {
     }
   }
 
+  applyElementalHazards(livingMobs) {
+    const hazard = entity => {
+      const s=entity.state;if(!s||entity.dead)return;
+      if (entity instanceof Player && entity.inventory.accessory?.item === ITEM.DRAGON_CROWN) return;
+      if(!(entity instanceof Player)&&![this.cows,this.dragons,this.mobs,this.npcs].some(map=>map.has(entity.id)))return;
+      const x=Math.floor(s.x),y=Math.floor(s.y),z=Math.floor(s.z);
+      const lava=isLava(this.world.getBlock(x,y,z))||isLava(this.world.getBlock(x,y+1,z));
+      const magma=this.world.getBlock(x,y-1,z)===BLOCK.MAGMA && s.onGround && !s.crouching;
+      if(!lava&&!magma)return;
+      const scale=entity instanceof Player && entity.fireImmune() ? ELEMENTAL.dragonscaleLavaFactor : 1;
+      if(magma&&entity instanceof Player&&entity.fireImmune())return;
+      const amount=lava?ELEMENTAL.lavaDamagePerSecond*scale:ELEMENTAL.magmaDamagePerSecond;
+      this.hurt(entity,amount,null,lava?DEATH_CAUSE.LAVA:DEATH_CAUSE.MAGMA);
+    };
+    for(const player of this.players.values())hazard(player);
+    for(const mob of livingMobs)hazard(mob);
+  }
+
   // Time of day, 0..1 (0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight),
   // from the match clock. Clients keep it from `welcome` and the ticks in `state`.
   dayTime() {
@@ -2026,6 +2124,12 @@ export class Game {
     this.tick++;
     this.chunkLoading.update(this.players.values());
     this.water.tick(this.tick);
+    this.lava.tick(this.tick);
+    for(const [key,due] of this.waterFreeze)if(this.tick>=due){
+      this.waterFreeze.delete(key);
+      const [x,y,z]=key.split(',').map(Number);
+      if(this.world.getBlock(x,y,z)===BLOCK.WATER)this.world.setBlock(x,y,z,BLOCK.ICE);
+    }
     for (const player of this.players.values()) {
       // Each queued input runs one deterministic physics tick.
       const inputs = player.inputQueue.splice(0);
@@ -2054,6 +2158,7 @@ export class Game {
         const prevY = player.state.y;
         const wasGrounded = player.state.onGround;
         stepPlayer(player.state, input, this.world);
+        player.inArena = inDragonArena(this.world, player.state.x, player.state.z);
         this.checkVoid(player);
         if (!player.dead) this.trackFall(player, prevY);
         if (player.dead) continue;
@@ -2081,6 +2186,7 @@ export class Game {
 
     this.updateFlags();
     this.updatePortals();
+    this.boss?.step();
     this.updateNpcs();
     this.fluids.tick(this.tick);
     this.updateContainers();
@@ -2095,6 +2201,7 @@ export class Game {
       if (!movedItems.includes(mob)) movedItems.push(mob);
     }
 
+    if(this.tick%TICK_RATE===0)this.applyElementalHazards(livingMobs);
     for (const player of this.players.values()) {
       if (!player.inventoryDirty) continue;
       player.inventoryDirty = false;

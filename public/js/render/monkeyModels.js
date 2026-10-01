@@ -54,6 +54,7 @@ const POSES = {
 const ELEMENTS = {
   water: { tint: 0x3d8f8a, glow: 0x7fe8dc, moss: 0x4e6b45 },
   lightning: { tint: 0xd8cff5, glow: 0xe6ddff, moss: 0x8c86a3 },
+  fire: { tint: 0x27272a, glow: 0xff711b, moss: 0xc84918 },
 };
 
 function ape(kind, colors) {
@@ -145,7 +146,8 @@ export function createGorillaModel({ npc }) {
     eye: new THREE.MeshLambertMaterial({ color: 0x000000, emissive: e.glow }),
   });
   const { head, torso, arms, box, s, d } = parts;
-  const silver = lambert(mix(0x9a979c, e.tint, 0.3)), streak = lambert(mix(0x6d6a70, e.tint, 0.2));
+  const silver = lambert(element === 'fire' ? 0x343338 : mix(0x9a979c, e.tint, 0.3));
+  const streak = lambert(element === 'fire' ? 0x554039 : mix(0x6d6a70, e.tint, 0.2));
   const moss = new THREE.MeshLambertMaterial({ color: e.moss, emissive: mix(e.glow, 0x000000, 0.8) });
   const [tw, th, td] = d.torso;
   // Brow ridge, crest and a broad muzzle.
@@ -161,6 +163,22 @@ export function createGorillaModel({ npc }) {
     box(shoulder, [d.arm * 1.05, d.upperArm * 0.25, d.arm * 1.05], [0, -d.upperArm * (i ? 0.3 : 0.6), 0], i ? streak : moss);
     box(elbow, [d.arm * 0.95, d.foreArm * 0.2, d.arm * 0.95], [0, -d.foreArm * 0.4, 0], silver);
   });
+  if (element === 'fire') {
+    const glow = new THREE.MeshLambertMaterial({ color: 0x8c2d0d, emissive: 0xff5713 });
+    for (const side of [-1, 1]) {
+      box(torso, [0.055, th * 0.48, 0.065], [side * tw * 0.28, th * 0.64, -td * 0.53], glow, side * 0.15);
+      const arm = arms[side > 0 ? 1 : 0];
+      box(arm.shoulder, [0.05, d.upperArm * 0.48, 0.055], [0, -d.upperArm * 0.45, -d.arm * 0.53], glow);
+      box(arm.elbow, [0.045, d.foreArm * 0.45, 0.055], [0, -d.foreArm * 0.42, -d.arm * 0.49], glow);
+    }
+    const embers = [];
+    const emberMaterial = new THREE.MeshBasicMaterial({ color: 0xff8c32, transparent: true, opacity: 0.6 });
+    for (let i = 0; i < 12; i++) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.035, 0.035), emberMaterial);
+      root.add(mesh); embers.push(mesh);
+    }
+    root.userData.monkey.embers = embers;
+  }
   root.userData.monkey.seated = 'sit';
   root.userData.monkey.element = element;
   root.userData.monkey.npc = npc;
@@ -192,6 +210,12 @@ export function updateMonkeyTeam(model, team) {
 export function animateMonkey(model, dt, { pose = 'sit', look = 0, speed = 0, talking = false }) {
   const m = model.userData.monkey, d = m.d;
   m.time += dt;
+  if (m.embers) m.embers.forEach((ember, i) => {
+    const phase = (m.time * (0.22 + i * 0.013) + i / m.embers.length) % 1;
+    ember.position.set(Math.sin(i * 13.7) * 0.52 + Math.sin(m.time + i) * 0.08,
+      0.45 + phase * 2.5, Math.cos(i * 7.3) * 0.4);
+    ember.scale.setScalar((1 - phase) * (0.6 + (i % 3) * 0.2));
+  });
   const key = pose === 'sit' ? m.seated : pose;
   const target = POSES[key] ?? POSES.sit;
   if (pose !== m.lastPose) {

@@ -5,8 +5,8 @@ import { atlasUV } from '/shared/blockTextures.js';
 // go into separate buffers so they can use different materials.
 
 import { chunkKey, Chunk } from '/shared/world.js';
-import { CHUNK_SIZE, LIGHTING as C, VEGETATION as P } from '/shared/config.js';
-import { BLOCK, getBlockDef, LADDER_DEPTH, ladderFacing, doorState, blockBase, isWater, waterLevel, isSolid, branchBoxes, fluidKind } from '/shared/blocks.js';
+import { CHUNK_SIZE, LIGHTING as C, VEGETATION as P, GLASS_SETTINGS } from '/shared/config.js';
+import { BLOCK, getBlockDef, LADDER_DEPTH, ladderFacing, doorState, blockBase, isWater, waterLevel, isLava, lavaLevel, isSolid, branchBoxes, fluidKind } from '/shared/blocks.js';
 import { PUMP_PARTS, BOILER_PARTS, CRUSHER_PARTS, pipeParts, tankFrameParts } from '/shared/fluidModels.js';
 import { FLUID_FACES } from '/shared/fluidFaces.js';
 import { ANVIL_PARTS } from './anvilParts.js';
@@ -220,33 +220,40 @@ export function createChunkMesher(THREE) {
     }
   }
 
-  function pushWaterFace(buf, face, x, y, z, color, light, heights) {
+  function pushWaterFace(buf, face, x, y, z, color, light, heights, molten=false) {
     const base = buf.positions.length / 3;
     for (const [cx, cy, cz] of face.corners) {
       buf.positions.push(x + cx, y + (cy ? heights[cx + 2 * cz] : 0), z + cz);
       buf.normals.push(...face.dir);
       buf.colors.push(color.r * light, color.g * light, color.b * light);
       buf.lights.push(...sampleLight(x + face.dir[0], y + face.dir[1], z + face.dir[2]));
+      if(molten){
+        const u=face.dir[1]?x+cx:face.dir[0]?z+cz:x+cx;
+        const v=face.dir[1]?z+cz:y+(cy?heights[cx+2*cz]:0);
+        buf.uvs.push(u,v);
+      }
     }
     buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
   }
 
-  function waterHeight(world, x, y, z) {
+  function waterHeight(world, x, y, z, molten=false) {
     const id = world.getBlock(x, y, z);
-    if (!isWater(id)) return 0;
+    const liquid=molten?isLava:isWater,level=molten?lavaLevel:waterLevel;
+    if (!liquid(id)) return 0;
     // A falling column fills its entire block, so its sides join into a sheet.
-    if (isWater(world.getBlock(x, y + 1, z))) return 1;
-    return id === BLOCK.WATER ? 1 : 0.13 + waterLevel(id) * 0.87 / 7;
+    if (liquid(world.getBlock(x, y + 1, z))) return 1;
+    const maximum=molten?3:7;
+    return id === (molten?BLOCK.LAVA:BLOCK.WATER) ? 1 : 0.13 + level(id) * 0.87 / maximum;
   }
 
   // The four cells touching a corner share one height. Their top surfaces join
   // as slopes instead of ending in a stair-step at each flowing-water level.
-  function waterCornerHeight(world, x, y, z, cx, cz) {
+  function waterCornerHeight(world, x, y, z, cx, cz, molten=false) {
     let total = 0, count = 0;
     for (const dx of [cx - 1, cx]) for (const dz of [cz - 1, cz]) {
       const bx = x + dx, bz = z + dz;
       const id = world.getBlock(bx, y, bz);
-      const h = waterHeight(world, bx, y, bz);
+      const h = waterHeight(world, bx, y, bz, molten);
       if (h === 1) return 1;
       // Air pulls the last flowing block down to a thin edge. Solid shore
       // blocks do not lower water along the bank.
@@ -453,7 +460,7 @@ export function createChunkMesher(THREE) {
       lightBlocks.set(chunk.blocks.subarray(start,start+CHUNK_SIZE),1+LIGHT_SPAN*(z+1+LIGHT_SPAN*(y+1)));
     }
     const opaque = createBuffers();
-    const transparent = createBuffers(), glass = createBuffers();
+    const transparent = createBuffers(), glass = createBuffers(), lava = createBuffers();
     // Every atlas tile shares one buffer and one draw call per chunk.
     const textured = createBuffers(), glow = createBuffers(), plants=createBuffers(true);
     const ore = textured, bricks = textured, goblinBricks = textured,
@@ -466,17 +473,28 @@ export function createChunkMesher(THREE) {
         for (let lx = 0; lx < CHUNK_SIZE; lx++) {
           const id = chunk.get(lx, ly, lz);
           if (id === BLOCK.AIR) continue;
+          if (id === BLOCK.FIRE_PORTAL) continue; // drawn as one animated membrane per frame
           const def = getBlockDef(id);
           const x = ox + lx, y = oy + ly, z = oz + lz;
           const color = blockColor(id);
-          const j = jitter(x, y, z);
+          const j = id === BLOCK.BRONZE_PIPE ? 1 : jitter(x, y, z);
           // Thin shapes (ladders, doors) are drawn whole; nothing culls them.
           if(def.shape==='plant'){pushPlant(plants,id,def,x,y,z,j);continue;}
           if(def.shape==='torch'){pushTorch(textured,id,def,x,y,z,j);continue;}
           if(id===BLOCK.BRANCH){for(const box of branchBoxes(world,x,y,z))pushBox(textured,box,x,y,z,WHITE,j,'woodSides',box.hiddenFaces);continue;}
+          if(id===BLOCK.GLASS) {
+            const w=GLASS_SETTINGS.edgeWidth,frame=hexColor(0xf4fbff);
+            for(const a of [0,1-w])for(const b of [0,1-w]) {
+              pushBox(opaque,[0,a,b,1,a+w,b+w],x,y,z,frame,1);
+              pushBox(opaque,[a,0,b,a+w,1,b+w],x,y,z,frame,1);
+              pushBox(opaque,[a,b,0,a+w,b+w,1],x,y,z,frame,1);
+            }
+          }
           if (def.shape) {
             for (const part of shapeBoxes(id, def, x, y, z)) {
-              pushBox(def.shape === 'torch' ? planks : opaque, part.box, x, y, z, part.color === undefined ? (def.shape === 'torch' ? WHITE : color) : hexColor(part.color), j, def.shape === 'torch' ? 'torch' : null);
+              pushBox(def.shape === 'torch' ? planks : opaque, part.box, x, y, z,
+                part.color === undefined ? (def.shape === 'torch' ? WHITE : color) : hexColor(part.color),
+                j, def.shape === 'torch' ? 'torch' : null, part.hiddenFaces ?? 0);
             }
             continue;
           }
@@ -484,26 +502,31 @@ export function createChunkMesher(THREE) {
             : id === BLOCK.TIN_ORE ? 'tinOre' : null;
           const buf = id === BLOCK.GLASS ? glass : oreTile ? ore : def.transparent ? transparent : opaque;
 
-          if (isWater(id)) {
+          if (isWater(id) || isLava(id)) {
+            const molten=isLava(id),liquid=molten?isLava:isWater;
             const visibleFaces = FACES.filter((face) => {
               const n = meshBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
-              return !isWater(n) && getBlockDef(n).transparent;
+              return !liquid(n) && getBlockDef(n).transparent;
             });
             if (visibleFaces.length === 0) continue;
             const heights = [
-              waterCornerHeight(world, x, y, z, 0, 0),
-              waterCornerHeight(world, x, y, z, 1, 0),
-              waterCornerHeight(world, x, y, z, 0, 1),
-              waterCornerHeight(world, x, y, z, 1, 1),
+              waterCornerHeight(world, x, y, z, 0, 0, molten),
+              waterCornerHeight(world, x, y, z, 1, 0, molten),
+              waterCornerHeight(world, x, y, z, 0, 1, molten),
+              waterCornerHeight(world, x, y, z, 1, 1, molten),
             ];
-            for (const face of visibleFaces) pushWaterFace(buf, face, x, y, z, color, face.shade * j, heights);
+            for (const face of visibleFaces) pushWaterFace(molten?lava:buf, face, x, y, z,
+              molten?WHITE:color, molten?1:face.shade*j, heights, molten);
             continue;
           }
 
           if (id === BLOCK.STONE_BRICKS || id === BLOCK.MOSSY_STONE_BRICKS || id === BLOCK.CRACKED_STONE_BRICKS
+            || id === BLOCK.BASALT_BRICKS || id === BLOCK.CHISELED_BASALT
             || id === BLOCK.GOBLIN_BRICKS || blockBase(id).base === BLOCK.POISON_TRAP) {
             const goblin = id === BLOCK.GOBLIN_BRICKS || blockBase(id).base === BLOCK.POISON_TRAP;
-            const tile = goblin ? 'goblinBricks' : id === BLOCK.MOSSY_STONE_BRICKS ? 'mossyBricks' : id === BLOCK.CRACKED_STONE_BRICKS ? 'crackedBricks' : 'bricks';
+            const tile = goblin ? 'goblinBricks' : id === BLOCK.BASALT_BRICKS ? 'basaltBricks'
+              : id === BLOCK.CHISELED_BASALT ? 'chiseledBasalt'
+              : id === BLOCK.MOSSY_STONE_BRICKS ? 'mossyBricks' : id === BLOCK.CRACKED_STONE_BRICKS ? 'crackedBricks' : 'bricks';
             const textureBuffer = goblin ? goblinBricks : id === BLOCK.MOSSY_STONE_BRICKS ? mossyBricks
               : id === BLOCK.CRACKED_STONE_BRICKS ? crackedBricks : bricks;
             for (const face of FACES) {
@@ -542,7 +565,7 @@ export function createChunkMesher(THREE) {
       }
     }
 
-    return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), glass: toGeometry(glass),
+    return { opaque: toGeometry(opaque), transparent: toGeometry(transparent), glass: toGeometry(glass), lava: toGeometry(lava),
       textured: toGeometry(textured), glow: toGeometry(glow), plants: toGeometry(plants) };
   }
 

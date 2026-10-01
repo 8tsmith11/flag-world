@@ -48,6 +48,7 @@ export class Player {
     this.eliminated = false;
     this.inventory = new Inventory();
     this.creative = false;
+    this.breakAny = false;
     this.immortal = false;
     // Bow: ticks the draw has been held, and the game tick it can next shoot.
     this.drawTicks = 0;
@@ -134,7 +135,8 @@ export class Player {
   }
 
   fireImmune() {
-    return !!getItemDef(this.inventory.armor?.item).fireImmune;
+    return !!getItemDef(this.inventory.armor?.item).fireImmune
+      || !!accessoryDef(this.inventory.accessory?.item)?.fireImmune;
   }
 
   // Public info sent once when a player becomes known to a client.
@@ -150,7 +152,7 @@ export class Player {
       team: this.team,
       type: this.type,
       x: s.x, y: s.y, z: s.z,
-      vx: s.vx, vy: s.vy, vz: s.vz,
+      vx: s.vx, vy: s.vy, vz: s.vz, ix: s.ix, iz: s.iz,
       kx: s.kx, kz: s.kz,
       yaw: s.yaw, pitch: s.pitch,
       onGround: s.onGround,
@@ -177,6 +179,7 @@ export class Player {
       grapple: s.grapple,
       hookCooldown: s.hookCooldown,
       moveScale: s.moveScale,
+      creativeSpeed: s.creativeSpeed,
       lastSeq: this.lastSeq,
     };
   }

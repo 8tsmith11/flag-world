@@ -6,7 +6,6 @@ import { Furnace } from '../server/containers.js';
 import { RECIPES, CRUSHING, SMELTING } from '../shared/recipes.js';
 import { createContainer } from '../server/containers.js';
 import { FluidSystem } from '../server/fluids.js';
-import { MonkeyWorkers } from '../server/monkeyWorkers.js';
 
 function fixture() {
   const blocks=new Map(),events=[];
@@ -20,13 +19,13 @@ function fixture() {
     if(kind){const container=createContainer(kind);fluids.attach(x,y,z,container);return container;}
     return null;
   }
-  function mode(x,z,face,value,y=0) {for(let i=0;i<value;i++)assert.ok(fluids.cycle(x,y,z,face));}
+  function mode(x,z,value,y=0) {for(let i=0;i<value;i++)assert.ok(fluids.cycle(x,y,z));}
   function ticks(count,start=0) {for(let i=1;i<=count;i++)fluids.tick(start+i);}
   return {world,game,fluids,events,place,mode,ticks};
 }
 
 const f=fixture();
-assert.equal(f.fluids.cycle(0,0,0,0),false);
+assert.equal(f.fluids.cycle(0,0,0),false);
 for(const [id,output,count] of [
   ['bronze_pipe',BLOCK.BRONZE_PIPE,FLUID.craft.pipeCount],
   ['fluid_tank',BLOCK.FLUID_TANK,1],['fluid_pump',BLOCK.FLUID_PUMP,1],
@@ -42,25 +41,31 @@ for(const [ore,dust,ingot] of [[BLOCK.IRON_ORE,ITEM.IRON_DUST,ITEM.IRON_INGOT],
 assert.deepEqual(CRUSHING[BLOCK.STONE],{item:BLOCK.SAND,count:1});
 f.place(1,0,BLOCK.WATER);
 f.place(0,0,BLOCK.FLUID_PUMP);
-assert.equal(f.fluids.nodes.get('0,0,0').faces[4],FLUID.faceOutput);
-assert.equal(f.fluids.cycle(0,0,0,4),false);
+assert.equal(f.fluids.cycle(0,0,0),false,'Machines do not have mode arrows');
 f.place(0,-1,BLOCK.BRONZE_PIPE);
-const waterTank=f.place(0,-2,BLOCK.FLUID_TANK);f.mode(0,-2,5,FLUID.faceInput);
+assert.equal(f.fluids.nodes.get('0,0,-1').mode,FLUID.faceNone);
+const waterTank=f.place(0,-2,BLOCK.FLUID_TANK);
 f.ticks(100);
 assert.equal(waterTank.view().fluid,'water');
 assert.ok(Math.abs(waterTank.view().amount-FLUID.pumpPerSecond*100/TICK_RATE)<1e-6);
 assert.ok(f.fluids.snapshot().find(n=>n.z===-2).fill>0);
 
-f.mode(0,-2,4,FLUID.faceOutput);
+const manual=fixture();manual.place(1,0,BLOCK.WATER);manual.place(0,0,BLOCK.FLUID_PUMP);
+manual.place(0,-1,BLOCK.BRONZE_PIPE);const manualTank=manual.place(0,-2,BLOCK.FLUID_TANK);
+manual.mode(0,-1,FLUID.faceInput);manual.ticks(10);
+assert.equal(manualTank.view().amount,0,'Input pipe unexpectedly fed a tank');
+manual.mode(0,-1,1);assert.equal(manual.fluids.nodes.get('0,0,-1').mode,FLUID.faceOutput);
+manual.ticks(10,10);assert.ok(manualTank.view().amount>0,'Output pipe did not feed a tank');
+manual.mode(0,-1,1);assert.equal(manual.fluids.nodes.get('0,0,-1').mode,FLUID.faceNone);
+
 f.place(0,-3,BLOCK.BRONZE_PIPE);
-const boiler=f.place(0,-4,BLOCK.BOILER);f.mode(0,-4,5,FLUID.faceInput);f.mode(0,-4,4,FLUID.faceOutput);
+const boiler=f.place(0,-4,BLOCK.BOILER);
 boiler.insert({item:ITEM.CHARCOAL,count:1});
 f.place(0,-5,BLOCK.BRONZE_PIPE);
-const steamTank=f.place(0,-6,BLOCK.FLUID_TANK);f.mode(0,-6,5,FLUID.faceInput);f.mode(0,-6,4,FLUID.faceOutput);
+const steamTank=f.place(0,-6,BLOCK.FLUID_TANK);
 f.place(0,-7,BLOCK.BRONZE_PIPE);
 const crusher=f.place(0,-8,BLOCK.CRUSHER);
-assert.ok(f.fluids.nodes.get('0,0,-8').faces.every(mode=>mode===FLUID.faceInput));
-assert.equal(f.fluids.cycle(0,0,-8,5),false);
+assert.equal(f.fluids.cycle(0,0,-8),false);
 crusher.insert({item:BLOCK.COPPER_ORE,count:1});
 f.ticks(250,100);
 assert.equal(steamTank.view().fluid,'steam');
@@ -68,14 +73,9 @@ assert.ok(steamTank.view().amount>0);
 assert.equal(boiler.burnTotal,FLUID.boilerFuelSeconds.charcoal*TICK_RATE);
 assert.equal(crusher.slots[1]?.item,ITEM.COPPER_DUST);
 assert.equal(crusher.slots[1]?.count,FLUID.crusherOreDust);
-const courier={config:{from:{},target:{},filter:{mode:'blacklist',items:[]}},cargo:null,routes:new Map()};
-MonkeyWorkers.prototype.courier.call({container:()=>crusher,travel:()=>true},courier);
-assert.equal(courier.cargo?.item,ITEM.COPPER_DUST);
-courier.cargo={item:BLOCK.STONE,count:1};
-MonkeyWorkers.prototype.deliver.call({container:()=>crusher},courier);
+assert.ok(crusher.insert({item:BLOCK.STONE,count:1}));
 assert.equal(crusher.slots[0]?.item,BLOCK.STONE);
-courier.cargo={item:BLOCK.WOOD,count:1};
-MonkeyWorkers.prototype.deliver.call({container:()=>boiler},courier);
+assert.ok(boiler.insert({item:BLOCK.WOOD,count:1}));
 assert.equal(boiler.slots[0]?.item,BLOCK.WOOD);
 const furnace=new Furnace();
 furnace.insert({item:ITEM.COPPER_DUST,count:2});furnace.insert({item:ITEM.CHARCOAL,count:1});
@@ -98,16 +98,17 @@ assert.equal(t.fluids.nodes.get('2,0,0').tank.amount,1000);
 const loop=fixture();
 loop.place(0,0,BLOCK.FLUID_TANK);loop.place(-1,0,BLOCK.BRONZE_PIPE);
 loop.place(-1,-1,BLOCK.BRONZE_PIPE);loop.place(0,-1,BLOCK.BRONZE_PIPE);
-loop.mode(0,0,0,FLUID.faceInput);loop.mode(0,0,4,FLUID.faceOutput);
-assert.equal(loop.fluids.networks[0].ports.length,0);
+assert.equal(loop.fluids.networks[0].ports.length,2);
+loop.fluids.nodes.get('0,0,0').tank.fluid='water';loop.fluids.nodes.get('0,0,0').tank.amount=100;
+loop.ticks(20);assert.equal(loop.fluids.nodes.get('0,0,0').tank.amount,100);
 const sleepy=fixture();sleepy.place(1,0,BLOCK.WATER);sleepy.place(0,0,BLOCK.FLUID_PUMP);
 sleepy.place(0,-1,BLOCK.BRONZE_PIPE);const sleepingTank=sleepy.place(0,-2,BLOCK.FLUID_TANK);
-sleepy.mode(0,-2,5,FLUID.faceInput);sleepy.game.chunkLoading.has=()=>false;
+sleepy.game.chunkLoading.has=()=>false;
 sleepy.ticks(TICK_RATE);assert.equal(sleepingTank.view().amount,0);
 
 // One fluid per network: a pump cannot add water to a steam-filled pipe.
 const s=fixture();s.place(1,0,BLOCK.WATER);s.place(0,0,BLOCK.FLUID_PUMP);
-s.place(0,-1,BLOCK.BRONZE_PIPE);s.place(0,-2,BLOCK.BOILER);s.mode(0,-2,5,FLUID.faceOutput);
+s.place(0,-1,BLOCK.BRONZE_PIPE);s.place(0,-2,BLOCK.BOILER);
 const mixed=s.fluids.networks[0];mixed.fluid='steam';mixed.amount=10;
 s.ticks(1);assert.equal(mixed.fluid,'steam');assert.ok(mixed.amount>=10);
 const joined=fixture();joined.place(0,0,BLOCK.BRONZE_PIPE);joined.place(2,0,BLOCK.BRONZE_PIPE);
@@ -119,7 +120,7 @@ assert.equal(joined.fluids.networks[0].fluid,'steam');
 assert.ok(joined.fluids.networks[0].amount<30);
 
 // Three consumers receive the same fraction of a constrained output.
-const g=fixture(),b=g.place(0,0,BLOCK.BOILER);b.steam=20;g.mode(0,0,4,FLUID.faceOutput);
+const g=fixture(),b=g.place(0,0,BLOCK.BOILER);b.steam=20;
 g.place(0,-1,BLOCK.BRONZE_PIPE);g.place(-1,-1,BLOCK.BRONZE_PIPE);g.place(1,-1,BLOCK.BRONZE_PIPE);
 const machines=[[-2,-1],[0,-2],[2,-1]].map(([x,z])=>{
   const c=g.place(x,z,BLOCK.CRUSHER);c.insert({item:BLOCK.STONE,count:4});

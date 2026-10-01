@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 
-import { SKY_SETTINGS as C } from '/shared/config.js';
+import { SKY_SETTINGS as C, DRAGON_ARENA as A } from '/shared/config.js';
 import { mulberry32 } from '/shared/structures.js';
 const DAY_SKY = new THREE.Color(C.dayColor), NIGHT_SKY = new THREE.Color(C.nightColor);
 const DAWN_GLOW = new THREE.Color(C.dawnColor), DUSK_GLOW = new THREE.Color(C.duskColor);
@@ -63,7 +63,8 @@ export class Sky {
   }
 
   // time: 0..1 time of day. camera: the sky is centered on it.
-  update(time, camera) {
+  update(time, camera, inArena = false) {
+    this.arena = inArena;
     const angle = time * Math.PI * 2;
     // Rises in the east (+X), highest at noon, sets in the west.
     const sunDir = new THREE.Vector3(Math.cos(angle), Math.sin(angle), TILT).normalize();
@@ -99,10 +100,23 @@ export class Sky {
     this.light.intensity = SUN.night + (SUN.day - SUN.night) * day;
     this.light.color.copy(MOON_COLOR).lerp(SUN_COLOR, day).lerp(time>0.25&&time<0.75?DUSK_GLOW:DAWN_GLOW,glow*day);
     this.tint.setScalar(C.cloudNightTint + (1-C.cloudNightTint) * day).lerp(this.color, C.cloudGlowTint * glow);
+    if (inArena) {
+      this.color.setHex(A.skyColor);
+      this.scene.background = this.color;
+      this.scene.fog.color.setHex(A.fogColor);
+      this.sun.visible = this.moon.visible = this.stars.visible = false;
+      this.ambient.color.setHex(A.ambientColor);
+      this.ambient.intensity = A.ambientIntensity;
+      this.light.color.setHex(A.sunColor);
+      this.light.intensity = A.sunIntensity;
+      this.light.position.set(0.35, 0.6, 0.15);
+      this.daylight = A.ambientIntensity;
+      this.tint.setHex(A.hazeColor);
+    }
   }
 
   // Fog distance scale for the time of day: 1 by day, NIGHT_FOG at night.
   get fogScale() {
-    return NIGHT_FOG + (1 - NIGHT_FOG) * this.daylight;
+    return this.arena ? A.fogScale : NIGHT_FOG + (1 - NIGHT_FOG) * this.daylight;
   }
 }

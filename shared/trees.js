@@ -17,7 +17,7 @@ for(const s of Object.values(C.species))if(!crownOffsets.has(s.crown)) {
   }
   crownOffsets.set(r,offsets);
 }
-export function treePlan(x,ground,z,top,{seed=0,species='oak',width=1,hollow=false,maturity=1}={}) {
+export function treePlan(x,ground,z,top,{seed=0,species='oak',width=1,hollow=false,maturity=1,straightTrunk=false}={}) {
   const random=mulberry32(seed^Math.imul(x,73856093)^Math.imul(z,19349663)^C.seedSalt);
   let s=C.species[species];
   if(species==='ancient'&&maturity<1) {
@@ -43,7 +43,7 @@ export function treePlan(x,ground,z,top,{seed=0,species='oak',width=1,hollow=fal
   }
   let tx=x,tz=z;
   const leanAxis=random()<0.5?'x':'z',leanSign=random()<0.5?-1:1;
-  const lean=random()<s.lean;
+  const lean=random()<s.lean&&!straightTrunk;
   const roots=[];
   for(let y=ground+1;y<=top;y++) {
     if(lean&&y===top-1) {
@@ -64,7 +64,8 @@ export function treePlan(x,ground,z,top,{seed=0,species='oak',width=1,hollow=fal
   crown(tip,s.crown);
   if(random()<s.fork) {
     const length=integer(random,C.forkLength),angle=random()*Math.PI*2;
-    crown(line(tip,{x:tip.x+Math.round(Math.cos(angle)*length),y:top+length,z:tip.z+Math.round(Math.sin(angle)*length)},BLOCK.WOOD),s.crown);
+    crown(line(tip,{x:tip.x+Math.round(Math.cos(angle)*length),y:top+length,z:tip.z+Math.round(Math.sin(angle)*length)},
+      straightTrunk?BLOCK.BRANCH:BLOCK.WOOD),s.crown);
   }
   const count=integer(random,s.branches),rotation=random()*Math.PI*2;
   for(let i=0;i<count;i++) {

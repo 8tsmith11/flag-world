@@ -118,10 +118,16 @@ export class Furnace {
   tick() {
     const before = `${this.burn},${this.progress}`;
     const smeltable = this.canSmelt();
-    if (this.burn === 0 && smeltable && this.slots[FUEL_SLOT]) {
+    if (this.burn === 0 && smeltable && this.slots[FUEL_SLOT]
+      && this.slots[FUEL_SLOT].item in FUEL) {
       const fuel = this.slots[FUEL_SLOT];
       this.burnTotal = this.burn = FUEL[fuel.item] * SMELT_TICKS;
+      const bucket = fuel.item === ITEM.LAVA_BUCKET;
       if (--fuel.count === 0) this.slots[FUEL_SLOT] = null;
+      if (bucket) {
+        if (!this.slots[FUEL_SLOT]) this.slots[FUEL_SLOT] = { item: ITEM.EMPTY_BUCKET, count: 1 };
+        else (this.pendingReturns ??= []).push({ item: ITEM.EMPTY_BUCKET, count: 1 });
+      }
     }
     if (this.burn > 0) {
       this.burn--;

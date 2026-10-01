@@ -7,6 +7,37 @@ export class PortalRenderer {
     this.scene = scene;
     this.portals = new Map();
     this.embers = [];
+    this.firePortals = [];
+  }
+
+  setWorld(world) {
+    for (const entry of this.firePortals) {
+      this.scene.remove(entry.group);
+      entry.group.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
+    }
+    this.firePortals.length = 0;
+    for (const portal of [world.fireTemple?.portal, world.dragonArena?.portal]) {
+      if (!portal) continue;
+      const group = new THREE.Group();
+      group.position.set(portal.x, portal.y + portal.height / 2, portal.z);
+      const material = new THREE.ShaderMaterial({ transparent: true, side: THREE.DoubleSide,
+        depthWrite: false, uniforms: { time: { value: 0 } },
+        vertexShader: 'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+        fragmentShader: `varying vec2 vUv; uniform float time;
+          void main(){ vec2 p=vUv-0.5; float r=length(p); float a=atan(p.y,p.x);
+          float swirl=sin(a*4.0-r*17.0+time*2.4)*0.5+0.5;
+          float veins=sin(p.y*30.0+p.x*14.0-time*4.0+swirl*3.0)*0.5+0.5;
+          vec3 dark=vec3(0.26,0.015,0.025), fire=vec3(1.0,0.20,0.015), hot=vec3(1.0,0.72,0.18);
+          vec3 color=mix(dark,fire,swirl*0.72+veins*0.22);
+          color=mix(color,hot,pow(veins*swirl,3.0)*0.75);
+          float edge=smoothstep(0.0,0.09,min(min(vUv.x,1.0-vUv.x),min(vUv.y,1.0-vUv.y)));
+          gl_FragColor=vec4(color,0.84*edge); }`,
+      });
+      const membrane = new THREE.Mesh(new THREE.PlaneGeometry(portal.width, portal.height), material);
+      group.add(membrane);
+      this.scene.add(group);
+      this.firePortals.push({ group, material });
+    }
   }
 
   add(portal) {
@@ -50,6 +81,10 @@ export class PortalRenderer {
 
   update(dt, camera) {
     const time = performance.now() / 1000;
+    for (const portal of this.firePortals) {
+      portal.group.visible = portal.group.position.distanceTo(camera.position) < camera.far;
+      portal.material.uniforms.time.value = time;
+    }
     for (const portal of this.portals.values()) {
       portal.group.rotation.y = Math.atan2(camera.position.x - portal.group.position.x,
         camera.position.z - portal.group.position.z);

@@ -19,6 +19,9 @@ import { attachGeneratedTorches } from './torches.js';
 import { generateNpcSites } from './npcSites.js';
 import { centralRegions, regionalColumn } from './centralTerrain.js';
 import { CENTRAL_TERRAIN, GOBLIN_GEN } from './config.js';
+import { ELEMENTAL } from './config.js';
+import { generateElementalIsland } from './elementalIslands.js';
+import { generateFireTemple, generateDragonArena } from './fireTempleArena.js';
 import { ISLAND_SHAPE as S, BIOME_SETTINGS, ORE_SETTINGS } from './config.js';
 
 const EDGE_SHELL = 3;
@@ -169,6 +172,16 @@ function planIslands(seed, teamCount, config) {
       if (!placed) tinyPlacementStats.failedByGroup[category]++;
     }
   }
+  if (ELEMENTAL.enabled && (!ELEMENTAL.rollPerSeed || rand() < ELEMENTAL.rollChance)) {
+    const outer = Math.max(...islands.map(entry => Math.hypot(entry.x, entry.z) + entry.radius));
+    const distance = outer + Math.max(...Object.values(ELEMENTAL.radius)) + ELEMENTAL.separation;
+    const angle = mulberry32(seed ^ ELEMENTAL.angleSalt)() * Math.PI * 2;
+    const radius = ELEMENTAL.radius[config.sizeKey];
+    const surfaceY = config.centralSurfaceY - ELEMENTAL.surfaceBelowCenter;
+    for (const [kind, sign] of [['fire', 1], ['ice', -1]])
+      islands.push(island(kind, Math.cos(angle) * distance * sign,
+        Math.sin(angle) * distance * sign, radius, surfaceY));
+  }
   return { islands, keeps, rand, tinyPlacementStats };
 }
 
@@ -258,6 +271,8 @@ function alignStackedTiny(islands, noise, detail) {
 }
 
 function terrainFor(world, island, noise, detail, noise3) {
+  if (island.kind === 'fire' || island.kind === 'ice')
+    return generateElementalIsland(world, island);
   const reach = Math.ceil(island.radius + 8);
   const width = reach * 2 + 1;
   const x0 = island.x - reach, z0 = island.z - reach;
@@ -558,7 +573,7 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
   }
   progress('caves');
   for (const terrain of terrains) {
-    if (terrain.kind === 'tiny') continue;
+    if (terrain.kind === 'tiny' || terrain.kind === 'fire' || terrain.kind === 'ice') continue;
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x79b9d7f3));
     carveCaves(world, terrain, rand, noise3, nearKeep, config.caveArea);
   }
@@ -608,7 +623,7 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
     return keep;
   });
   for (const terrain of terrains) {
-    if (terrain.kind === 'center') continue;
+    if (terrain.kind === 'center' || terrain.kind === 'fire' || terrain.kind === 'ice') continue;
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x68bc21eb));
     addPonds(world, terrain, rand, noise, nearKeep, config.pondArea);
   }
@@ -617,28 +632,32 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
   progress('village');
   generateGoblinVillage(world, central, progress);
   // Monkey shrines, the storm cloud and NPC seats claim their space first.
-  generateNpcSites(world, terrains, seed);
-  generateStructures(world, terrains, config, seed);
-  placeQuarries(world, terrains, seed, config.quarry);
+  const ordinaryTerrains=terrains.filter(t=>t.kind!=='fire'&&t.kind!=='ice');
+  generateNpcSites(world, ordinaryTerrains, seed);
+  generateFireTemple(world);
+  generateStructures(world, ordinaryTerrains, config, seed);
+  placeQuarries(world, ordinaryTerrains, seed, config.quarry);
   world.treeObstacles=world.structures.slice();
   const treeStart=performance.now();
   for (const terrain of terrains) {
+    if(terrain.kind==='fire'||terrain.kind==='ice')continue;
     const rand = mulberry32(seed ^ Math.imul(terrain.index + 1, 0x68bc21eb));
     if (terrain.kind === 'tiny') plantTinyTrees(world, terrain, rand, config.tinyTrees);
     else plantTrees(world, seed ^ Math.imul(terrain.index + 1, 0x5bd1e995),
       { requireFooting: true, bounds: terrain.bounds, surfaceAt: terrain.getTop,
         noise, clusterScale:terrain.radius*BIOME_SETTINGS.forestClusterFraction });
   }
-  generateFallenTrees(world,terrains);
-  placeSurfaceQuarriesForTeams(world,terrains,seed,config.quarry);
+  generateFallenTrees(world,ordinaryTerrains);
+  placeSurfaceQuarriesForTeams(world,ordinaryTerrains,seed,config.quarry);
   world.treeGenerationMs=performance.now()-treeStart;
   finishRiverBanks(world);
   delete world.plantClearance;
   delete world.treeObstacles;
   attachGeneratedTorches(world);
-  generateVegetation(world,terrains,noise);
+  generateVegetation(world,ordinaryTerrains,noise);
   // Perimeter navigation must see the final trees and other ground obstacles.
   recomputeOutskirts(world);
+  generateDragonArena(world);
   progress('complete');
   return world;
 }

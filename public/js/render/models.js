@@ -295,6 +295,11 @@ function createEquipmentItem(item, def, size) {
     const loop = add(new THREE.TorusGeometry(size * 0.36, size * 0.035, 5, 16), 0xd6c28e, 0, 0.53, 0.02);
     loop.rotation.x = Math.PI / 2;
     add(new THREE.SphereGeometry(size * 0.1, 6, 4), 0xfff1b6, 0, 0.88);
+  } else if (item === ITEM.DRAGON_CROWN) {
+    const band = add(new THREE.TorusGeometry(size * 0.38, size * 0.065, 6, 16), 0xd9993c, 0, 0.42);
+    band.rotation.x = Math.PI / 2;
+    for (let i = -2; i <= 2; i++) add(new THREE.ConeGeometry(size * 0.09, size * (i === 0 ? 0.42 : 0.3), 5),
+      0xf4b359, i * size * 0.15, 0.58, -size * 0.2);
   } else if (item === ITEM.RIFT_ORB) {
     add(new THREE.SphereGeometry(size * 0.48, 12, 8), 0x674693, 0, 0.5);
     add(new THREE.SphereGeometry(size * 0.27, 10, 7), def.color, 0, 0.5, -0.28);
@@ -803,6 +808,11 @@ export function createItemModel(item, blockSize = 0.25) {
   if (def.tool === 'crossbow') return createCrossbow(def.color);
   if (def.tool === 'grapple') return createGrapplingHook(def.color);
   if (def.shape === 'rope') return createRopeBundle(def.color, blockSize);
+  if (def.shape === 'heart') {
+    const gem = new THREE.Mesh(new THREE.IcosahedronGeometry(blockSize * 0.5, 1),
+      new THREE.MeshLambertMaterial({ color: def.color, emissive: 0x641209 }));
+    gem.position.y = blockSize * 0.5; return gem;
+  }
   if (def.shape === 'accessory' || ['rift', 'bucket', 'armor', 'glider', 'beef', 'leather', 'egg'].includes(def.shape)) {
     return createEquipmentItem(item, def, blockSize);
   }
@@ -850,6 +860,19 @@ export function createItemModel(item, blockSize = 0.25) {
   cube.position.y = blockSize / 2;
   const group = new THREE.Group();
   group.add(cube);
+  if (item === BLOCK.GLASS) {
+    const w=blockSize*GLASS_SETTINGS.edgeWidth,edge=lambert(0xf4fbff);
+    for(const a of [-1,1])for(const b of [-1,1]) {
+      for(const [sx,sy,sz,px,py,pz] of [
+        [blockSize,w,w,0,a*blockSize/2+blockSize/2,b*blockSize/2],
+        [w,blockSize,w,a*blockSize/2,blockSize/2,b*blockSize/2],
+        [w,w,blockSize,a*blockSize/2,b*blockSize/2+blockSize/2,0],
+      ]) {
+        const bar=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),edge);
+        bar.position.set(px,py,pz);group.add(bar);
+      }
+    }
+  }
   return group;
 }
 
@@ -884,7 +907,7 @@ export function setHandItem(hand, item) {
   // not its side, faces the way it swings. Blocks just sit in the fist.
   const tool = getItemDef(item).tool;
   if (tool === 'hammer') model.rotation.set(-Math.PI / 2, Math.PI / 2, 0);
-  else if (tool === 'sword' || tool === 'windAxe') {
+  else if (tool === 'sword' || tool === 'iceSword' || tool === 'windAxe') {
     // Roll around the forward axis after tipping the grip toward -Z.
     // ZYX keeps the blade tip forward while presenting its edge vertically.
     model.rotation.set(-Math.PI / 2, 0, Math.PI / 2, 'ZYX');
@@ -894,6 +917,10 @@ export function setHandItem(hand, item) {
     model.position.set(0, 0.07, -0.15);
   }
   else if (tool === 'bow') model.position.set(0, -0.02, 0); // built in the hand's frame already
+  else if (getItemDef(item).places === 'torch') {
+    model.rotation.x = -Math.PI / 2;
+    model.position.set(0, 0, -0.06);
+  }
   else if (tool) model.rotation.x = -Math.PI / 2;
   else model.position.set(0, -0.1, -0.05);
   hand.add(model);
@@ -954,7 +981,7 @@ export function createPlayerModel({ color }) {
   const accessoryParts = new Map();
   const addAccessory = (item, part) => {
     part.visible = false;
-    torso.add(part);
+    (item === ITEM.DRAGON_CROWN ? head : torso).add(part);
     accessoryParts.set(item, part);
   };
   const wind = new THREE.Group();
@@ -984,6 +1011,14 @@ export function createPlayerModel({ color }) {
     new THREE.MeshBasicMaterial({ color: 0xff842b }));
   ember.position.set(0, 0.84, -BODY_RADIUS - 0.08);
   addAccessory(ITEM.EMBER_HEART, ember);
+  const crown = new THREE.Group();
+  const crownBand = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.045, 6, 20), lambert(0xd99c42));
+  crownBand.rotation.x = Math.PI / 2; crownBand.position.y = 0.57; crown.add(crownBand);
+  for (let i = -2; i <= 2; i++) {
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.065, i === 0 ? 0.28 : 0.2, 6), lambert(0xf4b45c));
+    spike.position.set(i * 0.11, 0.68, -0.18); crown.add(spike);
+  }
+  addAccessory(ITEM.DRAGON_CROWN, crown);
 
   // Frost: flakes drifting down around the body while an Ice Sword slows them.
   const frost = new THREE.Group();

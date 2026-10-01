@@ -10,7 +10,7 @@ import {
   CROUCH_SPEED_SCALE, CROUCH_HEIGHT, CROUCH_EYE_DROP, CROUCH_MAX_DROP, BOW_DRAW_SPEED_SCALE, EAT_SPEED_SCALE,
   GLIDE_SPEED, GLIDE_FALL_SPEED, SPRINT_SPEED_SCALE, WATER_CURRENT_SPEED,
   GRAPPLE_RANGE, GRAPPLE_SPEED, GRAPPLE_COOLDOWN,
-  FLIGHT_SPEED, TREE_SETTINGS,
+  FLIGHT_SPEED, TREE_SETTINGS, ELEMENTAL,
 } from './config.js';
 import { BLOCK, isSolid, isClimbable, climbableBlockAt, isLadder, isDoor, doorState, isWater, waterLevel, branchBoxes } from './blocks.js';
 import { accessoryDef } from './accessories.js';
@@ -42,11 +42,11 @@ const GRAPPLE_COOLDOWN_TICKS = Math.round(GRAPPLE_COOLDOWN / TICK_DT);
 // moveScale: walking speed multiplier from armor and accessory modifiers.
 export function createPlayerState(x, y, z) {
   return {
-    x, y, z, vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0,
+    x, y, z, vx: 0, vy: 0, vz: 0, ix: 0, iz: 0, kx: 0, kz: 0, yaw: 0, pitch: 0,
     onGround: false, carrying: false, crouching: false, gliding: false, flying: false, creative: false,
     glideBlockedTicks: 0,
     accessory: null, springCharge: 0, springBouncing: false,
-    slowTicks: 0, grapple: null, hookCooldown: 0, moveScale: 1,
+    slowTicks: 0, grapple: null, hookCooldown: 0, moveScale: 1, creativeSpeed: 1,
   };
 }
 
@@ -222,6 +222,7 @@ export function stepPlayer(state, input, world) {
   if (state.hookCooldown > 0) state.hookCooldown--;
   if (state.slowTicks > 0) state.slowTicks--;
   if (state.flying) {
+    state.ix = state.iz = 0;
     state.grapple = null;
     state.gliding = false;
     state.springCharge = 0;
@@ -231,9 +232,10 @@ export function stepPlayer(state, input, world) {
     const length = Math.hypot(fwd, strafe);
     if (length > 1) { fwd /= length; strafe /= length; }
     const sin = Math.sin(state.yaw), cos = Math.cos(state.yaw);
-    state.vx = (-sin * fwd + cos * strafe) * FLIGHT_SPEED + state.kx;
-    state.vz = (-cos * fwd - sin * strafe) * FLIGHT_SPEED + state.kz;
-    state.vy = (Number(!!input.jump) - Number(!!input.crouch)) * FLIGHT_SPEED;
+    const speed = FLIGHT_SPEED * (state.creativeSpeed ?? 1);
+    state.vx = (-sin * fwd + cos * strafe) * speed + state.kx;
+    state.vz = (-cos * fwd - sin * strafe) * speed + state.kz;
+    state.vy = (Number(!!input.jump) - Number(!!input.crouch)) * speed;
     moveBody(state, world, box);
     state.kx *= KNOCKBACK_AIR_DECAY;
     state.kz *= KNOCKBACK_AIR_DECAY;
@@ -278,13 +280,21 @@ export function stepPlayer(state, input, world) {
     * (accessory?.moveMultiplier ?? 1)
     // Light armor and Fleet accessories (set by the server), or a mob's own speed.
     * (state.moveScale ?? 1)
+    * (state.creative ? state.creativeSpeed ?? 1 : 1)
     * (state.slowTicks > 0 ? 1 - FROST.slow : 1);
   const sin = Math.sin(state.yaw), cos = Math.cos(state.yaw);
   // Yaw 0 looks down -Z (Three.js camera convention).
   // Knockback takes control away: none right after a hit, back to full as it fades.
   const control = 1 - Math.min(1, Math.hypot(state.kx, state.kz) / KNOCKBACK_SPEED);
-  state.vx = (-sin * fwd + cos * strafe) * speed * control + state.kx;
-  state.vz = (-cos * fwd - sin * strafe) * speed * control + state.kz;
+  const desiredX = (-sin * fwd + cos * strafe) * speed * control;
+  const desiredZ = (-cos * fwd - sin * strafe) * speed * control;
+  const footing = world.getBlock(Math.floor(state.x), Math.floor(state.y - 0.02), Math.floor(state.z));
+  const ice = state.onGround && (footing === BLOCK.PACKED_ICE || footing === BLOCK.ICE);
+  const momentum = ice ? ELEMENTAL.iceMomentum : ELEMENTAL.normalMomentum;
+  state.ix = (state.ix ?? 0) * momentum + desiredX * (1 - momentum);
+  state.iz = (state.iz ?? 0) * momentum + desiredZ * (1 - momentum);
+  state.vx = state.ix + state.kx;
+  state.vz = state.iz + state.kz;
   if (current) {
     state.vx += current.x * WATER_CURRENT_SPEED;
     state.vz += current.z * WATER_CURRENT_SPEED;

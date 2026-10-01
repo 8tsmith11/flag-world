@@ -86,6 +86,7 @@ function tooltipDetails(stack) {
   if (accessory) {
     if (accessory.moveMultiplier) stats.push(`Move speed     +${pct(accessory.moveMultiplier - 1)}`);
     if (accessory.maxHpBonus) stats.push(`Maximum HP     +${accessory.maxHpBonus}`);
+    if (accessory.fireImmune) effects.push('Immune to fire damage');
     if (accessory.visual === 'spring') effects.push(`Charge a jump for ${accessory.chargeSeconds}s to leap up to ${accessory.jumpHeight} blocks`, 'Bounce when you land; prevents fall damage');
     if (accessory.regenDelay) effects.push(`Regeneration begins after ${accessory.regenDelay}s`, `Heals every ${accessory.regenInterval}s`);
     if (accessory.rescueHp) effects.push(`Survive one lethal hit with ${accessory.rescueHp} HP`, `Invulnerable for ${accessory.invulnerableSeconds}s; consumed on use`);

@@ -1,9 +1,9 @@
 // Authoritative fluid graph. Topology is rebuilt only after edits to fluid
 // blocks or ports; transfers use the cached pipe components each fixed tick.
-import { BLOCK, blockBase, fluidKind } from '../shared/blocks.js';
+import { BLOCK, fluidKind } from '../shared/blocks.js';
 import { FLUID, TICK_RATE } from '../shared/config.js';
 import { S2C } from '../shared/protocol.js';
-import { FLUID_FACES, fluidFace, oppositeFluidFace, configurableFluidFaces } from '../shared/fluidFaces.js';
+import { FLUID_FACES, fluidFace, oppositeFluidFace } from '../shared/fluidFaces.js';
 
 export { FLUID_FACES, fluidFace };
 const key = (x,y,z) => `${x},${y},${z}`;
@@ -19,13 +19,8 @@ export class FluidSystem {
     if (!next && !old) return;
     const k=key(x,y,z),prev=this.nodes.get(k);
     if(next) {
-      const faces=next==='pipe'?null:prev?.kind===next?prev.faces:
-        Array(FLUID_FACES.length).fill(next==='crusher'?FLUID.faceInput:FLUID.faceNone);
-      if(next==='pump') {
-        faces.fill(FLUID.faceNone);
-        faces[[4,1,5,0][blockBase(id).facing]]=FLUID.faceOutput;
-      }
-      this.nodes.set(k,{x,y,z,key:k,kind:next,faces,container:prev?.container??null,tank:prev?.tank??null});
+      const mode=next==='pipe'&&prev?.kind==='pipe'?prev.mode:FLUID.faceNone;
+      this.nodes.set(k,{x,y,z,key:k,kind:next,mode,container:prev?.container??null,tank:prev?.tank??null});
     } else this.nodes.delete(k);
     this.rebuild();this.broadcast(true);
   }
@@ -33,10 +28,10 @@ export class FluidSystem {
     const node=this.nodes.get(key(x,y,z));
     if(node){node.container=container;container.fluidNode=node;container.dirty=true;}
   }
-  cycle(x,y,z,face) {
+  cycle(x,y,z) {
     const node=this.nodes.get(key(x,y,z));
-    if(!node||!configurableFluidFaces(node.kind)||face<0||face>=FLUID_FACES.length)return false;
-    node.faces[face]=(node.faces[face]+1)%3;
+    if(node?.kind!=='pipe')return false;
+    node.mode=(node.mode+1)%3;
     this.rebuild();this.broadcast(true);
     return true;
   }
@@ -92,12 +87,8 @@ export class FluidSystem {
         const [dx,dy,dz]=FLUID_FACES[face];
         const other=this.nodes.get(key(pipe.x+dx,pipe.y+dy,pipe.z+dz));
         if(!other||other.kind==='pipe')continue;
-        const port=other.faces[oppositeFluidFace(face)];
-        if(port!==FLUID.faceNone)network.ports.push({node:other,mode:port,face:oppositeFluidFace(face)});
+        network.ports.push({node:other,mode:pipe.mode,face:oppositeFluidFace(face)});
       }
-      // A tank may have many faces on one network, but never pumps through itself.
-      network.ports=network.ports.filter(port=>port.node.kind!=='tank'||
-        !network.ports.some(other=>other.node.kind==='tank'&&other.node.tank===port.node.tank&&other.mode!==port.mode));
       networks.push(network);
     }
     this.networks=networks;
@@ -145,6 +136,14 @@ export class FluidSystem {
     } else {node.container?.accept?.(fluid,amount);
       this.inputBudget.set(node,(this.inputBudget.get(node)??0)-amount);}
   }
+  canSource(port) {
+    return port.mode!==FLUID.faceOutput && ['pump','tank','boiler'].includes(port.node.kind);
+  }
+  canSink(port,fluid) {
+    if(port.mode===FLUID.faceInput)return false;
+    return port.node.kind==='tank'||port.node.kind==='boiler'&&fluid==='water'
+      ||port.node.kind==='crusher'&&fluid==='steam';
+  }
   tick(tick) {
     this.outputBudget=new Map();this.inputBudget=new Map();
     for(const node of this.nodes.values()) {
@@ -158,15 +157,24 @@ export class FluidSystem {
     for(const network of this.networks) {
       if(!network.pipes.every(p=>this.active(p)))continue;
       const ports=network.ports.filter(p=>this.active(p.node));
-      for(const port of ports) {
-        if(port.mode!==FLUID.faceOutput)continue;
+      const sourceTanks=new Set();
+      // Pumps and stocked tanks fill an empty network before boilers offer
+      // steam, so an automatic boiler port can accept water on another line.
+      const sources=ports.filter(p=>this.canSource(p)).sort((a,b)=>
+        ({pump:0,tank:1,boiler:2}[a.node.kind]-{pump:0,tank:1,boiler:2}[b.node.kind]));
+      for(const port of sources) {
+        if(port.node.kind==='tank'&&!ports.some(other=>other.node.tank!==port.node.tank
+          &&this.canSink(other,port.node.tank.fluid)
+          &&this.demand(other,port.node.tank.fluid)>epsilon))continue;
         const free=network.capacity-network.amount;
         if(free<=epsilon)break;
         const result=this.output(port,network.fluid,free);
-        if(result?.amount>0){network.fluid=result.fluid;network.amount+=result.amount;}
+        if(result?.amount>0){network.fluid=result.fluid;network.amount+=result.amount;
+          if(port.node.kind==='tank')sourceTanks.add(port.node.tank);}
       }
       if(!network.fluid||network.amount<=epsilon)continue;
-      const inputPorts=ports.filter(p=>p.mode===FLUID.faceInput);
+      const inputPorts=ports.filter(p=>this.canSink(p,network.fluid)
+        &&(p.node.kind!=='tank'||!sourceTanks.has(p.node.tank)));
       const inputs=inputPorts.map(port=>({port,
         wanted:this.demand(port,network.fluid)/inputPorts.filter(other=>
           (other.node.kind==='tank'?other.node.tank:other.node)===
@@ -183,7 +191,7 @@ export class FluidSystem {
       if(!this.active(node)||!node.container)continue;
       if(node.kind==='boiler') {
         const boiler=node.container,wasLit=boiler.lit;
-        const canOutput=this.networks.some(n=>n.ports.some(p=>p.node===node&&p.mode===FLUID.faceOutput)
+        const canOutput=this.networks.some(n=>n.ports.some(p=>p.node===node&&this.canSource(p))
           && n.pipes.every(p=>this.active(p)) && (!n.fluid||n.fluid==='steam')
           && n.capacity-n.amount>epsilon);
         boiler.tick(canOutput);
@@ -194,7 +202,7 @@ export class FluidSystem {
   }
   snapshot() {
     return [...this.nodes.values()].map(node=>({x:node.x,y:node.y,z:node.z,kind:node.kind,
-      faces:node.faces,fluid:node.kind==='tank'?node.tank?.fluid??null:null,
+      mode:node.kind==='pipe'?node.mode:null,fluid:node.kind==='tank'?node.tank?.fluid??null:null,
       amount:node.kind==='tank'?node.tank?.amount??0:0,
       capacity:node.kind==='tank'?node.tank?.capacity??FLUID.tankCapacity:0,
       fill:node.kind==='tank'?this.tankFill(node):0}));

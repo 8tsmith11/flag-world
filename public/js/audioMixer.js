@@ -1,4 +1,5 @@
-import { AUDIO as C } from '/shared/config.js';
+import { AUDIO as C, DRAGON_ARENA as ARENA } from '/shared/config.js';
+import { inDragonArena } from '/shared/fireTempleArena.js';
 import { isWater, isFlowingWater } from '/shared/blocks.js';
 import { AMBIENT_SOUNDS, MATERIAL_SOUNDS, EFFECT_SOUNDS, MOB_SOUNDS, MONKEY_SOUNDS, STORM_SOUNDS } from '/shared/audio.js';
 const choose = list => list[Math.floor(Math.random() * list.length)];
@@ -9,6 +10,7 @@ export class AudioMixer {
     this.context = null; this.settings = settings; this.buffers = new Map();
     this.loading = new Map(); this.queue = []; this.fetching = 0; this.voices = new Set(); this.positionalVoices = new Map();
     this.loops = new Map(); this.bursts = new Map(); this.active = false;
+    this.proceduralLoops = new Map();
     this.listener = null; this.yaw = 0;
     this.generation = 0;
     settings.subscribe(volumes => {
@@ -121,6 +123,8 @@ export class AudioMixer {
     this.active = false; this.generation++;
     for (const loop of this.loops.values()) { loop.source?.stop(); loop.level?.disconnect(); loop.pan?.disconnect(); }
     this.loops.clear();
+    for (const entry of this.proceduralLoops.values()) { entry.source.stop(); entry.level.disconnect(); entry.pan.disconnect(); }
+    this.proceduralLoops.clear();
     this.bursts.clear();
     for (const source of this.voices) source.stop();
   }
@@ -158,6 +162,37 @@ export class AudioMixer {
     loop.level.gain.setTargetAtTime(gain*spatial.volume,this.context.currentTime,C.ambienceFade/3);
     loop.pan.pan.setTargetAtTime(spatial.pan,this.context.currentTime,C.ambienceFade/3);
   }
+  proceduralLoop(name, gain, position = null, range = ARENA.portalRange) {
+    if (!this.context) return;
+    let entry = this.proceduralLoops.get(name);
+    if (!entry && gain > 0) {
+      const rate = this.context.sampleRate;
+      const buffer = this.context.createBuffer(1, rate, rate);
+      const data = buffer.getChannelData(0);
+      let seed = name === 'rumble' ? 0x9a372c : 0x481ab7;
+      let pulse = 0;
+      for (let i = 0; i < data.length; i++) {
+        seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+        const noise = (seed >>> 0) / 2147483648 - 1;
+        if (name === 'rumble') data[i] = (Math.sin(i / rate * Math.PI * 2 * 43)
+          + Math.sin(i / rate * Math.PI * 2 * 57) * 0.5 + noise * 0.12) * 0.3;
+        else {
+          if (noise > 0.9985) pulse = 1;
+          data[i] = noise * pulse * 0.45;
+          pulse *= 0.996;
+        }
+      }
+      const source = this.context.createBufferSource(); source.buffer = buffer; source.loop = true;
+      const level = this.context.createGain(), pan = this.context.createStereoPanner();
+      level.gain.value = 0;
+      source.connect(level).connect(pan).connect(this.buses.ambience);
+      source.start(); entry = { source, level, pan }; this.proceduralLoops.set(name, entry);
+    }
+    if (!entry) return;
+    const spatial = this.spatial(position, range);
+    entry.level.gain.setTargetAtTime(gain * spatial.volume, this.context.currentTime, C.ambienceFade / 3);
+    entry.pan.pan.setTargetAtTime(spatial.pan, this.context.currentTime, C.ambienceFade / 3);
+  }
   update(dt, listener, yaw, time) {
     this.listener=listener; this.yaw=yaw;
     if (!this.active || !this.context || this.context.state !== 'running') return;
@@ -172,6 +207,16 @@ export class AudioMixer {
     if(this.ambientTimer>0)return;
     this.ambientTimer=C.ambienceInterval;
     const world=this.world, x=Math.floor(listener.x), y=Math.floor(listener.y), z=Math.floor(listener.z);
+    const arena = inDragonArena(world, x, z);
+    const portals = [world.fireTemple?.portal, world.dragonArena?.portal].filter(Boolean);
+    const nearestPortal = portals.reduce((best, p) => !best || Math.hypot(p.x-listener.x,p.y-listener.y,p.z-listener.z)
+      < Math.hypot(best.x-listener.x,best.y-listener.y,best.z-listener.z) ? p : best, null);
+    this.proceduralLoop('crackle', nearestPortal ? ARENA.portalGain : 0, nearestPortal, ARENA.portalRange);
+    this.proceduralLoop('rumble', arena ? ARENA.rumbleGain : 0);
+    if (arena) {
+      for (const name of Object.keys(AMBIENT_SOUNDS)) this.loop(name, 0);
+      return;
+    }
     const top=world.naturalTop[x+world.sizeX*z];
     const outside=top===undefined || top===-32768 || y>=top;
     const fortress=this.fortressBoxes.some(b=>x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1&&z>=b.z0&&z<=b.z1);

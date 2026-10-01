@@ -1,6 +1,6 @@
 // Server-owned fluid machine inventories. The pipe graph supplies fluids;
 // machine subclasses define their demand, output and work cycle.
-import { FLUID, TICK_RATE } from '../shared/config.js';
+import { FLUID, TICK_RATE, ELEMENTAL } from '../shared/config.js';
 import { BLOCK } from '../shared/blocks.js';
 import { ITEM } from '../shared/itemIds.js';
 import { CRUSHING } from '../shared/recipes.js';
@@ -8,7 +8,8 @@ import { clickSlot, maxStack } from './inventory.js';
 import { mergeInto } from './containers.js';
 
 const boilerFuel = { [ITEM.CHARCOAL]: FLUID.boilerFuelSeconds.charcoal,
-  [BLOCK.WOOD]: FLUID.boilerFuelSeconds.wood };
+  [BLOCK.WOOD]: FLUID.boilerFuelSeconds.wood,
+  [ITEM.LAVA_BUCKET]: ELEMENTAL.boilerLavaSeconds };
 
 export class MachineBase {
   constructor(kind, slots, rules) {
@@ -59,9 +60,14 @@ export class Boiler extends MachineBase {
     if(!canOutput||this.water+1e-9<step||this.steam+step>FLUID.boilerSteamBuffer){this.lit=false;return false;}
     if(this.burn<=0) {
       const fuel=this.slots[0];
-      if(!fuel){this.lit=false;return false;}
+      if(!fuel||!(fuel.item in boilerFuel)){this.lit=false;return false;}
       this.burnTotal=this.burn=Math.round(boilerFuel[fuel.item]*TICK_RATE);
+      const bucket=fuel.item===ITEM.LAVA_BUCKET;
       if(--fuel.count===0)this.slots[0]=null;
+      if(bucket){
+        if(!this.slots[0])this.slots[0]={item:ITEM.EMPTY_BUCKET,count:1};
+        else(this.pendingReturns??=[]).push({item:ITEM.EMPTY_BUCKET,count:1});
+      }
     }
     this.water-=step;this.steam+=step;this.burn--;
     this.lit=true;

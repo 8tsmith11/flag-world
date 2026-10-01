@@ -33,6 +33,7 @@ export class LocalPlayer {
     const before = { x:s.x, y:s.y, z:s.z };
     s.x = snapshot.x; s.y = snapshot.y; s.z = snapshot.z;
     s.vx = snapshot.vx; s.vy = snapshot.vy; s.vz = snapshot.vz;
+    s.ix = snapshot.ix ?? 0; s.iz = snapshot.iz ?? 0;
     s.kx = snapshot.kx; s.kz = snapshot.kz;
     s.carrying = snapshot.carrying !== null;
     s.crouching = snapshot.crouching;
@@ -47,6 +48,7 @@ export class LocalPlayer {
     s.grapple = snapshot.grapple ? { ...snapshot.grapple } : null;
     s.hookCooldown = snapshot.hookCooldown ?? 0;
     s.moveScale = snapshot.moveScale ?? 1;
+    s.creativeSpeed = snapshot.creativeSpeed ?? 1;
     for (const input of this.pending) stepPlayer(s, input, this.world);
     // Apply the same correction to both endpoints of render interpolation.
     // Otherwise each server packet briefly bends the camera back to an old

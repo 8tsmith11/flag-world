@@ -20,6 +20,7 @@ export const NPC_KIND = {
   WORK_MONKEY: 'workMonkey',
   ANCIENT_WATER_MONKEY: 'ancientWaterMonkey',
   ANCIENT_LIGHTNING_MONKEY: 'ancientLightningMonkey',
+  ANCIENT_FIRE_MONKEY: 'ancientFireMonkey',
 };
 
 export const NPC_DEFS = {
@@ -39,6 +40,10 @@ export const NPC_DEFS = {
   },
   [NPC_KIND.ANCIENT_LIGHTNING_MONKEY]: {
     name: 'Ancient Lightning Monkey', model: 'gorilla', element: 'lightning', box: NPC.ancientMonkey.box,
+    hp: null, behavior: 'restless', voice: 'ancientMonkey', dialogue: 'ancientMonkey',
+  },
+  [NPC_KIND.ANCIENT_FIRE_MONKEY]: {
+    name: 'Ancient Fire Monkey', model: 'gorilla', element: 'fire', box: NPC.ancientMonkey.box,
     hp: null, behavior: 'restless', voice: 'ancientMonkey', dialogue: 'ancientMonkey',
   },
 };

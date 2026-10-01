@@ -113,7 +113,7 @@ export class EntityRenderer {
     if (!factory) return;
     const object = factory(info);
     this.scene.add(object);
-    this.entities.set(id, { object, info, snapshots: [], flashUntil: 0, flashing: false });
+    this.entities.set(id, { object, info, snapshots: [], unloaded: info.loaded === false, flashUntil: 0, flashing: false });
     if (object.userData.goblin) this.goblinInstances.add(this.entities.get(id));
     this.pushSnapshot(id, info);
   }
@@ -131,6 +131,12 @@ export class EntityRenderer {
   pushSnapshot(id, snap) {
     const entity = this.entities.get(id);
     if (!entity) return;
+    if (snap.unloaded) {
+      entity.unloaded = true;
+      entity.object.visible = false;
+      return;
+    }
+    entity.unloaded = snap.loaded === false;
     const dead = !!snap.dead;
     // Dying or respawning moves the player instantly; don't interpolate across it.
     const previous = entity.snapshots.at(-1);
@@ -213,7 +219,12 @@ export class EntityRenderer {
     for (const entity of this.entities.values()) {
       const { object, snapshots } = entity;
       if (snapshots.length === 0) continue;
-      object.visible = !snapshots.at(-1).dead;
+      object.visible = !entity.unloaded && !snapshots.at(-1).dead;
+      if (entity.unloaded) {
+        if (object.userData.dragon) this.scene.remove(object);
+        entity.grappleLine?.update(object.position, null);
+        continue;
+      }
       const latest = snapshots.at(-1);
       if (camera && (latest.x-camera.position.x)**2 + (latest.y-camera.position.y)**2
         + (latest.z-camera.position.z)**2 > (camera.far + (object.userData.dragon ? 16 : 0))**2) {

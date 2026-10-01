@@ -1,7 +1,6 @@
 import { C2S, TEAMS } from '/shared/protocol.js';
 import { MONKEY_WORK as C, INVENTORY_SIZE, HOTBAR_SIZE } from '/shared/config.js';
 import { MONKEY_ROLES } from '/shared/monkeys.js';
-import { getItemDef } from '/shared/items.js';
 import { renderStack } from './itemIcon.js';
 
 const clone=data=>JSON.parse(JSON.stringify(data));
@@ -15,6 +14,7 @@ function button(text,action) {const b=element('button','',text);b.type='button';
 export class MonkeyScreen {
   constructor(conn) {
     this.conn=conn;this.open=false;this.picking=null;this.timers=[];this.played=null;this.worldGame=false;
+    this.pendingSave=false;this.queuedSave=false;
     this.inventory={slots:Array(INVENTORY_SIZE).fill(null),cursor:null};
     this.screen=element('div','screen hidden');this.screen.id='monkey';
     this.panel=element('div','panel card monkey-panel');this.screen.append(this.panel);document.body.append(this.screen);
@@ -35,7 +35,7 @@ export class MonkeyScreen {
     if(data.closed){if(this.open||this.picking||this.worldGame)this.close(false,false);return;}
     if(this.picking&&this.data?.id===data.id){this.data=data;return;}
     const wasOpen=this.open,same=this.data?.id===data.id&&this.data?.mode===data.mode;
-    const unchanged=same&&data.mode==='configure'&&this.draftRevision===data.revision;
+    const unchanged=same&&data.mode==='configure'&&(this.draftRevision===data.revision||this.pendingSave);
     this.data=data;
     if(data.mode==='tame'&&data.game==='simon') {
       const changed=!this.worldGame||this.played!==data.session;
@@ -49,6 +49,10 @@ export class MonkeyScreen {
     this.worldGame=false;this.open=true;
     if(!wasOpen)this.onOpen?.();
     if(unchanged) {
+      if(this.pendingSave&&(data.revision>this.draftRevision||data.message)) {
+        this.pendingSave=false;this.draftRevision=data.revision;
+        if(this.queuedSave){this.queuedSave=false;this.saveDraft();}
+      }
       this.status.textContent=this.summary(data);this.message.textContent=data.message??'';
       this.updateInventory();return;
     }
@@ -65,40 +69,40 @@ export class MonkeyScreen {
     this.panel.append(row,element('p','hint',subtitle));
     this.message=element('p','monkey-message',this.data.message??'');this.panel.append(this.message);
   }
-  summary(data) {return `${data.status} · ${data.seeds} reserved sapling${data.seeds===1?'':'s'}${data.cargo?` · Carrying ${data.cargo.count} ${getItemDef(data.cargo.item).name}`:''}`;}
+  summary(data) {return data.status;}
   renderConfig() {
     this.clearTimers();this.draft=clone(this.data.config);this.draftRevision=this.data.revision;
+    this.pendingSave=false;this.queuedSave=false;
     this.header(`${TEAMS[this.data.team]?.name??'Another'} team · ${this.data.editable?'Your team can configure this monkey.':'Owned by another team.'}`);
     this.status=element('p','monkey-status',this.summary(this.data));this.panel.append(this.status);
     const form=element('div','monkey-settings');
     const role=element('select','');
     for(const name of MONKEY_ROLES){const o=element('option','',name[0].toUpperCase()+name.slice(1));o.value=name;role.append(o);}
-    role.value=this.draft.role;role.addEventListener('change',()=>{this.readForm();this.draft.role=role.value;this.renderDraft();});
+    role.value=this.draft.role;role.addEventListener('change',()=>{this.readForm();this.draft.role=role.value;this.renderDraft();this.saveDraft();});
     const roleLabel=element('label','','Role');roleLabel.append(role);form.append(roleLabel);this.role=role;
     for(const [field,title,max]of [['radius','Horizontal range',C.maxRadius],['vertical','Vertical range (±)',C.maxVertical]]) {
       const label=element('label','',title),input=element('input','');input.type='number';input.min=field==='radius'?1:0;
-      input.max=max;input.value=this.draft[field];this[field]=input;label.append(input);form.append(label);
+      input.max=max;input.value=this.draft[field];input.addEventListener('change',()=>this.saveDraft());
+      this[field]=input;label.append(input);form.append(label);
     }
     this.panel.append(form);this.details=element('div','monkey-details');this.panel.append(this.details);
     this.renderDraft();
     const filterLabel=element('label','','Item filter'),mode=element('select','');
     for(const value of ['blacklist','whitelist']){const option=element('option','',value==='blacklist'?'Collect everything except':'Only collect these items');option.value=value;mode.append(option);}
-    mode.value=this.draft.filter.mode;mode.onchange=()=>this.draft.filter.mode=mode.value;filterLabel.append(mode);this.panel.append(filterLabel);
+    mode.value=this.draft.filter.mode;mode.onchange=()=>{this.draft.filter.mode=mode.value;this.saveDraft();};filterLabel.append(mode);this.panel.append(filterLabel);
     this.filterGrid=element('div','monkey-filter inv');this.panel.append(
       element('p','hint','Pick up an item from your inventory, then click a filter slot to copy its type. The item stays on your cursor. Click a filter with an empty cursor to remove it.'),this.filterGrid);
     this.renderFilters();
     this.panel.append(element('h2','','Monkey inventory'));
     this.monkeySlots=this.inventoryGrid('monkey',Array.from({length:C.inventorySize},(_,i)=>i));
-    this.panel.append(this.monkeySlots.grid,element('p','hint','Store supplies here, including saplings for planting. Shift-click transfers stacks.'));
-    this.panel.append(element('h3','','Carrying to delivery target'));
-    this.cargoSlots=this.inventoryGrid('cargo',[0]);this.panel.append(this.cargoSlots.grid);
+    this.panel.append(this.monkeySlots.grid);
     this.panel.append(element('h2','','Your inventory'));
     this.playerSlots=this.inventoryGrid('player',[
       ...Array.from({length:INVENTORY_SIZE-HOTBAR_SIZE},(_,i)=>i+HOTBAR_SIZE),
       ...Array.from({length:HOTBAR_SIZE},(_,i)=>i)]);
     this.panel.append(this.playerSlots.grid);
     const actions=element('div','row');
-    actions.append(button('Save settings',()=>{this.readForm();this.action('configure',null,{config:this.draft,revision:this.draftRevision});}));this.panel.append(actions);
+    actions.append(button('Teleport to keep',()=>this.action('teleportHome')));this.panel.append(actions);
     this.updateInventory();
     this.disableForeign();
   }
@@ -118,7 +122,7 @@ export class MonkeyScreen {
     this.cursorEl.hidden=!this.open||this.data?.mode!=='configure';
     renderStack(this.cursorEl,this.cursorEl.hidden?null:this.inventory.cursor);
     if(this.data?.mode!=='configure'||!this.open)return;
-    for(const [els,stacks]of [[this.playerSlots,this.inventory.slots],[this.monkeySlots,this.data.slots??[]],[this.cargoSlots,[this.data.cargo]]]) {
+    for(const [els,stacks]of [[this.playerSlots,this.inventory.slots],[this.monkeySlots,this.data.slots??[]]]) {
       els?.slots.forEach((el,i)=>renderStack(el,stacks[i]));
     }
   }
@@ -133,7 +137,7 @@ export class MonkeyScreen {
           if(list.includes(item))return;
           if(i<list.length)list[i]=item;else list.push(item);
         } else if(i<list.length)list.splice(i,1);
-        this.renderFilters();
+        this.renderFilters();this.saveDraft();
       });
       cell.className='slot';cell.setAttribute('aria-label',`Filter slot ${i+1}`);
       renderStack(cell,list[i]?{item:list[i],count:1}:null);this.filterGrid.append(cell);
@@ -141,6 +145,17 @@ export class MonkeyScreen {
     this.disableForeign();
   }
   readForm() {if(this.radius){this.draft.radius=Number(this.radius.value);this.draft.vertical=Number(this.vertical.value);}}
+  saveDraft() {
+    if(!this.data.editable||this.picking)return;
+    this.readForm();
+    if(this.draft.role!=='idle'&&!this.draft.target)return;
+    if(this.draft.role==='courier'&&(!this.draft.from||!this.draft.to))return;
+    if(!Number.isInteger(this.draft.radius)||this.draft.radius<1||this.draft.radius>C.maxRadius
+      ||!Number.isInteger(this.draft.vertical)||this.draft.vertical<0||this.draft.vertical>C.maxVertical)return;
+    if(this.pendingSave){this.queuedSave=true;return;}
+    this.pendingSave=true;
+    this.action('configure',null,{config:clone(this.draft),revision:this.draftRevision});
+  }
   disableForeign() {
     if(this.data.editable)return;
     for(const control of this.panel.querySelectorAll('input,select,button'))if(control.textContent!=='Close')control.disabled=true;
@@ -156,10 +171,12 @@ export class MonkeyScreen {
       this.details.append(this.targetRow('from','From inventory'),this.targetRow('to','To block'),
         element('p','hint','From must be within your range of To. Furnace sources use output only; delivery fills fuel first, then input.'));
     } else this.details.append(this.targetRow('target','Delivery target'));
+    this.details.append(this.targetRow('home','Idle home'));
+    if(this.draft.home)this.details.append(button('Clear idle home',()=>{this.draft.home=null;this.renderDraft();this.saveDraft();}));
     if(lumberjack) {
-      this.details.append(element('p','hint','Mark tree bases or soil blocks. Each spot authorizes its whole column. Put saplings in the monkey inventory first; one is kept for replanting. Fallen saplings near marked spots go to the delivery target.'));
+      this.details.append(element('p','hint','Mark tree bases or soil blocks. Each spot authorizes its whole column.'));
       const list=element('ul','monkey-sites');
-      this.draft.sites.forEach((p,i)=>{const li=element('li','');li.append(element('code','',coordinate(p)),button('Remove',()=>{this.draft.sites.splice(i,1);this.renderDraft();}));list.append(li);});
+      this.draft.sites.forEach((p,i)=>{const li=element('li','');li.append(element('code','',coordinate(p)),button('Remove',()=>{this.draft.sites.splice(i,1);this.renderDraft();this.saveDraft();}));list.append(li);});
       this.details.append(list,button(`Add tree / planting spot (${this.draft.sites.length}/${C.maxSites})`,()=>this.pick('sites')));
     }
     this.disableForeign();
@@ -173,7 +190,7 @@ export class MonkeyScreen {
     if(this.picking==='sites') {
       if(!this.draft.sites.some(s=>s.x===point.x&&s.y===point.y&&s.z===point.z))this.draft.sites.push(point);
     } else {this.draft[this.picking]=point;if(this.picking==='to')this.draft.target=point;}
-    this.cancelPick();
+    this.cancelPick();this.saveDraft();
   }
   cancelPick() {this.picking=null;this.open=true;this.renderDraft();this.updateInventory();this.onOpen?.();}
   renderResult() {

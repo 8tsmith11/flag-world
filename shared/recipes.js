@@ -5,7 +5,7 @@
 // the inventory screen or a workbench) or 'workbench' (only at a workbench).
 // `id` is what the client sends to craft it.
 
-import { LIGHTING, METALS, FLUID } from './config.js';
+import { LIGHTING, METALS, FLUID, ELEMENTAL } from './config.js';
 import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { creativeItemIds, getItemDef } from './items.js';
@@ -90,6 +90,7 @@ export const CRUSHING = {
 };
 
 export const FUEL = {
+  [ITEM.LAVA_BUCKET]: ELEMENTAL.furnaceLavaItems,
   [ITEM.CHARCOAL]: 8,
   [BLOCK.WOOD]: 2,
   [BLOCK.PLANKS]: 1,

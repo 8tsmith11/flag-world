@@ -26,6 +26,7 @@ glassWorld.setBlock(2,2,2,BLOCK.GLASS);glassWorld.setBlock(3,2,2,BLOCK.GLASS);
 glassWorld.setBlock(8,2,8,BLOCK.WATER);
 const meshes=meshChunk(glassWorld,glassWorld.getChunk(0,0,0));
 assert.equal(meshes.glass.index.count,60,'Adjacent glass retained internal faces');
+assert(meshes.opaque.index.count>0,'Glass has no visible edge frame');
 assert(meshes.transparent.index.count>0,'Water lost its transparent geometry');
 assert(meshes.glass.getAttribute('position').array.every(Number.isFinite));
 console.log('Branch neighbour meshing, bark UVs and static leaf geometry passed');

@@ -95,7 +95,10 @@ export class World {
   }
 
   inBounds(x, y, z) {
-    return x >= 0 && y >= this.minY && z >= 0 && x < this.sizeX && y < this.sizeY && z < this.sizeZ;
+    if (y < this.minY || y >= this.sizeY) return false;
+    if (x >= 0 && z >= 0 && x < this.sizeX && z < this.sizeZ) return true;
+    const box = this.dragonArena?.bounds;
+    return !!box && x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1;
   }
 
   recordNaturalTerrain(x, z, bottom, top) {
@@ -164,7 +167,11 @@ export class World {
   // Highest solid block's y in a column, or -1 if none.
   getSurfaceY(x, z, isSolid) {
     const airMatches = isSolid(BLOCK.AIR);
-    if (x < 0 || z < 0 || x >= this.sizeX || z >= this.sizeZ) return airMatches ? this.sizeY - 1 : -1;
+    if (x < 0 || z < 0 || x >= this.sizeX || z >= this.sizeZ) {
+      if (!this.dragonArena || x < this.dragonArena.bounds.x0 || x > this.dragonArena.bounds.x1
+        || z < this.dragonArena.bounds.z0 || z > this.dragonArena.bounds.z1)
+        return airMatches ? this.sizeY - 1 : -1;
+    }
     const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
     const offset = x % CHUNK_SIZE + CHUNK_SIZE * (z % CHUNK_SIZE);
     for (let cy = Math.floor((this.sizeY - 1) / CHUNK_SIZE); cy >= Math.floor(this.minY / CHUNK_SIZE); cy--) {

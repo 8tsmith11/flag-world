@@ -130,6 +130,9 @@ export const WISE_MONKEY_CLUES = [
     'Something sits in the storm above the mountains.',
     'Look past the high peaks. That storm is not empty.',
   ] },
+  { id: 'fireTemple', lines: [
+    'A burning island lies low beneath the others. Something older than dragons sleeps beyond the fire in its temple.',
+  ] },
 ];
 
 export const WISE_MONKEY_STRANGERS = [

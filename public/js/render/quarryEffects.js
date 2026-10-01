@@ -5,6 +5,8 @@ const SPARKLE = new THREE.SphereGeometry(0.035, 5, 4);
 const DUST = new THREE.BoxGeometry(0.08, 0.08, 0.08);
 const SPARKLE_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x78e6dd, transparent: true, depthWrite: false });
 const DUST_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x77777a, transparent: true, depthWrite: false });
+const STEAM = new THREE.SphereGeometry(0.12, 6, 4);
+const STEAM_MATERIAL = new THREE.MeshBasicMaterial({color:0xe8f1f4,transparent:true,depthWrite:false});
 
 export class QuarryEffects {
   constructor(scene, world) {
@@ -34,6 +36,16 @@ export class QuarryEffects {
       this.add(x + 0.2 + Math.random() * 0.6, y + 0.2 + Math.random() * 0.6,
         z + 0.2 + Math.random() * 0.6, (Math.random() - 0.5) * 1.4,
         Math.random() * 1.1, (Math.random() - 0.5) * 1.4, 0.45 + Math.random() * 0.35, true);
+    }
+  }
+  steam(x,y,z) {
+    for(let i=0;i<8;i++){
+      const mesh=new THREE.Mesh(STEAM,STEAM_MATERIAL.clone());
+      mesh.position.set(x+0.2+Math.random()*0.6,y+0.3+Math.random()*0.4,z+0.2+Math.random()*0.6);
+      this.scene.add(mesh);
+      const life=0.6+Math.random()*0.4;
+      this.particles.push({mesh,vx:(Math.random()-0.5)*0.35,vy:0.6+Math.random()*0.5,
+        vz:(Math.random()-0.5)*0.35,life,remaining:life});
     }
   }
 

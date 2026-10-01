@@ -36,12 +36,15 @@ export class InventoryScreen {
     this.obtained = new Set();
     this.open = false;
     this.creative = false;
-    this.creativeState = { immortal: false, flying: false, invisible: false };
+    this.creativeState = { immortal: false, flying: false, invisible: false, breakAny: false, speed: 1 };
     this.creativeControls = document.getElementById('inv-creative-controls');
     for (const button of this.creativeControls.querySelectorAll('[data-creative-action]')) {
       button.addEventListener('click', () => this.conn.send({ type: C2S.CREATIVE_ACTION,
         action: button.dataset.creativeAction }));
     }
+    this.speedInput = document.getElementById('creative-speed');
+    this.speedInput.addEventListener('change', () => this.conn.send({ type: C2S.CREATIVE_ACTION,
+      action: 'setSpeed', value: Number(this.speedInput.value) }));
     this.mode = 'inventory';
     // Block position of the workbench or furnace in use, or null.
     this.at = null;
@@ -186,6 +189,9 @@ export class InventoryScreen {
     document.getElementById('creative-immortal').textContent = `Immortality: ${this.creativeState.immortal ? 'On' : 'Off'}`;
     document.getElementById('creative-flight').textContent = `Flight: ${this.creativeState.flying ? 'On' : 'Off'}`;
     document.getElementById('creative-invisible').textContent = `Invisibility: ${this.creativeState.invisible ? 'On' : 'Off'}`;
+    document.getElementById('creative-break-any').textContent = `Break any block: ${this.creativeState.breakAny ? 'On' : 'Off'}`;
+    this.speedInput.value = this.creativeState.speed;
+    document.getElementById('creative-speed-value').textContent = `${this.creativeState.speed}×`;
   }
 
   setObtained(items) {
@@ -295,7 +301,8 @@ export class InventoryScreen {
       text.append(name, cost);
       button.append(out, text);
       // Workbench recipes are checked against the workbench's position.
-      button.addEventListener('click', () => this.conn.send({ type: C2S.CRAFT, recipe: recipe.id, at: this.at }));
+      button.addEventListener('click', (event) => this.conn.send({ type: C2S.CRAFT, recipe: recipe.id, at: this.at,
+        shift: this.creative && event.shiftKey }));
       li.append(button);
       return li;
     }));

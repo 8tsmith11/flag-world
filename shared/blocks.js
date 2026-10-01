@@ -26,7 +26,7 @@
 //   tileEntity   - name of the tile entity type attached when placed
 //                  ('furnace', 'alloyFurnace', 'chest', 'anvil', 'tank', 'boiler', 'crusher')
 
-import { TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS, METALS, FLUID } from './config.js';
+import { TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS, METALS, FLUID, ELEMENTAL, FIRE_TEMPLE } from './config.js';
 import { ITEM } from './itemIds.js';
 
 export const BLOCK = {
@@ -85,6 +85,16 @@ export const BLOCK = {
   WATER_PUMP: FLUID.blockIds.pump[0], // Historical source-code alias; same block id.
   BOILER: FLUID.blockIds.boiler,
   CRUSHER: FLUID.blockIds.crusher,
+  LAVA: ELEMENTAL.blockIds.lava, LAVA_FLOW_1: ELEMENTAL.blockIds.lavaFlow1,
+  LAVA_FLOW_3: ELEMENTAL.blockIds.lavaFlow3,
+  BASALT: ELEMENTAL.blockIds.basalt, ASH: ELEMENTAL.blockIds.ash,
+  MAGMA: ELEMENTAL.blockIds.magma, SNOW: ELEMENTAL.blockIds.snow,
+  PACKED_ICE: ELEMENTAL.blockIds.packedIce, ICE: ELEMENTAL.blockIds.ice,
+  COBBLE: ELEMENTAL.blockIds.cobble,
+  BASALT_BRICKS: ELEMENTAL.blockIds.basaltBricks,
+  CHISELED_BASALT: ELEMENTAL.blockIds.chiseledBasalt,
+  FIRE_PORTAL: ELEMENTAL.blockIds.firePortal,
+  OBSIDIAN: ELEMENTAL.blockIds.obsidian,
 };
 
 export function isWater(id) {
@@ -98,6 +108,10 @@ export function isFlowingWater(id) {
 export function waterLevel(id) {
   return id === BLOCK.WATER ? 8 : isFlowingWater(id) ? id - BLOCK.WATER_FLOW_1 + 1 : 0;
 }
+export function isLava(id) { return id === BLOCK.LAVA || id >= BLOCK.LAVA_FLOW_1 && id <= BLOCK.LAVA_FLOW_3; }
+export function lavaLevel(id) { return id === BLOCK.LAVA ? ELEMENTAL.lavaFlowDistance + 1
+  : isLava(id) ? id - BLOCK.LAVA_FLOW_1 + 1 : 0; }
+export function isLiquid(id) { return isWater(id) || isLava(id); }
 
 // Blocks with a front: their id for each facing. Furnace was a single id
 // before it had a front, so its other facings come later in the id space.
@@ -268,6 +282,24 @@ for (let level = 1; level <= 7; level++) {
     solid: false, transparent: true, color: 0x3a6fd8, breakable: false, hardness: 0, drops: null,
   });
 }
+define(BLOCK.LAVA, 'lava', { solid:false, transparent:true, lightOpaque:false,
+  color:ELEMENTAL.colors.lava, emission:ELEMENTAL.lavaEmission, breakable:false, hardness:0, drops:null });
+for(let level=1;level<=ELEMENTAL.lavaFlowDistance;level++)define(BLOCK.LAVA_FLOW_1+level-1,'flowing lava',{
+  solid:false,transparent:true,lightOpaque:false,color:ELEMENTAL.colors.lava,
+  emission:ELEMENTAL.lavaEmission,breakable:false,hardness:0,drops:null });
+define(BLOCK.BASALT,'basalt',{color:ELEMENTAL.colors.basalt,hardness:ELEMENTAL.blocks.basaltHardness,breakTime:ELEMENTAL.blocks.rockBreakTime});
+define(BLOCK.ASH,'ash',{color:ELEMENTAL.colors.ash,breakTime:ELEMENTAL.blocks.ashBreakTime});
+define(BLOCK.MAGMA,'magma block',{color:ELEMENTAL.colors.magma,hardness:ELEMENTAL.blocks.magmaHardness,breakTime:ELEMENTAL.blocks.rockBreakTime,
+  emission:ELEMENTAL.magmaEmission});
+define(BLOCK.SNOW,'snow block',{color:ELEMENTAL.colors.snow,breakTime:ELEMENTAL.blocks.snowBreakTime});
+define(BLOCK.PACKED_ICE,'packed ice',{color:ELEMENTAL.colors.packedIce,hardness:ELEMENTAL.blocks.packedIceHardness,breakTime:ELEMENTAL.blocks.rockBreakTime});
+define(BLOCK.ICE,'ice',{color:ELEMENTAL.colors.ice,transparent:true,lightOpaque:false,hardness:ELEMENTAL.blocks.iceHardness,breakTime:ELEMENTAL.blocks.iceBreakTime});
+define(BLOCK.COBBLE,'cobble',{color:ELEMENTAL.colors.cobble,hardness:ELEMENTAL.blocks.cobbleHardness,breakTime:ELEMENTAL.blocks.rockBreakTime});
+define(BLOCK.BASALT_BRICKS, 'basalt bricks', { color: 0x29292d, hardness: FIRE_TEMPLE.brickHardness, breakTime: FIRE_TEMPLE.brickBreakTime });
+define(BLOCK.CHISELED_BASALT, 'chiseled basalt', { color: 0x39343a, hardness: FIRE_TEMPLE.brickHardness, breakTime: FIRE_TEMPLE.brickBreakTime });
+define(BLOCK.FIRE_PORTAL, 'fire portal', { color: 0xff6a27, solid: false, transparent: true,
+  lightOpaque: false, blocksAttack: false, breakable: false, hardness: Infinity, drops: null, emission: FIRE_TEMPLE.portalEmission });
+define(BLOCK.OBSIDIAN, 'obsidian', { color: 0x19171e, hardness: FIRE_TEMPLE.obsidianHardness, breakTime: FIRE_TEMPLE.brickBreakTime });
 // Keeps are built by world gen around each flag. No tool is strong enough.
 define(BLOCK.KEEP, 'keep', { color: 0x4b5263, hardness: Infinity });
 define(BLOCK.PEDESTAL, 'pedestal', { color: 0xd4af37, hardness: Infinity });
@@ -285,34 +317,38 @@ define(BLOCK.GLASS, 'glass', { color: 0xc9edf5, transparent: true, lightOpaque: 
   hardness: 1, breakTime: 0.4, icon: '/textures/glass.svg' });
 define(BLOCK.SAND, 'sand', { color: 0xdccf8e, breakTime: 0.5 });
 // Right click opens a crafting screen. Transparent: the table is inset from its cell.
-define(BLOCK.WORKBENCH, 'workbench', { color: 0xa0703f, breakTime: 1, shape: 'workbench', transparent: true });
+define(BLOCK.WORKBENCH, 'workbench', { color: 0xa0703f, breakTime: 1, shape: 'workbench', transparent: true,
+  icon: '/textures/workbench.svg' });
 // Furnaces and chests have their own inventory (server/containers.js);
 // breaking one drops what's inside.
 for (const id of FACED[BLOCK.FURNACE]) {
   define(id, 'furnace', {
     color: 0x6e6e72, hardness: 2, breakTime: 1.5, tileEntity: 'furnace', shape: 'furnace', drops: BLOCK.FURNACE,
+    icon: '/textures/furnace.svg',
   });
 }
 for (const id of FACED[BLOCK.ALLOY_FURNACE]) {
   define(id, 'alloy furnace', {
     color: 0x9b765d, hardness: 2, breakTime: 1.5, tileEntity: 'alloyFurnace', shape: 'furnace', drops: BLOCK.ALLOY_FURNACE,
+    icon: '/textures/alloy-furnace.svg',
   });
 }
 define(BLOCK.BRONZE_PIPE, 'bronze pipe', { color: 0xb8793e, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.pipeBreakTime,
-  transparent: true, lightOpaque: false, shape: 'pipe' });
+  transparent: true, lightOpaque: false, shape: 'pipe', icon: '/textures/bronze-pipe.svg' });
 define(BLOCK.FLUID_TANK, 'fluid tank', { color: 0x8c9a9d, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.tankBreakTime,
-  transparent: true, lightOpaque: false, shape: 'fluidTank', tileEntity: 'tank' });
+  transparent: true, lightOpaque: false, shape: 'fluidTank', tileEntity: 'tank', icon: '/textures/fluid-tank.svg' });
 for (const id of FACED[BLOCK.FLUID_PUMP]) define(id, 'fluid pump', {
   color: 0x98683e, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.pumpBreakTime, drops: BLOCK.FLUID_PUMP,
-  shape: 'fluidPump', transparent: true,
+  shape: 'fluidPump', transparent: true, icon: '/textures/fluid-pump.svg',
 });
 define(BLOCK.BOILER, 'boiler', { color: 0x797b7c, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.boilerBreakTime,
-  tileEntity: 'boiler', shape: 'boiler', transparent: true });
+  tileEntity: 'boiler', shape: 'boiler', transparent: true, icon: '/textures/boiler.svg' });
 define(BLOCK.CRUSHER, 'crusher', { color: 0x555c61, hardness: FLUID.blocks.hardness, breakTime: FLUID.blocks.crusherBreakTime,
-  tileEntity: 'crusher', shape: 'crusher', transparent: true });
+  tileEntity: 'crusher', shape: 'crusher', transparent: true, icon: '/textures/crusher.svg' });
 for (const id of FACED[BLOCK.CHEST]) {
   define(id, 'chest', {
     color: 0x9c6b30, breakTime: 1, tileEntity: 'chest', shape: 'chest', transparent: true, drops: BLOCK.CHEST,
+    icon: '/textures/chest.svg',
   });
 }
 // Thin shapes: neighbours draw their faces against them (transparent).
@@ -371,7 +407,7 @@ export function isTransparent(id) {
 // Blocks the crosshair stops on: anything you can collide with or mine.
 export function isTargetable(id) {
   const def = getBlockDef(id);
-  return def.solid || def.breakable || isWater(id);
+  return def.solid || def.breakable || isLiquid(id);
 }
 
 // Ticks the break button must be held on a block before it breaks, with a
@@ -386,7 +422,7 @@ export function canBreak(id, toolStrength) {
 }
 
 // Mining still targets decorations; combat rays explicitly pass through them.
-export function blocksAttack(id) { return isTargetable(id) && !isWater(id) && getBlockDef(id).blocksAttack; }
+export function blocksAttack(id) { return isTargetable(id) && !isLiquid(id) && getBlockDef(id).blocksAttack; }
 
 export const TREE_SIDES = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
 export function isTreeSupport(id) { return id === BLOCK.WOOD || id === BLOCK.BRANCH || id === BLOCK.LEAVES; }

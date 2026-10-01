@@ -18,6 +18,7 @@ export const MOB_EGGS = [
     [ITEM.WISE_MONKEY_EGG, NPC_KIND.WISE_MONKEY, 'Wise Monkey', 0xc86b2a],
     [ITEM.ANCIENT_WATER_MONKEY_EGG, NPC_KIND.ANCIENT_WATER_MONKEY, 'Ancient Water Monkey', 0x3d8f8a],
     [ITEM.ANCIENT_LIGHTNING_MONKEY_EGG, NPC_KIND.ANCIENT_LIGHTNING_MONKEY, 'Ancient Lightning Monkey', 0xd8cff5],
+    [ITEM.ANCIENT_FIRE_MONKEY_EGG, NPC_KIND.ANCIENT_FIRE_MONKEY, 'Ancient Fire Monkey', 0xf46a26],
   ].map(([item, npc, name, color]) => ({ item, type: ENTITY_TYPE.NPC, npc, name, color, spots: 0x35261c })),
 ];
 
