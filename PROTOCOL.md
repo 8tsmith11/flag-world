@@ -1500,6 +1500,7 @@ dropped on the main platform. The boss music uses the existing music volume
 setting and starts on wake, fading on death or reset.
 
 If a requested seed fails the gorge or required village placement constraints,
-`generateWorld` tries deterministic derived seeds up to `WORLDGEN_RETRY.attempts`.
+the server and browser worker use the same `generateWorldWithNoise` helper to try
+deterministic derived seeds up to `WORLDGEN_RETRY.attempts`.
 The requested seed remains in `welcome.seed`; both server and client resolve it
 to the same successful world and record the resolved seed as `world.seed`.
