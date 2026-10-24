@@ -148,6 +148,7 @@ export function createChunkMesher(THREE) {
       }
       buf.colors.push(color.r * light, color.g * light, color.b * light);
       buf.lights.push(...sampleLight(x + face.dir[0], y + face.dir[1], z + face.dir[2]));
+      buf.uvs.push(u, v);
     }
     buf.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
   }
@@ -465,7 +466,7 @@ export function createChunkMesher(THREE) {
     const textured = createBuffers(), glow = createBuffers(), plants=createBuffers(true);
     const ore = textured, bricks = textured, goblinBricks = textured,
       mossyBricks = textured, crackedBricks = textured, planks = textured,
-      woodSides = textured, woodEnds = textured, quarry = textured;
+      woodSides = textured, woodEnds = textured;
     const ox = chunk.cx * CHUNK_SIZE, oy = chunk.cy * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
 
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
@@ -541,7 +542,7 @@ export function createChunkMesher(THREE) {
             for (const face of FACES) {
               const neighbour = meshBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
               if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
-              pushFace(quarry, face, x, y, z, WHITE, face.shade * j, 'quarry');
+              pushQuarryFace(opaque, glow, face, x, y, z, face.shade * j);
             }
             continue;
           }
