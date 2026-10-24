@@ -47,12 +47,17 @@ export class GoblinUnit {
   eye(point = this.state) { return { x: point.x, y: point.y + this.def.height * 0.85, z: point.z }; }
   // Fighting, rallying and returning may leave the home area (through gates).
   get roaming() { return !!(this.target || this.rally || this.task) || this.behavior === 'return'; }
+  // A destination with no route (a post not built yet) isn't searched again
+  // for noRouteTicks: the answer is cached instead of re-run every tick.
   go(point) {
+    const tick = this.game.tick, key = `${point.x},${point.y},${point.z}`;
+    this.destination = point;
+    if (this.noRoute?.key === key && tick < this.noRoute.until) { this.path = []; this.routePending = false; return []; }
     const area = this.garrison.nav.area(this.home);
     const route = this.garrison.nav.route(this.state, point, area, this.options());
-    this.destination = point;
     if (route !== null) this.path = route;
     this.routePending = route === null;
+    if (route?.length === 0 && flat(this.state, center(point)) > 1) this.noRoute = { key, until: tick + C.noRouteTicks + this.id % 20 };
     return route;
   }
 
@@ -221,7 +226,13 @@ export class GoblinUnit {
     if (this.behavior === 'work') { this.behavior = 'idle'; this.wait = 0; }
   }
   // Seconds per swing: construction runs at its paced interval.
-  swing(job) { return ticks(job?.entry || job?.climb ? this.garrison.construction?.swing ?? W.swingSeconds : W.swingSeconds); }
+  // Schedules the next swing. Construction's paced interval can be a
+  // fraction of a tick: back-to-back swings carry the remainder over.
+  swing(job, tick) {
+    const seconds = job?.entry || job?.climb ? this.garrison.construction?.swing ?? W.swingSeconds : W.swingSeconds;
+    const base = this.nextSwing > tick - 2 ? this.nextSwing : tick;
+    this.nextSwing = base + seconds * TICK_RATE;
+  }
   workStep(tick) {
     const task = this.task, work = this.garrison.work, nav = this.garrison.nav, job = task.job;
     if (job && (!work.jobs.has(job) || job.worker !== this)) { this.endTask(); return; }
@@ -232,8 +243,8 @@ export class GoblinUnit {
     // is given up; the job waits a while before anyone tries it again.
     task.since ??= tick;
     if (tick - task.since > ticks(W.taskTimeout)) {
-      if (job && !job.climb) { job.waiting = true; job.retryAt = tick + ticks(W.waitRetrySeconds * 3); }
-      this.endTask(); return;
+      if (!task.close) work.badSpot(job?.spot);
+      this.giveUpJob(job, tick); this.endTask(); return;
     }
     if (job?.climb) { this.climbStep(tick, job); return; }
     task.dest ??= job ? job.spot : nav.nearest(area, task.section.center, this.role);
@@ -245,7 +256,7 @@ export class GoblinUnit {
       this.working = false;
       if (this.path.length) return;
       // A spot it can't walk to: the job waits until blocks there change.
-      if ((task.tries = (task.tries ?? 0) + 1) > 2) { if (job) job.waiting = true; this.endTask(); return; }
+      if ((task.tries = (task.tries ?? 0) + 1) > 2) { work.badSpot(job?.spot); this.giveUpJob(job, tick); this.endTask(); return; }
       const route = this.routeTo(task.dest, area);
       // An empty route means it's already on the goal node (crowds can push
       // it slightly off center): close enough to work.
@@ -260,16 +271,27 @@ export class GoblinUnit {
     // The swing lands on the block chosen (and faced) at its start.
     if (task.current && work.need(task.current)) { work.apply(task.current); this.garrison.construction?.progressed(job); task.since = tick; }
     task.current = null;
-    const block = work.nextBlock(job);
+    const block = work.nextBlock(job, this);
     if (block === null) { work.drop(job); this.endTask(); return; }
-    this.nextSwing = tick + this.swing(job);
+    this.swing(job, tick);
     if (block === 'blocked') {
-      // Possibly its own body, off the spot's center: step back onto it.
+      // Possibly its own body, off the spot's center: step back onto it. If it
+      // stays blocked (a player standing there), the job goes back for later.
+      if ((task.blocked = (task.blocked ?? 0) + 1) > W.blockedSwings) { this.giveUpJob(job, tick); this.endTask(); return; }
       if (job.spot) this.path = [{ x: job.spot.x, y: job.spot.y, z: job.spot.z, grounded: true }];
       return;
     }
+    task.blocked = 0;
     task.current = block;
     s.yaw = Math.atan2(-(block.x + 0.5 - s.x), -(block.z + 0.5 - s.z));
+  }
+  // A job its worker can't do: construction work joins its area's backlog
+  // (re-checked when more becomes reachable); a repair waits.
+  giveUpJob(job, tick) {
+    if (!job || job.climb) return;
+    if (job.worker === this) job.worker = null;
+    if (this.garrison.construction?.deferJob(job)) return;
+    job.waiting = true; job.retryAt = tick + ticks(W.waitRetrySeconds * 3);
   }
   // Shaft work: the worker stands on the ladder column (job.climb.offset
   // blocks from its block), or at the approach node on the floor beside it
@@ -277,7 +299,7 @@ export class GoblinUnit {
   climbStep(tick, job) {
     const task = this.task, work = this.garrison.work, nav = this.garrison.nav, c = job.climb, s = this.state;
     if (!task.current) {
-      const block = work.nextBlock(job);
+      const block = work.nextBlock(job, this);
       if (block === null) { work.drop(job); this.endTask(); return; }
       if (block === 'blocked') return;
       const y = block.y + c.offset;
@@ -313,7 +335,7 @@ export class GoblinUnit {
     }
     this.path = []; this.working = true;
     s.yaw = Math.atan2(-(block.x + 0.5 - s.x), -(block.z + 0.5 - s.z));
-    if (!task.swung) { task.swung = true; this.nextSwing = tick + this.swing(job); return; }
+    if (!task.swung) { task.swung = true; this.swing(job, tick); return; }
     if (tick < this.nextSwing) return;
     if (work.need(block)) { work.apply(block); this.garrison.construction?.progressed(job); task.since = tick; }
     task.current = null;
@@ -413,8 +435,8 @@ export class GoblinUnit {
         // A post that isn't built yet: wait at the area's spawn point instead.
         const route = this.go(this.slot.point);
         if (route?.length === 0 && !this.garrison.construction?.done) {
-          const spawn = this.garrison.spawnFor(this.slot)?.point;
-          if (spawn) this.go(spawn);
+          this.waitPoint ??= this.garrison.spawnFor(this.slot)?.point ?? null;
+          if (this.waitPoint) this.go(this.waitPoint);
         }
       }
       this.think();

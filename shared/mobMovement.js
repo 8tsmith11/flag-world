@@ -21,19 +21,22 @@ export function stepMobPath(mob, world, speed = 1) {
   }
   const climbing = isOnLadder(s, world);
   let forward = 0, jump = false, climb = 0;
+  // A landing exit only applies climbing up to it; a mob coming down a
+  // ladder from above passes that height going the other way.
+  const exit = n?.exitHeight !== undefined && s.y < n.exitHeight + 0.5 ? n.exitHeight : undefined;
   if (n) {
     const dx = n.x + 0.5 - s.x, dz = n.z + 0.5 - s.z, distance = Math.hypot(dx, dz);
     if (distance > 0.04) { s.yaw = Math.atan2(-dx, -dz); forward = Math.min(speed, distance / (WALK_SPEED * TICK_DT)); }
     jump = !climbing && n.y > s.y + 0.25 && s.onGround;
     if (climbing) {
-      climb = n.exitHeight !== undefined ? 1 : Math.sign(n.y - s.y);
+      climb = exit !== undefined ? 1 : Math.sign(n.y - s.y);
       // Rise in the ladder column before moving over the landing's top face.
-      if (n.exitHeight !== undefined && s.y < n.exitHeight) forward = 0;
+      if (exit !== undefined && s.y < exit) forward = 0;
     }
   }
   if (isInWater(s, world)) jump = true;
   const before = { x: s.x, y: s.y, z: s.z };
-  stepPlayer(s, { forward, strafe: 0, jump, climb, climbExit: n?.exitHeight, yaw: s.yaw, pitch: 0 }, world);
+  stepPlayer(s, { forward, strafe: 0, jump, climb, climbExit: exit, yaw: s.yaw, pitch: 0 }, world);
   mob.climbing = climbing && climb !== 0 && (n?.exitHeight === undefined || s.y < n.exitHeight);
   mob.walking = !!n && (forward > 0 || mob.climbing);
   return Math.hypot(s.x - before.x, s.y - before.y, s.z - before.z);

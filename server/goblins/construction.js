@@ -10,7 +10,7 @@
 // spawn building is done. Once every underground area is built, the shaft is
 // relocated (lined above the Mid Room, plugged below it), then the Castle
 // goes up over the shaft entrance.
-import { BLOCK, getBlockDef } from '../../shared/blocks.js';
+import { BLOCK, getBlockDef, isSolid } from '../../shared/blocks.js';
 import { WORK as C, LIFE } from '../../shared/goblins/life.js';
 import { makeGraph, nodeKey } from '../../shared/goblins/areas.js';
 import { recomputeOutskirts } from '../../shared/goblins/outskirts.js';
@@ -20,6 +20,8 @@ import { TICK_RATE } from '../../shared/config.js';
 import { straighten } from './nav.js';
 import { CLEAR } from './work.js';
 import { createContainer } from '../containers.js';
+
+const ticks = seconds => Math.round(seconds * TICK_RATE);
 
 // access: site prep along a route from where the area is entered to its spawn
 // building, and the building's own footprint; spawn: the building (the area
@@ -32,6 +34,35 @@ const inBox = (b, x, y, z) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1 &
 // Navigation inside a planned area: its walkable nodes as the world stands
 // (no walls yet), the entries where they touch an active neighbour, and a
 // breadth-first flow from those entries. Rebuilt around edited columns only.
+// Backlog cells bucketed by column (8x8), so a change wakes only the cells
+// near it.
+const BUCKET = 8;
+const bucketOf = (x, z) => `${Math.floor(x / BUCKET)},${Math.floor(z / BUCKET)}`;
+class Parked {
+  constructor(work) { this.work = work; this.buckets = new Map(); this.size = 0; }
+  add(k) {
+    const p = this.work.cell(k), b = bucketOf(p.x, p.z);
+    if (!this.buckets.has(b)) this.buckets.set(b, new Set());
+    const set = this.buckets.get(b); if (set.has(k)) return;
+    set.add(k); this.size++;
+  }
+  // Removes and returns every cell (woken null), or those within `radius`
+  // (horizontally) of a woken point; woken maps bucket -> points near it.
+  take(woken, radius) {
+    const out = [];
+    for (const b of woken ? woken.keys() : [...this.buckets.keys()]) {
+      const set = this.buckets.get(b); if (!set) continue;
+      const points = woken?.get(b);
+      for (const k of set) {
+        const p = points && this.work.cell(k);
+        if (points && !points.some(q => Math.abs(q.x - p.x) <= radius && Math.abs(q.z - p.z) <= radius)) continue;
+        set.delete(k); this.size--; out.push(k);
+      }
+      if (!set.size) this.buckets.delete(b);
+    }
+    return out;
+  }
+}
 class Site {
   constructor(construction, area) {
     this.c = construction; this.area = area; this.dirty = new Set(); this.reachedAt = -Infinity;
@@ -88,6 +119,8 @@ class Site {
       if (this.parent.has(e.to) || !this.graph.has(e.to)) continue;
       this.parent.set(e.to, queue[i]); queue.push(e.to);
     }
+    for (const k of this.parent.keys()) if (!this.reached?.has(k)) this.c.wake(this.graph.get(k));
+    this.reached = new Set(this.parent.keys());
     this.buckets = new Map();
     for (const k of this.parent.keys()) {
       const n = this.graph.get(k), b = `${Math.floor(n.x / 8)},${Math.floor(n.z / 8)}`;
@@ -103,7 +136,8 @@ class Site {
       for (let bx = Math.floor((point.x - radius) / 8); bx <= Math.floor((point.x + radius) / 8); bx++)
         for (const n of this.buckets.get(`${bx},${bz}`) ?? []) {
           const d = Math.hypot(n.x + 0.5 - point.x, n.z + 0.5 - point.z);
-          if (d <= radius && n.grounded && nav.fits(n, 'worker')) out.push({ n, d });
+          // Rungs count: a worker holds still on a ladder to work above reach.
+          if (d <= radius && (n.grounded || n.ladder) && nav.fits(n, 'worker')) out.push({ n, d });
         }
     return out.sort((a, b) => a.d - b.d).map(e => e.n);
   }
@@ -151,8 +185,9 @@ export class Construction {
     this.garrison = garrison; this.game = garrison.game; this.world = garrison.game.world;
     this.plan = garrison.plan; this.nav = garrison.nav; this.work = garrison.work;
     this.data = this.plan.construction; this.sites = new Map();
-    this.swing = C.buildSwingSeconds(this.plan.settings.radius);
     this.done = !this.data; if (this.done) return;
+    const blocks = [...this.work.targets.keys()].filter(k => this.work.difference(k, true)).length;
+    this.swing = C.buildSwingSeconds(C.completionMinutes(this.plan.settings.radius), blocks);
     const f = this.plan.fortress;
     this.hall = f.pieces.find(p => p.type === 'totemHall');
     this.mid = f.pieces.find(p => p.type === 'midRoom');
@@ -177,6 +212,7 @@ export class Construction {
     recomputeOutskirts(this.world, this.plan, { runtime: true });
     this.startTick = this.game.tick; this.breached = false;
     this.makeShaft();
+    this.addCrews();
     this.holdSlots();
   }
   areaAt(p, kind) {
@@ -188,15 +224,28 @@ export class Construction {
     for (const k of area.columns) { const [x, z] = k.split(',').map(Number); best = Math.min(best, Math.hypot(x - p.x, z - p.z)); }
     return best;
   }
-  // Areas sharing a gate (through link areas such as the shaft too).
+  // Areas sharing a gate (through link areas such as the shaft too), and
+  // surface areas whose columns touch (some are joined only through the
+  // outskirts in the finished village).
   neighbours(area) {
-    const gates = this.plan.gates, ids = new Set();
+    const gates = this.plan.gates, ids = new Set(this.touching(area));
     const next = id => gates.filter(g => g.areas.includes(id)).flatMap(g => g.areas).filter(a => a !== id);
     for (const id of next(area.id)) {
       ids.add(id);
       if (this.nav.area(id)?.link) for (const n of next(id)) if (n !== area.id) ids.add(n);
     }
     return [...ids].map(id => this.nav.area(id)).filter(Boolean);
+  }
+  touching(area) {
+    this.touchCache ??= new Map();
+    if (this.touchCache.has(area.id)) return this.touchCache.get(area.id);
+    const out = [];
+    if (area.kind === 'surface') for (const other of this.plan.areas) {
+      if (other === area || other.kind !== 'surface') continue;
+      if ([...area.columns].some(k => { const [x, z] = k.split(',').map(Number);
+        return SIDES.some(([dx, dz]) => other.columns.has(cellKey(x + dx, z + dz))); })) out.push(other.id);
+    }
+    this.touchCache.set(area.id, out); return out;
   }
   site(area) {
     if (area.state !== 'planned') return null;
@@ -272,16 +321,20 @@ export class Construction {
   planEntries() {
     const work = this.work, col = this.data.column, hall = this.hall.box, plan = this.plan;
     const shaftCells = new Set(this.data.dig.map(b => this.world.cellIndex(b.x, b.y, b.z)));
+    // The initial shaft's blocks inside the hall (ladder, the lining that backs
+    // it, openings) stay until the relocation restores the hall.
+    const initial = plan.fortress.stages.initial.pieces.find(p => p.type === 'shaft');
+    for (const b of initial.blocks) if (inBox(hall, b.x, b.y, b.z)) shaftCells.add(this.world.cellIndex(b.x, b.y, b.z));
     for (let y = hall.y0; y <= Math.max(col.y1, this.castle.padHeight) + 1; y++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       if (y <= hall.y1 && (dx || dz)) continue;
       const key = this.world.cellIndex(col.x + dx, y, col.z + dz);
       if (work.targets.has(key)) shaftCells.add(key);
     }
-    this.relocation = { id: 'relocation', phase: 'relocation', cells: [...shaftCells], jobs: new Set() };
+    this.relocation = { id: 'relocation', phase: 'relocation', area: this.midArea, cells: [...shaftCells], jobs: new Set() };
     this.castleEntry = { id: 'castle', phase: 'castle', area: this.entranceArea, cells: [], jobs: new Set() };
     const entries = new Map(plan.areas.filter(a => a !== this.shaft).map(a =>
       [a.id, PHASES.map(phase => ({ id: `${a.id}:${phase}`, phase, area: a, cells: [], jobs: new Set() }))]));
-    const spawnOf = new Map(plan.areas.map(a => [a.id, this.spawnBuilding(a)]));
+    const spawnOf = this.spawnOf = new Map(plan.areas.map(a => [a.id, this.spawnBuilding(a)]));
     const walls = plan.wallCells, gatehouses = plan.surface.gatehouses ?? [];
     this.originOf = this.origins();
     const access = this.accessCells(spawnOf);
@@ -295,13 +348,18 @@ export class Construction {
       }
       const area = this.cellArea(key); if (!area || !entries.has(area.id)) continue;
       const spawn = spawnOf.get(area.id);
-      const prep = want === CLEAR || want === BLOCK.AIR || C.terrainBlocks.includes(want);
+      // Anything walkable in the plan (air, torches, ladders, doors) is cut
+      // out during prep, or the solid block there would wall off the rest.
+      const prep = want === CLEAR || !isSolid(want) || C.terrainBlocks.includes(want);
       const inSpawn = spawn && inBox({ ...spawn.box, y0: spawn.box.y0 - 1, y1: spawn.box.y1 + 1 }, x, y, z);
       const phase = prep && (inSpawn || access.has(key)) ? 'access' : inSpawn ? 'spawn' : prep ? 'prep'
         : walls.has(cellKey(x, z)) || gatehouses.some(h => inBox(h.box, x, y, z)) ? 'walls' : 'rest';
       entries.get(area.id)[PHASES.indexOf(phase)].cells.push(key);
     }
     this.entries = entries;
+    // Each cell's phase index: backlog cells come back in build order.
+    this.phaseOf = new Map();
+    for (const list of entries.values()) for (const [i, e] of list.entries()) for (const k of e.cells) this.phaseOf.set(k, i);
     for (const list of entries.values()) for (const e of list) for (const k of e.cells) work.reserved.add(k);
     for (const k of [...this.relocation.cells, ...this.castleEntry.cells]) work.reserved.add(k);
   }
@@ -314,10 +372,20 @@ export class Construction {
     for (const [area, y] of [[this.entranceArea, Math.max(col.y1 + 1, this.castle.padHeight + 1)], [this.midArea, this.mid.position.y + 1]]) {
       if (area && !out.has(area.id)) { out.set(area.id, { x: col.x, y, z: col.z }); queue.push(area); }
     }
-    for (let i = 0; i < queue.length; i++) for (const g of this.plan.gates.filter(g => g.areas.includes(queue[i].id) && !g.outskirts)) {
-      const next = this.plan.areas.find(a => g.areas.includes(a.id) && a !== queue[i]);
-      if (!next || out.has(next.id)) continue;
-      out.set(next.id, g.cells[0]); queue.push(next);
+    for (let i = 0; i < queue.length; i++) {
+      for (const g of this.plan.gates.filter(g => g.areas.includes(queue[i].id) && !g.outskirts)) {
+        const next = this.plan.areas.find(a => g.areas.includes(a.id) && a !== queue[i]);
+        if (!next || out.has(next.id)) continue;
+        out.set(next.id, g.cells[0]); queue.push(next);
+      }
+      // Touching surface areas start at their first column beside this one.
+      for (const id of this.touching(queue[i])) {
+        const next = this.nav.area(id); if (!next || out.has(id)) continue;
+        const k = [...next.columns].find(k => { const [x, z] = k.split(',').map(Number);
+          return SIDES.some(([dx, dz]) => queue[i].columns.has(cellKey(x + dx, z + dz))); });
+        const [x, z] = k.split(',').map(Number), ground = this.plan.buildability.cells.get(k)?.ground ?? this.castle.padHeight;
+        out.set(id, { x, y: ground + 1, z }); queue.push(next);
+      }
     }
     return out;
   }
@@ -361,8 +429,24 @@ export class Construction {
   // Totem Hall, nearest the hall.
   spawnBuilding(area) {
     const hall = this.hall.position;
-    return area.spawns.filter(s => s.id !== this.castle.id && s.id !== this.data.hall)
-      .sort((a, b) => Math.hypot(a.point.x - hall.x, a.point.z - hall.z) - Math.hypot(b.point.x - hall.x, b.point.z - hall.z))[0] ?? null;
+    // Height counts double: a room on another level is a long dig away.
+    const far = s => Math.hypot(s.point.x - hall.x, s.point.z - hall.z) + 2 * Math.abs(s.point.y - hall.y);
+    return area.spawns.filter(s => s.id !== this.castle.id && s.id !== this.data.hall).sort((a, b) => far(a) - far(b))[0] ?? null;
+  }
+  // Crews match the work: an area gets at least one worker per
+  // blocksPerWorker blocks it has to build (slots are otherwise sized by its
+  // floor). Like every slot, they fill once the area is alive.
+  addCrews() {
+    for (const [id, list] of this.entries) {
+      const area = this.nav.area(id); if (!area) continue;
+      // The Castle is the entrance area's work too.
+      const extra = area === this.entranceArea ? this.castleEntry.cells : [];
+      const blocks = [...list.flatMap(e => e.cells), ...extra].filter(k => this.work.difference(k, true)).length;
+      const have = area.slots.filter(s => s.role === 'worker').length, want = Math.ceil(blocks / C.blocksPerWorker);
+      const point = area.slots.find(s => s.role === 'worker')?.point ?? area.interests[0];
+      if (!point || !this.nav.nearest(area, point, 'worker')) continue;
+      for (let i = have; i < want; i++) this.garrison.add(area, 'worker', 'worker', point);
+    }
   }
   // Only the starting group, the King and the Totem spawn in the hall at first.
   holdSlots() {
@@ -375,6 +459,17 @@ export class Construction {
   }
   current(area) { return this.entries.get(area.id)?.find(e => !e.done) ?? null; }
   areaDone(area) { return this.entries.get(area.id)?.every(e => e.done) ?? true; }
+  // Built for routing: its entries are done and nothing waits in its backlog.
+  // Until then an underground area routes over its plain graph, since the
+  // waypoints of the finished fortress have gaps (see GoblinNav.route).
+  settleAreas() {
+    for (const a of this.plan.areas) {
+      if (!a.unfinished || !this.areaDone(a)) continue;
+      const b = this.backlogs?.get(a.id);
+      if (b && (b.cells.size || b.entry.jobs.size || b.entry.pos < b.entry.queue.length)) continue;
+      a.unfinished = false; this.nav.caches.delete(a.id);
+    }
+  }
   available(area) { return area.state === 'active' || this.neighbours(area).some(a => a.state === 'active'); }
 
   // Starting an entry queues its cells; jobs are made a few at a time.
@@ -389,20 +484,20 @@ export class Construction {
     const far = k => { const p = at.get(k); return Math.hypot(p.x - origin.x, p.z - origin.z) + Math.abs(p.y - origin.y); };
     e.queue = e.cells.filter(k => this.work.targets.has(k))
       .sort((a, b) => (removal(b) - removal(a)) || (removal(a) ? far(a) - far(b) : at.get(a).y - at.get(b).y));
-    e.queued = new Set(e.queue); e.pos = 0; e.deferred = new Set(); e.requeueAt = 0;
+    e.queued = new Set(e.queue); e.pos = 0;
   }
   // More jobs for an entry while it has fewer than openJobs open: connected
   // clusters grown from the next queued cell through other queued cells.
   feed(e) {
-    const work = this.work, sites = [e.area.id, ...this.neighbours(e.area).filter(a => a.state === 'active').map(a => a.id)];
+    // Standing spots: the area itself, then active neighbours that have
+    // workers (never outskirts sections).
+    const work = this.work, sites = [e.area.id, ...this.neighbours(e.area).filter(a => a.state === 'active' && a.kind !== 'outskirts').map(a => a.id)];
     const sides = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
-    // Cells nobody could reach go back in the queue every waitRetrySeconds.
-    if (e.deferred.size && this.game.tick >= e.requeueAt) {
-      e.queue = [...e.queue.slice(e.pos).filter(k => e.queued.has(k)), ...e.deferred];
-      e.queued = new Set(e.queue); e.pos = 0; e.deferred.clear();
-    }
-    const defer = b => { e.deferred.add(b.key); e.requeueAt = this.game.tick + C.waitRetrySeconds * TICK_RATE; };
-    while (e.jobs.size < C.openJobs) {
+    // A block no worker can reach yet goes to the area's backlog.
+    const backlog = this.backlogOf(e.area), defer = b => backlog.cells.add(b.key);
+    // Each seed costs a standing-spot search: a bounded number per tick.
+    let attempts = C.feedAttempts;
+    while (e.jobs.size < C.openJobs && attempts-- > 0) {
       while (e.pos < e.queue.length && !e.queued.has(e.queue[e.pos])) e.pos++;
       if (e.pos >= e.queue.length) break;
       const seed = e.queue[e.pos]; e.queued.delete(seed);
@@ -430,28 +525,95 @@ export class Construction {
     const gate = this.plan.gates.find(g => g.areas.includes(area.id) && g.areas.some(id => active.has(id)));
     return gate?.cells[0] ?? this.hall.position;
   }
-  // Finished: nothing queued and no jobs left; or every remaining job has
-  // waited stallSeconds with no progress (those are dropped).
+  // Finished: nothing queued and no jobs left. Unreachable blocks never hold
+  // an entry up; they wait in the area's backlog.
   finished(e) {
     for (const job of e.jobs) if (!this.work.jobs.has(job)) e.jobs.delete(job);
-    if (e.queue && e.pos < e.queue.length) return false;
-    const stuck = [...e.jobs].every(j => j.waiting);
-    if (!e.jobs.size && !e.deferred?.size) return true;
-    // Only when the whole build has stalled: nothing placed anywhere.
-    if (stuck && this.game.tick - Math.max(e.lastProgress, this.lastProgress ?? 0) > C.stallSeconds * TICK_RATE) {
-      for (const job of e.jobs) this.work.drop(job);
-      console.warn(`Goblin construction: ${e.id} finished without ${e.jobs.size + (e.deferred?.size ?? 0)} unreachable block(s)`);
-      e.jobs.clear(); e.deferred?.clear(); return true;
+    return !(e.queue && e.pos < e.queue.length) && !e.jobs.size;
+  }
+
+  // ---- Unreachable work ----
+
+  // Blocks nobody can reach yet (no standing spot, or a worker couldn't get
+  // to the spot) are parked in their area's backlog, bucketed by column. A
+  // change that could make one possible wakes the parked cells near it: a
+  // node that became reachable (an area's or a construction site's), or a
+  // job that ended (freeing its claims and standing spot). Woken cells are
+  // queued again; still-impossible ones park again for a single spot search
+  // each, so impossible work costs nothing while it stays impossible and
+  // never blocks the build order. Every backlogRetrySeconds all parked cells
+  // are retried once (a worker blocked by a passing body, say). Whatever is
+  // still unreachable when construction ends is left to repairs.
+  backlogOf(area) {
+    this.backlogs ??= new Map();
+    if (!this.backlogs.has(area.id)) this.backlogs.set(area.id, { cells: new Parked(this.work),
+      entry: { id: `${area.id}:backlog`, phase: 'backlog', area, cells: [], jobs: new Set(), queue: [], queued: new Set(), pos: 0, started: true } });
+    return this.backlogs.get(area.id);
+  }
+  // A job its worker couldn't reach: its remaining blocks join the backlog.
+  // Its drop wakes nothing (waking would just hand the same blocks out again).
+  deferJob(job) {
+    const area = job.entry?.area; if (!area) return false;
+    const backlog = this.backlogOf(area);
+    for (const b of job.blocks) if (this.work.need(b)) backlog.cells.add(b.key);
+    this.work.drop(job, false);
+    return true;
+  }
+  // Something changed at a point: parked cells within reach of it are retried.
+  wake(p) {
+    if (!p) return;
+    this.woken ??= new Map();
+    const r = C.reach + 2;
+    for (let bz = Math.floor((p.z - r) / BUCKET); bz <= Math.floor((p.z + r) / BUCKET); bz++)
+      for (let bx = Math.floor((p.x - r) / BUCKET); bx <= Math.floor((p.x + r) / BUCKET); bx++) {
+        const b = `${bx},${bz}`; if (!this.woken.has(b)) this.woken.set(b, []);
+        this.woken.get(b).push({ x: p.x, z: p.z });
+      }
+  }
+  // Drained queues and no jobs, with a full retry since the last block was
+  // placed (so nothing parked is still possible).
+  backlogQuiet() {
+    return [...this.backlogs?.values() ?? []].every(b => !b.entry.jobs.size && b.entry.pos >= b.entry.queue.length)
+      && !this.woken?.size && (this.retriedAt ?? -Infinity) > (this.lastProgress ?? -Infinity);
+  }
+  feedBacklogs() {
+    const tick = this.game.tick;
+    if (tick - (this.reachCheck ?? -Infinity) >= LIFE.reachTicks) {
+      this.reachCheck = tick;
+      const before = this.nav.reach?.set, now = this.nav.reachable(s => this.garrison.spawnAlive(s), tick);
+      if (now !== before) for (const k of now) if (!before?.has(k)) this.wake(this.plan.graph.get(k));
+      for (const site of this.sites.values()) if (this.available(site.area)) site.reach();
     }
-    return false;
+    const all = tick - (this.retriedAt ?? -Infinity) >= ticks(C.backlogRetrySeconds);
+    if (all) this.retriedAt = tick;
+    const woken = all ? null : this.woken;
+    for (const backlog of this.backlogs?.values() ?? []) {
+      const e = backlog.entry;
+      if (backlog.cells.size && (all || woken?.size) && this.available(e.area)) {
+        const cells = backlog.cells.take(woken, C.reach + 2);
+        if (cells.length) {
+          // Compact what's still queued, add the woken cells, and keep the
+          // queue in build order (the spawn building before walls and the
+          // rest); a stable sort keeps each phase's own order.
+          e.queue = e.queue.slice(e.pos).filter(k => e.queued.has(k)); e.pos = 0;
+          for (const k of cells) if (!e.queued.has(k)) { e.queue.push(k); e.queued.add(k); }
+          const rank = k => this.phaseOf.get(k) ?? PHASES.length;
+          e.queue.sort((a, b) => rank(a) - rank(b));
+        }
+      }
+      if (e.pos < e.queue.length) this.feed(e);
+      for (const job of e.jobs) if (!this.work.jobs.has(job)) e.jobs.delete(job);
+    }
+    this.woken?.clear();
   }
   finish(e) {
     e.done = true;
     for (const k of e.cells) this.work.reserved.delete(k);
-    if (e.phase === 'spawn') this.activate(e.area);
-    if (e.area && this.areaDone(e.area)) { e.area.unfinished = false; this.nav.caches.delete(e.area.id); }
+    // An area with no spawn building comes alive once its spawn phase is
+    // through; others when the building actually stands (see update()).
+    if (e.phase === 'spawn' && !this.spawnOf.get(e.area.id)) this.activate(e.area);
   }
-  progressed(job) { this.lastProgress = this.game.tick; if (job.entry) job.entry.lastProgress = this.game.tick; }
+  progressed(job) { this.lastProgress = this.game.tick; }
 
   // ---- Skipping pieces ----
 
@@ -527,27 +689,53 @@ export class Construction {
       this.feed(e);
       if (this.finished(e)) this.finish(e);
     }
+    this.feedBacklogs();
+    if (this.game.tick % LIFE.reachTicks === 0) this.settleAreas();
+    // Areas come alive when their spawn building stands in the world, however
+    // the blocks got there (built, backlog, or a player).
+    if (this.game.tick % LIFE.reachTicks === 0) for (const a of this.plan.areas) {
+      const spawn = this.spawnOf.get(a.id);
+      if (!spawn || a.alive || !this.garrison.spawnAlive(spawn)) continue;
+      if (this.entries.get(a.id)?.find(e => e.phase === 'spawn')?.started) { a.alive = true; this.activate(a); }
+    }
     const underground = this.plan.areas.filter(a => a.kind === 'underground' && a !== this.shaft);
     const r = this.relocation;
     if (!r.done && !r.started && underground.every(a => this.areaDone(a)) && this.entranceArea.state === 'active' && this.midArea.state === 'active') this.startRelocation();
-    if (r.started && !r.done && !this.work.jobs.has(r.job)) this.relocated();
+    if (r.started && !r.done && !this.work.jobs.has(r.job)) {
+      // The climb is done: restore the hall's part from its floor.
+      const h = r.hall;
+      if (!h.queue) { h.queue = [...h.cells]; h.queued = new Set(h.queue); h.pos = 0; }
+      this.feed(h);
+      if (this.finished(h)) this.relocated();
+    }
     const c = this.castleEntry, surface = this.plan.areas.filter(a => a.kind === 'surface');
     if (!c.done && r.done && surface.every(a => this.areaDone(a))) {
       if (!c.started) this.start(c);
       this.feed(c);
-      if (this.finished(c)) { this.finish(c); this.complete(); }
+      if (this.finished(c)) this.finish(c);
     }
+    // Complete once the Castle stands and the backlog is quiet: nothing
+    // queued or being worked, and every remaining block already checked
+    // against the reachable world as it is now.
+    if (c.done && this.backlogQuiet()) this.complete();
   }
   // One worker lines the shaft above the Mid Room and plugs it below,
   // bottom-up, standing on the ladder two blocks above its work.
   startRelocation() {
     const r = this.relocation, work = this.work, col = this.data.column;
     r.started = true;
-    const blocks = r.cells.map(k => work.difference(k, true)).filter(Boolean)
+    // Above the hall: climbing, bottom-up. The hall's own shaft blocks (its
+    // lining backs the ladders) are restored afterwards from the hall floor.
+    const top = this.hall.box.y1;
+    const blocks = r.cells.map(k => work.difference(k, true)).filter(b => b && b.y >= top)
       .sort((a, b) => a.y - b.y || (a.x === col.x && a.z === col.z) - (b.x === col.x && b.z === col.z));
-    const approach = this.nav.nearest(this.midArea, { x: col.x + 1, y: this.mid.position.y + 1, z: col.z });
-    r.job = work.addJob(blocks, { area: this.midArea.id, ordered: true, first: true, entry: r,
-      climb: { x: col.x, z: col.z, offset: 2, min: this.data.column.y0, max: col.y1, approach, approachArea: this.midArea.id } });
+    r.hall = { id: 'relocation:hall', phase: 'relocation', area: this.hallArea, started: true, jobs: new Set(),
+      cells: r.cells.filter(k => work.cell(k).y < top) };
+    // Approached from the hall, like the dig: the plug goes in below the
+    // worker as it climbs, and it leaves at the Mid Room.
+    const { approach, approachArea } = this.digJob.climb;
+    r.job = work.addJob(blocks, { area: approachArea, ordered: true, first: true, entry: r,
+      climb: { x: col.x, z: col.z, offset: 2, min: this.data.column.y0, max: col.y1, approach, approachArea } });
     console.log(`Goblin construction: relocation started after ${this.minutes()} min`);
   }
   relocated() {
@@ -567,7 +755,10 @@ export class Construction {
   }
   complete() {
     this.done = true;
-    console.log(`Goblin construction: fortress complete after ${this.minutes()} min`);
+    for (const a of this.plan.areas) if (a.unfinished) { a.unfinished = false; this.nav.caches.delete(a.id); }
+    const left = [...this.backlogs?.values() ?? []].reduce((n, b) => n + b.cells.size + b.entry.queue.length - b.entry.pos, 0);
+    for (const b of this.backlogs?.values() ?? []) for (const job of b.entry.jobs) this.work.drop(job);
+    console.log(`Goblin construction: fortress complete after ${this.minutes()} min${left ? ` (${left} unreachable block(s) left to repairs)` : ''}`);
     this.game.broadcast({ type: S2C.ANNOUNCE, text: 'The goblin fortress is complete' });
   }
 

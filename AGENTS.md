@@ -607,7 +607,12 @@ PROTOCOL.md                  WebSocket message reference
   runs are collapsed. Posts pace and look around, workers visit interests,
   and section patrols traverse a graph diameter and retrace it.
 - `server/goblins/nav.js` caches surface flow fields and underground
-  room-cross/hall-center/shaft waypoint graphs. Local attachments and
+  room-cross/hall-center/shaft waypoint graphs. A field is a reverse Dijkstra
+  from its goal grown lazily (`settle`) only until the asking goblin's node is
+  settled, over an incoming-edge list cached per area (`reverse`), so a field
+  for a one-off work spot costs little. Only-additions refreshes mark an area
+  `grownAt` (fields rebuild after `grownTicks`); losses are applied at most
+  once per `grownTicks`. Local attachments and
   cross-area searches share a per-tick node budget; ladder edges cost more
   and role data can prohibit them. The first search of a tick runs to
   completion (so routes longer than the budget still finish); later ones
@@ -743,12 +748,22 @@ PROTOCOL.md                  WebSocket message reference
   (wall columns and gatehouses), `rest`. An entry starts once its area is
   active or adjacent to an active one; it queues its cells (cuts outward from
   the area's origin, then fills/building bottom-up) and `feed` turns them into
-  at most `openJobs` jobs, clusters grown through queued cells. Cells with no
-  reachable standing spot are deferred and re-queued every `waitRetrySeconds`.
-  `nav.reachable` (a search from standing spawns through active areas,
-  refreshed every `reachTicks`) filters standing spots, so natural caves inside
-  planned volumes are never used. Only when no block has been placed anywhere
-  for `stallSeconds` does an entry finish without its unreachable blocks.
+  at most `openJobs` jobs (at most `feedAttempts` seeds per tick), clusters
+  grown through queued cells; `work.spotPool` gathers a cluster's standing-spot
+  candidates once for all its splits. `nav.reachable` (a search from standing
+  spawns through active areas, refreshed every `reachTicks`) filters standing
+  spots, so natural caves inside planned volumes are never used.
+- Impossible work: a cell with no reachable standing spot, or whose worker
+  gave up (no route, `taskTimeout`, blocked by a body for `blockedSwings`), is
+  parked in its area's backlog (`backlogOf`, cells bucketed by 8x8 columns).
+  It never holds up the build order. `construction.wake(point)` retries only
+  the parked cells within reach of a change: nodes that became reachable (an
+  area's or a site's) and jobs that ended (`work.drop`, freeing claims and
+  spots). Every `backlogRetrySeconds` all parked cells are retried once.
+  Construction completes when the Castle is done and the backlogs are quiet
+  (drained, with a full retry since the last placed block); anything still
+  parked is left to repairs. An area stays `unfinished` (plain-graph routing)
+  until its entries are done and its backlog is empty (`settleAreas`).
 - Planned areas are reached through a `Site`: their walkable graph as the
   world stands (no walls), entries where it touches reachable nodes of an
   active neighbour, and a breadth-first flow from them; rebuilt around edited
@@ -765,8 +780,9 @@ PROTOCOL.md                  WebSocket message reference
   then the shaft area is removed. The Castle entry (its box, down to
   `castleDepth` below) goes last.
 - Workers check for tasks wherever they stand; `unit.routeTo` walks out of a
-  site first when needed. A task with no block placed for `taskTimeout` is
-  given up. `spawnAlive` also requires open feet and head cells. While building,
+  site first when needed. A goblin standing in a cell a worker places into is
+  nudged aside (`nudgeSpeed`). Castle jobs are also open to workers of the
+  entrance area's neighbours. `spawnAlive` also requires open feet and head cells. While building,
   a goblin whose post is unreachable spawns anyway and waits at its spawn.
 - The `maxGoblinFortress` creative action (`completeAll`) places every
   remaining target at once with the per-block hooks off (`garrison.bulk`),

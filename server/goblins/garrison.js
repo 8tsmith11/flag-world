@@ -33,7 +33,10 @@ export class Garrison {
     this.construction = new Construction(this);
   }
   add(area, role, duty, point, extras = {}) {
-    const target = this.nav.nearest(area, point, role); if (!target) throw new Error(`No post in ${area.id}`);
+    // Posts follow the planned fortress: an area still unbuilt (rock) has no
+    // node a body fits on yet, so its nearest planned node serves.
+    const target = this.nav.nearest(area, point, role) ?? this.nav.nearest(area, point, null);
+    if (!target) throw new Error(`No post in ${area.id}`);
     const slot = { id: `${area.id}:${area.slots.length}`, home: area.id, role, duty,
       point: { x: target.x, y: target.y, z: target.z }, mob: null, ready: 0, loop: this.loop(area), ...extras };
     area.slots.push(slot); this.slots.set(slot.id, slot); return slot;
@@ -82,7 +85,7 @@ export class Garrison {
       for (let i = 0; i < Math.max(1, Math.ceil(area.nodes.size / C.patrolPerCells)); i++) this.add(area, 'soldier', 'patrol', loop[i % loop.length]);
       for (const id of area.gates) {
         const gate = this.plan.gates.find(g => g.id === id);
-        const post = this.nav.nearest(area, gate.posts?.[area.id] ?? gate.cells[0]);
+        const post = this.nav.nearest(area, gate.posts?.[area.id] ?? gate.cells[0]) ?? this.nav.nearest(area, gate.posts?.[area.id] ?? gate.cells[0], null);
         for (let i = 0; i < C.gateGuards; i++) this.add(area, 'soldier', 'gate', post);
         // A reachable point on this side of the gate, two cells behind guards.
         const behind = [...area.nodes].map(k => this.plan.graph.get(k)).filter(n => n && n.y === post.y && dist(n, post) >= 2 && dist(n, post) <= 3)
@@ -185,7 +188,9 @@ export class Garrison {
       // A slot with no spawn site or no route waits before searching again,
       // rather than repeating the search every tick.
       const spawn = this.spawnFor(slot); if (!spawn) { slot.retry = tick + C.spawnRetryTicks; continue; }
-      if (tick < (this.releases.get(spawn.id) ?? 0)) continue;
+      // Its spawn point just released someone: wait for the next release.
+      const release = this.releases.get(spawn.id) ?? 0;
+      if (tick < release) { slot.retry = release; continue; }
       const route = this.nav.route({ x: spawn.point.x + 0.5, y: spawn.point.y, z: spawn.point.z + 0.5 }, slot.point,
         this.nav.area(slot.home), { role: slot.role, ladders: GOBLINS[slot.role].ladders });
       if (route === null) continue;

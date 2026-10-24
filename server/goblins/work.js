@@ -29,13 +29,17 @@ const ignored = id => plant(id) || C.ignoredBlocks.includes(id) || isFlowingWate
 // Removing these would lose state (containers, turrets).
 const protectedBlock = id => C.protectedBlocks.includes(id) || !!getBlockDef(id).tileEntity || !!turretType(id);
 // A door's open/closed state is a player choice, not damage.
-const same = (a, b) => a === b || isDoor(a) && isDoor(b)
+// Grass and dirt count as one: grass spreads over placed dirt and covered
+// grass turns back to dirt, so neither is ever worth redoing.
+const soil = id => id === BLOCK.DIRT || id === BLOCK.GRASS;
+const same = (a, b) => a === b || soil(a) && soil(b) || isDoor(a) && isDoor(b)
   && ['facing', 'upper', 'reinforced'].every(k => doorState(a)[k] === doorState(b)[k]);
 
 export class WorkOrders {
   constructor(garrison) {
     this.garrison = garrison; this.game = garrison.game; this.world = garrison.game.world;
     this.targets = new Map();       // cell key -> target block id (or CLEAR)
+    this.badSpots = new Map();      // standing spot key -> tick it may be offered again
     this.sections = new Map();      // section key -> { key, cells, area, dirty, center }
     this.byArea = new Map();        // area id -> sections
     this.dirty = new Map();         // area id -> Set of dirty sections
@@ -164,33 +168,59 @@ export class WorkOrders {
   areasFor(unit) {
     const plan = this.garrison.plan, nav = this.garrison.nav, home = unit.home;
     const next = id => plan.gates.filter(g => g.areas.includes(id)).flatMap(g => g.areas).filter(a => a !== id);
-    const near = new Set(next(home));
+    // During construction, neighbours also include touching surface areas.
+    const construction = this.garrison.construction;
+    const near = new Set(construction && !construction.done ? construction.neighbours(nav.area(home)).map(a => a.id) : next(home));
     for (const id of [...near]) if (nav.area(id)?.link) for (const n of next(id)) near.add(n);
     return [home, ...[...near].filter(id => nav.area(id)?.state === 'planned')];
   }
   // A standing spot from which every block is within reach: the nearest
   // supported walkable node, never inside any job's target cells. Planned
   // areas offer the reachable nodes of their construction site.
-  spotFor(blocks, areaIds) {
-    const nav = this.garrison.nav, own = new Set(blocks.map(b => b.key));
+  // pool: candidates gathered once for a larger set of blocks (see addJobs).
+  spotFor(blocks, areaIds, pool = this.spotPool(blocks, areaIds)) {
+    const own = new Set(blocks.map(b => b.key));
     let cx = 0, cy = 0, cz = 0;
     for (const b of blocks) { cx += b.x + 0.5; cy += b.y + 0.5; cz += b.z + 0.5; }
     const mid = { x: cx / blocks.length, y: cy / blocks.length, z: cz / blocks.length };
+    // Areas in preference order, then the nearest node in each.
+    for (const { id, nodes } of pool) {
+      let best = null, d = Infinity;
+      for (const n of nodes) {
+        const dn = Math.hypot(n.x + 0.5 - mid.x, n.z + 0.5 - mid.z);
+        if (dn > C.reach + 1 || dn >= d) continue;
+        const feet = this.key(n.x, n.y, n.z), head = this.key(n.x, n.y + 1, n.z);
+        if (own.has(feet) || own.has(head) || this.claimed.has(feet) || this.claimed.has(head)) continue;
+        if (this.game.tick < (this.badSpots.get(n.key) ?? 0)) continue;
+        const body = { x: n.x + 0.5, y: n.y + 0.6, z: n.z + 0.5 };
+        if (blocks.every(b => Math.hypot(b.x + 0.5 - body.x, b.y + 0.5 - body.y, b.z + 0.5 - body.z) <= C.reach)) { best = n; d = dn; }
+      }
+      if (best) return { spot: best, area: id };
+    }
+    return null;
+  }
+  // Standing-spot candidates for every subset of `blocks`: each area's
+  // reachable nodes within reach + 1 of any of them.
+  spotPool(blocks, areaIds) {
+    const nav = this.garrison.nav;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const b of blocks) { x0 = Math.min(x0, b.x); x1 = Math.max(x1, b.x); z0 = Math.min(z0, b.z); z1 = Math.max(z1, b.z); }
+    const mid = { x: (x0 + x1 + 1) / 2, y: 0, z: (z0 + z1 + 1) / 2 };
+    const radius = C.reach + 1 + Math.hypot(x1 - x0, z1 - z0) / 2;
+    const pool = [];
     for (const id of areaIds) {
       const area = nav.area(id); if (!area) continue;
       const site = area.state === 'planned' ? this.garrison.construction?.site(area) : null;
       const reachable = !site && this.garrison.plan.construction ? nav.reachable(s => this.garrison.spawnAlive(s), this.game.tick) : null;
-      const nodes = site ? site.nodesNear(mid, C.reach + 1)
-        : area.state === 'active' ? nav.nodesNear(area, mid, C.reach + 1, 'worker').filter(n => !reachable || reachable.has(n.key)) : [];
-      for (const n of nodes) {
-        const feet = this.key(n.x, n.y, n.z), head = this.key(n.x, n.y + 1, n.z);
-        if (own.has(feet) || own.has(head) || this.claimed.has(feet) || this.claimed.has(head)) continue;
-        const body = { x: n.x + 0.5, y: n.y + 0.6, z: n.z + 0.5 };
-        if (blocks.every(b => Math.hypot(b.x + 0.5 - body.x, b.y + 0.5 - body.y, b.z + 0.5 - body.z) <= C.reach)) return { spot: n, area: id };
-      }
+      const nodes = site ? site.nodesNear(mid, radius)
+        : area.state === 'active' ? nav.nodesNear(area, mid, radius, 'worker', true).filter(n => !reachable || reachable.has(n.key)) : [];
+      if (nodes.length) pool.push({ id, nodes });
     }
-    return null;
+    return pool;
   }
+  // A worker couldn't walk to this standing spot: it isn't offered again for
+  // badSpotSeconds (the nav graph and reachability can disagree briefly).
+  badSpot(spot) { if (spot) this.badSpots.set(spot.key, this.game.tick + ticks(C.badSpotSeconds)); }
   // Halves along the longest axis of the blocks' bounding box.
   split(blocks) {
     const axis = ['x', 'y', 'z'].map(a => [a, Math.max(...blocks.map(b => b[a])) - Math.min(...blocks.map(b => b[a]))])
@@ -203,10 +233,12 @@ export class WorkOrders {
   // every job (a construction entry, the areas its sites may use).
   // With defer (construction), a block with no spot is handed back instead
   // of becoming a waiting job.
-  addJobs(blocks, areaIds, extra = {}, defer = null) {
-    if (blocks.length > C.maxJobBlocks) { for (const half of this.split(blocks)) this.addJobs(half, areaIds, extra, defer); return; }
-    const found = this.spotFor(blocks, areaIds);
-    if (!found && blocks.length > 1) { for (const half of this.split(blocks)) this.addJobs(half, areaIds, extra, defer); return; }
+  addJobs(blocks, areaIds, extra = {}, defer = null, pool = this.spotPool(blocks, areaIds)) {
+    // Nothing to stand on near any of them: all handed back at once.
+    if (!pool.length && defer) { for (const b of blocks) defer(b); return; }
+    if (blocks.length > C.maxJobBlocks) { for (const half of this.split(blocks)) this.addJobs(half, areaIds, extra, defer, pool); return; }
+    const found = pool.length ? this.spotFor(blocks, areaIds, pool) : null;
+    if (!found && blocks.length > 1) { for (const half of this.split(blocks)) this.addJobs(half, areaIds, extra, defer, pool); return; }
     if (!found && defer) { defer(blocks[0]); return; }
     this.addJob(blocks, { spot: found?.spot ?? null, area: found?.area ?? areaIds[0], waiting: !found, sites: areaIds, ...extra });
   }
@@ -239,8 +271,12 @@ export class WorkOrders {
     }
     this.addClusters(diffs, this.areasFor(unit));
   }
-  drop(job) {
+  // A job ended (done, given up or cancelled): its claims and standing spot
+  // are free, which may make parked construction work possible.
+  drop(job, wake = true) {
     this.jobs.delete(job);
+    const construction = this.garrison.construction;
+    if (construction && wake) { construction.wake(job.spot); construction.wake(job.blocks[0]); }
     for (const b of job.blocks) if (this.claimed.get(b.key) === job) this.claimed.delete(b.key);
     if (job.worker?.task?.job === job) job.worker.task = null;
   }
@@ -265,6 +301,14 @@ export class WorkOrders {
   }
   // The next job for an idle worker, or an inspection when its area's timer
   // is due. Nothing while an enemy is inside the area.
+  // A worker of a neighbouring surface area may help finish a surface area
+  // whose own construction phases are done (underground workers stay below:
+  // the shaft they would cross is relocated at the end).
+  helps(unit, area) {
+    const construction = this.garrison.construction;
+    if (!construction || area.kind !== 'surface' || !construction.areaDone(area)) return false;
+    return construction.neighbours(area).some(a => a.id === unit.home && a.kind === 'surface');
+  }
   nextTask(unit, tick) {
     const areas = this.areasFor(unit), occupied = this.garrison.occupied;
     let retries = C.retriesPerTask;
@@ -281,7 +325,12 @@ export class WorkOrders {
     }
     let best = null, bestScore = Infinity;
     for (const job of this.jobs) {
-      if (job.worker || job.waiting || !areas.includes(job.area) || occupied.has(job.area)) continue;
+      // A construction job belongs to its entry's area wherever its spot is.
+      // Once that area's own phases are built, what's left there (the Castle,
+      // backlog cleanup) is open to the neighbours' workers too.
+      const own = areas.includes(job.area) || job.entry && areas.includes(job.entry.area.id)
+        || job.entry && this.helps(unit, job.entry.area);
+      if (job.worker || job.waiting || !own || occupied.has(job.area)) continue;
       const at = job.spot ?? job.blocks[0];
       const score = this.rank(job) * 1e6 + Math.hypot(at.x - unit.state.x, at.z - unit.state.z);
       if (score < bestScore) { best = job; bestScore = score; }
@@ -298,22 +347,30 @@ export class WorkOrders {
   // The job's next block. Ordered jobs (the shaft) go in their own order;
   // others do removals top-down, then placements bottom-up. Null when the
   // job is done; 'blocked' when someone stands in every remaining placement.
-  nextBlock(job) {
+  nextBlock(job, worker = null) {
     const pending = job.blocks.filter(b => this.need(b));
     if (!pending.length) return null;
-    if (job.ordered) return this.occupied(pending[0]) && pending[0].want !== BLOCK.AIR ? 'blocked' : pending[0];
+    if (job.ordered) return this.occupied(pending[0], worker) && pending[0].want !== BLOCK.AIR ? 'blocked' : pending[0];
     const removals = pending.filter(b => b.want === BLOCK.AIR || b.want === CLEAR).sort((a, b) => b.y - a.y);
     if (removals.length) return removals[0];
-    const free = pending.filter(b => !this.occupied(b)).sort((a, b) => a.y - b.y);
+    const free = pending.filter(b => !this.occupied(b, worker)).sort((a, b) => a.y - b.y);
     return free[0] ?? 'blocked';
   }
-  occupied(b) {
+  // Someone stands in the cell. A goblin there (not the worker itself) is
+  // nudged out of the way with a small push; a player is waited for.
+  occupied(b, worker = null) {
     if (this.game.playerIn(b.x, b.y, b.z)) return true;
+    let found = false;
     for (const m of this.game.mobs.values()) {
       const s = m.state, w = s.box?.halfW ?? 0.3, h = s.box?.height ?? 1.8;
-      if (s.x + w > b.x && s.x - w < b.x + 1 && s.z + w > b.z && s.z - w < b.z + 1 && s.y < b.y + 1 && s.y + h > b.y) return true;
+      if (!(s.x + w > b.x && s.x - w < b.x + 1 && s.z + w > b.z && s.z - w < b.z + 1 && s.y < b.y + 1 && s.y + h > b.y)) continue;
+      found = true;
+      if (m.goblin && m !== worker && !m.immovable) {
+        const dx = s.x - (worker?.state.x ?? b.x + 0.5), dz = s.z - (worker?.state.z ?? b.z + 0.5), d = Math.hypot(dx, dz) || 1;
+        s.kx = dx / d * C.nudgeSpeed; s.kz = dz / d * C.nudgeSpeed;
+      }
     }
-    return false;
+    return found;
   }
   // One swing's work: remove the wrong block (as if broken, so its item
   // drops; trees and plants just go), then place the target block. Placed

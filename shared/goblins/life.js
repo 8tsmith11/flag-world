@@ -50,6 +50,8 @@ export const LIFE = {
   stuckTicks: 40, unseenAdvance: 3, creativeRadius: 6,
   nodeBudget: 1800, ladderCost: 10, cacheDestinations: 48, spawnRetryTicks: 40,
   reachTicks: 40,           // reachable-node set refresh (construction standing spots)
+  grownTicks: 40,           // after only additions to an area's graph, cached routes are rebuilt within this
+  noRouteTicks: 40,         // a destination with no route isn't searched again for this long
   // The group that starts in the Totem Hall (with the King and the Totem);
   // the hall's other slots open once its area's spawn room is built.
   startGroup: { worker: 1, soldier: 2 },
@@ -86,19 +88,24 @@ export const WORK = {
   retriesPerTask: 8,        // waiting jobs re-checked for a standing spot per task request
   waitRetrySeconds: 3,      // a waiting job is re-checked at least this often
   taskTimeout: 30,          // a worker gives up a task with no block placed for this long
+  nudgeSpeed: 4,            // push given to a goblin standing where a worker places a block
+  blockedSwings: 6,         // swings a job may stay blocked before it goes back to the backlog
 
   // ---- Construction ----
   terrainBlocks: [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND], // cut/fill targets count as site prep
   clearBand: 6,             // blocks outside the outer wall cleared of trees and plants
   clearHeight: 16,          // that clearing reaches this far above the ground
+  badSpotSeconds: 30,       // a standing spot a worker couldn't walk to isn't offered for this long
+  backlogRetrySeconds: 60,  // parked (unreachable) construction cells are all retried this often
   maxRestore: 400,          // a piece whose site needs more cut/fill than this is skipped
   castleDepth: 8,           // the Castle's entry reaches this far below its box (its earthworks)
+  blocksPerWorker: 1500,    // construction crews: one worker per this many blocks an area has to build
   openJobs: 24,             // jobs an entry keeps open at once (more are made as they finish)
-  stallSeconds: 120,        // with no block placed anywhere this long, entries with only unreachable blocks finish without them
+  feedAttempts: 48,         // queued cells an entry turns into jobs (or defers) per tick
   siteRefreshTicks: 20,     // a construction site's reachable spots are recomputed at most this often
   // Pace: full completion takes about completionMinutes(island radius). The
-  // swing interval is scaled from the measured completion on the reference
-  // islands (see the report in AGENTS.md).
+  // swing interval comes from the blocks to build and that time, calibrated
+  // on the Small island (about 30 workers; walking takes the rest).
   completionMinutes: radius => 40 * radius / 112,
-  buildSwingSeconds: radius => 0.15 * radius / 110,
+  buildSwingSeconds: (minutes, blocks) => 0.68 * minutes * 60 / Math.max(1, blocks),
 };

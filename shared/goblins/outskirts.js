@@ -63,8 +63,9 @@ export function recomputeOutskirts(world, plan = world.goblinPlan, { runtime = f
     }
   }
   const graph = makeGraph(world, surfaceVolumes(plan, band), plan.wallCells, plan.platformCells);
+  const roads = new Map(plan.surface.roads.map(r => [cellKey(r.x, r.z), r.y]));
   for (const [k, n] of graph) {
-    const ground = plan.surface.roads.find(r => r.x === n.x && r.z === n.z)?.y
+    const ground = roads.get(cellKey(n.x, n.z))
       ?? plan.buildability.cells.get(cellKey(n.x, n.z))?.ground;
     // Trees/roofs overhead are not island ground and are never patrol space.
     if (n.y !== ground + 1) graph.delete(k);
@@ -78,11 +79,13 @@ export function recomputeOutskirts(world, plan = world.goblinPlan, { runtime = f
   const patches = components(graph);
   for (const patch of patches) {
     if (patch.length < C.minArea) { for (const n of patch) graph.delete(n.key); continue; }
+    // At runtime no gates are carved, so the exit test is skipped.
+    if (!outer || runtime) continue;
     const keys = new Set(patch.map(n => n.key));
     const touchesExit = active.some(a => [...a.nodes].some(k => {
       const n = plan.graph.get(k); return n && !plan.wallCells.has(cellKey(n.x, n.z)) && CARDINAL.some(([dx, dz]) => [0, 1, -1].some(dy => keys.has(nodeKey({ x: n.x + dx, y: n.y + dy, z: n.z + dz }))));
     }));
-    if (touchesExit || !outer || runtime) continue;
+    if (touchesExit) continue;
     const candidates = outer.wall.flatMap(w => {
       if (plan.surface.posts.some(p => Math.abs(p.x - w.x) + Math.abs(p.z - w.z) <= 2)) return [];
       if (plan.surface.rings.some(r => r !== outer && r.wall.some(p => p.x === w.x && p.z === w.z))) return [];
@@ -121,11 +124,14 @@ export function recomputeOutskirts(world, plan = world.goblinPlan, { runtime = f
   }
   // Newly placed gatehouse posts can occupy a candidate band cell. Refresh
   // before sectioning, so patrol endpoints never use those stale feet cells.
-  const refreshed = makeGraph(world, surfaceVolumes(plan, band), plan.wallCells, plan.platformCells);
-  for (const k of graph.keys()) {
-    const n = refreshed.get(k); if (n) graph.set(k, n); else graph.delete(k);
+  // (None are placed at runtime.)
+  if (!runtime) {
+    const refreshed = makeGraph(world, surfaceVolumes(plan, band), plan.wallCells, plan.platformCells);
+    for (const k of graph.keys()) {
+      const n = refreshed.get(k); if (n) graph.set(k, n); else graph.delete(k);
+    }
+    for (const n of graph.values()) n.edges = n.edges.filter(e => graph.has(e.to));
   }
-  for (const n of graph.values()) n.edges = n.edges.filter(e => graph.has(e.to));
   for (const a of active) for (const k of a.nodes) {
     const n = plan.graph.get(k);
     if (n && !walkable(world, n)) { a.nodes.delete(k); plan.graph.delete(k); }
@@ -155,8 +161,15 @@ export function recomputeOutskirts(world, plan = world.goblinPlan, { runtime = f
     neighbour.volumes.push(...a.volumes); sections.splice(sections.indexOf(a), 1);
   }
   plan.outskirts = sections;
-  // Rebuild edges only in these bounded volumes, including gate approaches.
-  const combined = makeGraph(world, [...active.flatMap(a => a.volumes), ...sections.flatMap(a => a.volumes)], plan.wallCells, plan.platformCells);
+  // Rebuild edges only in these bounded volumes, including gate approaches:
+  // the sections, and the active areas' columns within two of them.
+  const near = new Set();
+  for (const a of sections) for (const k of a.columns) {
+    const [x, z] = k.split(',').map(Number);
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) near.add(cellKey(x + dx, z + dz));
+  }
+  const touches = v => { for (let z = v.z0; z <= v.z1; z++) for (let x = v.x0; x <= v.x1; x++) if (near.has(cellKey(x, z))) return true; return false; };
+  const combined = makeGraph(world, [...active.flatMap(a => a.volumes.filter(touches)), ...sections.flatMap(a => a.volumes)], plan.wallCells, plan.platformCells);
   for (const [k, n] of combined) {
     const old = plan.graph.get(k);
     for (const e of old?.edges ?? []) if (!combined.has(e.to) && plan.graph.has(e.to)) n.edges.push(e);

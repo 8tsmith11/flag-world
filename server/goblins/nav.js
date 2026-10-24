@@ -28,13 +28,14 @@ export class GoblinNav {
     this.world = world; this.plan = world.goblinPlan; this.caches = new Map();
     this.budget = C.nodeBudget; this.version = this.plan.outskirtsVersion;
     // dirty: area id -> columns ("x,z") edited since the last tick.
-    this.waypoints = new Map(); this.dirty = new Map(); this.indexes = new Map();
+    this.waypoints = new Map(); this.dirty = new Map(); this.indexes = new Map(); this.lostAreas = new Set();
     this.reportLadders(this.plan.ladderProblems ?? []);
   }
   reportLadders(problems) {
     for (const p of problems) console.warn(`Ladder has no valid top landing at ${nodeKey(p)}`);
   }
   beginTick() {
+    this.ticks = (this.ticks ?? 0) + 1;
     this.budget = C.nodeBudget;
     if (this.version !== this.plan.outskirtsVersion) {
       for (const id of this.caches.keys()) if (id.startsWith('O')) this.caches.delete(id);
@@ -44,6 +45,13 @@ export class GoblinNav {
       const area = this.area(id); if (area) this.refresh(area, columns);
     }
     this.dirty.clear();
+    for (const id of this.lostAreas) {
+      const a = this.area(id); if (!a) { this.lostAreas.delete(id); continue; }
+      if (this.ticks - (a.lostApplied ?? -Infinity) < C.grownTicks) continue;
+      a.lostApplied = this.ticks; this.lostAreas.delete(id);
+      this.caches.delete(id); this.waypoints.delete(id);
+      a.revision = (a.revision ?? 0) + 1;
+    }
   }
   regions() { return [...this.plan.areas, ...this.plan.outskirts, ...(this.plan.creativeAreas ?? [])]; }
   // By id; rebuilt when outskirts are recomputed or a creative home is added.
@@ -109,17 +117,22 @@ export class GoblinNav {
     };
     this.reportLadders(graph.ladderProblems);
     const edgesKey = edges => edges.map(e => `${e.to}:${e.cost}:${!!e.ladder}`).sort().join('|');
-    let changed = false;
+    // lost: something walkable went away (routes through it are wrong);
+    // otherwise the change only added walkable space.
+    const kept = (before, after) => { const keys = new Set(after.map(e => e.to)); return before.every(e => keys.has(e.to)); };
+    let changed = false, lost = false;
     for (const k of [...a.nodes]) {
       if (!inner.has(column(k))) continue;
       const old = plan.graph.get(k), n = graph.get(k);
-      if (!n) { plan.graph.delete(k); a.nodes.delete(k); changed = true; continue; }
+      if (!n) { plan.graph.delete(k); a.nodes.delete(k); changed = lost = true; continue; }
       // Edges into rebuilt columns come only from the new graph; edges leaving
       // the window (gates into other areas) are kept.
       for (const e of old?.edges ?? []) if (!graph.has(e.to) && !rebuilt(e.to) && plan.graph.has(e.to)) n.edges.push(e);
       // Keep the old node (and its cached fit answers) when nothing differs.
       if (old && old.grounded === n.grounded && old.ladder === n.ladder && edgesKey(old.edges) === edgesKey(n.edges)
         && Object.keys(old.fits ?? {}).every(role => this.fits(n, role) === old.fits[role])) continue;
+      if (!old || !kept(old.edges, n.edges) || old.grounded !== n.grounded
+        || Object.keys(old.fits ?? {}).some(role => old.fits[role] && !this.fits(n, role))) lost = true;
       plan.graph.set(k, n); changed = true;
     }
     for (const [k, n] of graph) {
@@ -129,11 +142,17 @@ export class GoblinNav {
       }
       const old = plan.graph.get(k); if (!old || !a.nodes.has(k)) continue;
       const edges = [...old.edges.filter(e => !rebuilt(e.to)), ...n.edges.filter(e => rebuilt(e.to))];
-      if (edgesKey(edges) !== edgesKey(old.edges)) { old.edges = edges; changed = true; }
+      if (edgesKey(edges) !== edgesKey(old.edges)) { if (!kept(old.edges, edges)) lost = true; old.edges = edges; changed = true; }
     }
     if (!changed) return;
-    this.caches.delete(a.id); this.waypoints.delete(a.id); this.indexes.delete(a.id);
-    a.revision = (a.revision ?? 0) + 1;
+    this.indexes.delete(a.id);
+    // Only additions: cached routes stay valid (just not using the new space
+    // yet); they are rebuilt within grownTicks. A loss re-routes everyone now.
+    if (!lost) { a.grownAt = this.ticks; return; }
+    // Losses are applied at most once per grownTicks per area (construction
+    // removes walkable cells constantly); a goblin that walks into a fresh
+    // wall meanwhile re-plans through its stuck handling.
+    this.lostAreas.add(a.id);
   }
   // Cached on the node: refresh() replaces an edited region's nodes, which
   // drops their cached answers with them.
@@ -176,19 +195,21 @@ export class GoblinNav {
   }
   // Grounded nodes that fit the role within `radius` (horizontal) of a point,
   // nearest first.
-  nodesNear(area, point, radius, role) {
+  // ladders: also rungs (a worker can hold still on a ladder to work).
+  nodesNear(area, point, radius, role, ladders = false) {
     if (!area) return [];
     const index = this.index(area), result = [];
     for (let bz = Math.floor((point.z - radius) / BUCKET); bz <= Math.floor((point.z + radius) / BUCKET); bz++)
       for (let bx = Math.floor((point.x - radius) / BUCKET); bx <= Math.floor((point.x + radius) / BUCKET); bx++)
         for (const n of index.buckets.get(`${bx},${bz}`) ?? []) {
           const d = Math.hypot(n.x + 0.5 - point.x, n.z + 0.5 - point.z);
-          if (d <= radius && n.grounded && this.fits(n, role)) result.push({ n, d });
+          if (d <= radius && (n.grounded || ladders && n.ladder) && this.fits(n, role)) result.push({ n, d });
         }
     return result.sort((a, b) => a.d - b.d).map(e => e.n);
   }
   // Searches buckets in rings around the point and stops once a ring can't
   // hold anything closer than the best so far.
+  // role null: any node, whether or not a body fits there now.
   nearest(area, point, role = 'worker', standing = true) {
     if (!area) return null;
     const index = this.index(area), bx = Math.floor(point.x / BUCKET), bz = Math.floor(point.z / BUCKET);
@@ -196,7 +217,7 @@ export class GoblinNav {
     let best = null, d = Infinity;
     const scan = (x, z) => {
       for (const n of index.buckets.get(`${x},${z}`) ?? []) {
-        if (standing && !n.grounded || !this.fits(n, role)) continue;
+        if (standing && !n.grounded || role && !this.fits(n, role)) continue;
         const score = distance(n, point);
         if (score < d) { best = n; d = score; }
       }
@@ -213,11 +234,39 @@ export class GoblinNav {
   // retain room/connector/shaft waypoints from the plan and their voxel paths.
   field(area, goal, ladders, role) {
     let cache = this.caches.get(area.id);
-    if (!cache || cache.revision !== (area.revision ?? 0)) {
-      cache = new Map(); cache.revision = area.revision ?? 0; this.caches.set(area.id, cache); this.waypoints.delete(area.id);
+    const grown = (area.grownAt ?? -Infinity) > cache?.made && this.ticks - cache.made >= C.grownTicks;
+    if (!cache || cache.revision !== (area.revision ?? 0) || grown) {
+      cache = new Map(); cache.revision = area.revision ?? 0; cache.made = this.ticks ?? 0;
+      this.caches.set(area.id, cache); this.waypoints.delete(area.id);
     }
     const key = `${goal.key}:${ladders}:${role}`;
     if (cache.has(key)) return cache.get(key);
+    const heap = new Heap(), costs = new Map([[goal.key, 0]]), next = new Map(); heap.push(0, goal.key);
+    if (cache.size >= C.cacheDestinations) cache.delete(cache.keys().next().value);
+    const field = { next, costs, heap, settled: new Set(), reverse: this.reverse(area, cache, ladders, role) };
+    cache.set(key, field); return field;
+  }
+  // Grows a field (a reverse Dijkstra from its goal) until `key` is settled,
+  // so a field costs only as much as the farthest goblin that used it.
+  // Settled nodes are final and their next steps point at settled nodes.
+  settle(field, key) {
+    const { heap, costs, next, settled, reverse } = field;
+    while (!settled.has(key) && heap.size) {
+      const k = heap.pop(); if (settled.has(k)) continue;
+      settled.add(k); const cost = costs.get(k);
+      for (const e of reverse.get(k) ?? []) {
+        const c = cost + e.cost;
+        if (settled.has(e.from) || c >= (costs.get(e.from) ?? Infinity)) continue;
+        costs.set(e.from, c); next.set(e.from, k); heap.push(c, e.from);
+      }
+    }
+    return settled.has(key);
+  }
+  // Incoming edges of an area's walkable graph, shared by all its fields
+  // (cached with them, so a graph change rebuilds both).
+  reverse(area, cache, ladders, role) {
+    cache.reverse ??= new Map();
+    const key = `${ladders}:${role}`; if (cache.reverse.has(key)) return cache.reverse.get(key);
     // Waypoints follow the finished fortress's rooms; an area still being
     // built (area.unfinished) routes over its plain graph.
     const waypointGraph = area.kind === 'underground' && !area.unfinished ? this.waypointGraph(area, role, ladders) : null;
@@ -230,17 +279,7 @@ export class GoblinNav {
         reverse.get(e.to).push({ from: k, cost: e.cost });
       }
     }
-    const heap = new Heap(), costs = new Map([[goal.key, 0]]), next = new Map(); heap.push(0, goal.key);
-    while (heap.size) {
-      const k = heap.pop(), cost = costs.get(k);
-      for (const e of reverse.get(k) ?? []) {
-        const c = cost + e.cost;
-        if (c >= (costs.get(e.from) ?? Infinity)) continue;
-        costs.set(e.from, c); next.set(e.from, k); heap.push(c, e.from);
-      }
-    }
-    if (cache.size >= C.cacheDestinations) cache.delete(cache.keys().next().value);
-    const field = { next, costs }; cache.set(key, field); return field;
+    cache.reverse.set(key, reverse); return reverse;
   }
   waypointGraph(area, role, ladders) {
     let cache = this.waypoints.get(area.id);
@@ -339,9 +378,16 @@ export class GoblinNav {
         if (!a.length || !b.length) return [];
         start = a.at(-1); end = b.at(-1); prefix = a.slice(1); suffix = b.reverse().slice(1);
       }
-      const field = this.field(home, end, ladders, role); if (!field.costs.has(start.key)) return [];
+      const field = this.field(home, end, ladders, role); if (!this.settle(field, start.key)) return [];
       const path = [...prefix]; let k = start.key;
-      while (k !== end.key) { k = field.next.get(k); if (!k) return []; path.push(this.plan.graph.get(k)); }
+      while (k !== end.key) {
+        k = field.next.get(k); if (!k) return [];
+        const n = this.plan.graph.get(k);
+        // A cached field can briefly point at a removed node (losses are
+        // applied lazily): rebuild it now.
+        if (!n) { this.caches.delete(home.id); return null; }
+        path.push(n);
+      }
       path.push(...suffix);
       return straighten([first, ...path]).slice(1);
     }
