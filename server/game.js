@@ -449,6 +449,7 @@ export class Game {
       this.pendingBlockChanges.set(`${x},${y},${z}`, { x, y, z, id,
         ...(team !== undefined ? { team } : {}) });
       this.garrison?.nav.changed(x, y, z);
+      this.garrison?.work?.changed(x, y, z);
       this.monkeys?.changed(x,y,z);
       this.water.enqueueAround(x, y, z);
       this.lava.enqueueAround(x, y, z);

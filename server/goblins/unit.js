@@ -1,6 +1,6 @@
 import { createPlayerState, playerFitsAt, playerBoxOf } from '../../shared/physics.js';
 import { stepMobPath } from '../../shared/mobMovement.js';
-import { GOBLINS, LIFE as C, COMBAT as K, DUTIES, boxOf } from '../../shared/goblins/life.js';
+import { GOBLINS, LIFE as C, COMBAT as K, WORK as W, DUTIES, boxOf } from '../../shared/goblins/life.js';
 import { positionRegion } from '../../shared/goblins/areas.js';
 import { ballisticAim, ballisticClear } from '../../shared/ballistics.js';
 import { GOBLIN_STATE, S2C } from '../../shared/protocol.js';
@@ -36,6 +36,8 @@ export class GoblinUnit {
     // Combat state.
     this.target = null; this.lastSeen = 0; this.nextAttack = 0; this.nextChase = 0; this.nextSpot = 0;
     this.ignore = null; this.rally = null; this.threat = null; this.safeSince = 0;
+    // Work: the claimed job or inspection, and the hammer swing timer.
+    this.task = null; this.nextSwing = 0; this.working = false;
     // Game.updateMobs lands the hit a melee step returns, with this damage/knockback.
     if (this.def.melee) { this.biteDamage = this.def.melee.damage; this.biteKnockback = this.def.melee.knockback; }
   }
@@ -57,6 +59,7 @@ export class GoblinUnit {
 
   setTarget(target, tick) {
     if (this.def.flee) {
+      this.endTask();
       this.threat = target; this.safeSince = tick;
       if (this.behavior !== 'flee') { this.behavior = 'flee'; this.path = []; this.routePending = false; this.nextChase = 0; }
       return;
@@ -206,6 +209,50 @@ export class GoblinUnit {
     if (route?.length) this.path = route;
   }
 
+  // ---- Work ----
+
+  // Ends the current job or inspection; a job goes back to the pool unless
+  // finished. The worker looks for its next task straight away.
+  endTask() {
+    const job = this.task?.job;
+    if (job?.worker === this) job.worker = null;
+    this.task = null; this.working = false;
+    if (this.behavior === 'work') { this.behavior = 'idle'; this.wait = 0; }
+  }
+  workStep(tick) {
+    const task = this.task, work = this.garrison.work, nav = this.garrison.nav, job = task.job;
+    if (job && (!work.jobs.has(job) || job.worker !== this)) { this.endTask(); return; }
+    const areaId = job ? job.area : this.home, area = nav.area(areaId);
+    // No work while an enemy is inside the area; the job waits for the area to clear.
+    if (this.garrison.occupied.has(areaId)) { this.endTask(); return; }
+    task.dest ??= job ? job.spot : nav.nearest(area, task.section.center, this.role);
+    if (!task.dest) { this.endTask(); return; }
+    const s = this.state, dest = center(task.dest);
+    const arrived = flat(s, dest) <= W.arriveDistance && Math.abs(s.y - task.dest.y) < 0.6
+      || !job && flat(s, task.section.center) <= W.inspectDistance;
+    if (!arrived) {
+      this.working = false;
+      if (this.path.length) return;
+      // A spot it can't walk to: the job waits until blocks there change.
+      if ((task.tries = (task.tries ?? 0) + 1) > 2) { if (job) job.waiting = true; this.endTask(); return; }
+      const route = nav.route(s, task.dest, area, this.options());
+      if (route === null) task.tries--; else this.path = route;
+      return;
+    }
+    if (!job) { work.inspect(task.section, this); this.endTask(); return; }
+    this.path = []; this.working = true;
+    if (tick < this.nextSwing) return;
+    // The swing lands on the block chosen (and faced) at its start.
+    if (task.current && work.difference(task.current.key)) work.apply(task.current);
+    task.current = null;
+    const block = work.nextBlock(job);
+    if (block === null) { work.drop(job); this.endTask(); return; }
+    this.nextSwing = tick + ticks(W.swingSeconds);
+    if (block === 'blocked') return;
+    task.current = block;
+    s.yaw = Math.atan2(-(block.x + 0.5 - s.x), -(block.z + 0.5 - s.z));
+  }
+
   // ---- Duties ----
 
   think() {
@@ -220,6 +267,9 @@ export class GoblinUnit {
         this.go(loop[this.index++ % loop.length]); break;
       }
       case 'idle': {
+        // Workers take a job (or an inspection) before wandering.
+        const task = this.slot.duty === 'worker' ? this.garrison.work.nextTask(this, this.game.tick) : null;
+        if (task) { this.task = task; this.behavior = 'work'; this.path = []; return; }
         const area = this.garrison.nav.area(this.home), points = area.interests.length ? area.interests : this.slot.loop;
         this.go(points[Math.floor(Math.random() * points.length)] ?? this.slot.point);
         this.wait = wait(C.wanderWait); break;
@@ -256,6 +306,7 @@ export class GoblinUnit {
       if (this.def.melee) this.meleeStep(tick); else this.rangedStep(world, tick);
       speed *= K.chaseSpeed;
     } else if (this.rally) { this.rallyStep(tick); speed *= K.chaseSpeed; }
+    else if (this.task) this.workStep(tick);
     else {
       if (this.behavior === 'post' && !this.path.length && --this.lookWait <= 0) {
         this.state.yaw += (Math.random() - 0.5) * Math.PI; this.lookWait = wait(C.postWait);
@@ -323,7 +374,8 @@ export class GoblinUnit {
     const s = this.state;
     return { id: this.id, type: this.type, x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100,
       z: Math.round(s.z * 100) / 100, yaw: Math.round(s.yaw * 100) / 100,
-      g: this.climbing ? GOBLIN_STATE.CLIMB : this.walking ? GOBLIN_STATE.WALK : GOBLIN_STATE.IDLE };
+      g: this.climbing ? GOBLIN_STATE.CLIMB : this.walking ? GOBLIN_STATE.WALK
+        : this.working ? GOBLIN_STATE.WORK : GOBLIN_STATE.IDLE };
   }
   describe() { return { ...this.snapshot(), name: this.name, hp: this.hp, maxHp: this.def.hp }; }
 }

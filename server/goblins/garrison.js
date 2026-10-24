@@ -1,5 +1,6 @@
 import { GoblinNav } from './nav.js';
 import { GoblinUnit } from './unit.js';
+import { WorkOrders } from './work.js';
 import { GOBLINS, LIFE as C, COMBAT as K } from '../../shared/goblins/life.js';
 import { nodeKey, positionRegion, makeGraph, components } from '../../shared/goblins/areas.js';
 import { cellKey } from '../../shared/structures/buildability.js';
@@ -27,6 +28,7 @@ export class Garrison {
     this.alarms = new Map(); this.occupied = new Set(); this.totemDestroyed = false;
     this.releases = new Map(); this.slots = game.chunkLoading ? game.chunkLoading.entityMap(s => s.point) : new Map(); this.version = this.plan.outskirtsVersion;
     this.generateSlots(this.nav.regions());
+    this.work = new WorkOrders(this);
   }
   add(area, role, duty, point, extras = {}) {
     const target = this.nav.nearest(area, point, role); if (!target) throw new Error(`No post in ${area.id}`);
@@ -110,13 +112,19 @@ export class Garrison {
       }
     }
   }
+  // A spawn building still stands: floor at its door, some roof support and
+  // a corner of its box.
+  spawnAlive(s) {
+    const w = this.game.world;
+    return isSolid(w.getBlock(s.point.x, s.point.y - 1, s.point.z))
+      && (!s.supports || s.supports.some(p => isSolid(w.getBlock(p.x, p.y, p.z))))
+      && (!s.box || [s.box.x0, s.box.x1].some(x => isSolid(w.getBlock(x, s.box.y0, s.box.z0))));
+  }
   spawnFor(slot) {
     if (slot.spawnOverride) return { id: slot.id, point: slot.spawnOverride };
     const home = this.nav.area(slot.home);
     // While an enemy stands inside an area, its buildings release no one.
-    const alive = a => this.occupied.has(a.id) ? [] : a.spawns.filter(s => isSolid(this.game.world.getBlock(s.point.x, s.point.y - 1, s.point.z))
-      && (!s.supports || s.supports.some(p => isSolid(this.game.world.getBlock(p.x, p.y, p.z))))
-      && (!s.box || [s.box.x0, s.box.x1].some(x => isSolid(this.game.world.getBlock(x, s.box.y0, s.box.z0)))));
+    const alive = a => this.occupied.has(a.id) ? [] : a.spawns.filter(s => this.spawnAlive(s));
     if (home.kind === 'outskirts') {
       const linked = this.nav.area(home.linkedArea), spawns = linked ? alive(linked) : [];
       if (spawns.some(s => s.id === home.linkedSpawn?.id)) return home.linkedSpawn;
@@ -261,6 +269,7 @@ export class Garrison {
   }
 
   removed(mob) {
+    this.work?.release(mob);
     const slot = mob.slot; if (!slot || this.slots.get(slot.id) !== slot) return;
     if (mob.role === 'totem') this.totemDestroyed = true;
     slot.mob = null; slot.ready = GOBLINS[slot.role].respawn === null ? null : this.game.tick + GOBLINS[slot.role].respawn * TICK_RATE;

@@ -1,5 +1,6 @@
 import { Heap } from '../pathfind.js';
 import { makeGraph, nodeKey, insideBox, positionRegion } from '../../shared/goblins/areas.js';
+import { cellKey } from '../../shared/structures/buildability.js';
 import { LIFE as C, boxOf } from '../../shared/goblins/life.js';
 import { playerFitsAt } from '../../shared/physics.js';
 
@@ -26,7 +27,8 @@ export class GoblinNav {
   constructor(world) {
     this.world = world; this.plan = world.goblinPlan; this.caches = new Map();
     this.budget = C.nodeBudget; this.version = this.plan.outskirtsVersion;
-    this.waypoints = new Map(); this.dirty = new Set(); this.indexes = new Map();
+    // dirty: area id -> columns ("x,z") edited since the last tick.
+    this.waypoints = new Map(); this.dirty = new Map(); this.indexes = new Map();
     this.reportLadders(this.plan.ladderProblems ?? []);
   }
   reportLadders(problems) {
@@ -38,8 +40,8 @@ export class GoblinNav {
       for (const id of this.caches.keys()) if (id.startsWith('O')) this.caches.delete(id);
       this.version = this.plan.outskirtsVersion;
     }
-    for (const id of this.dirty) {
-      const area = this.area(id); if (area) this.refresh(area);
+    for (const [id, columns] of this.dirty) {
+      const area = this.area(id); if (area) this.refresh(area, columns);
     }
     this.dirty.clear();
   }
@@ -54,27 +56,58 @@ export class GoblinNav {
     return this.byId.get(id);
   }
   contains(area, p) { return area?.volumes.some(v => insideBox(v, p)); }
+  // Edits are coalesced per area until the next tick; see refresh().
   changed(x, y, z) {
     const p = { x, y, z };
     for (const a of this.regions()) {
       if (!this.contains(a, p)) continue;
-      this.caches.delete(a.id); this.waypoints.delete(a.id); this.indexes.delete(a.id);
-      a.revision = (a.revision ?? 0) + 1;
-      this.dirty.add(a.id);
+      if (!this.dirty.has(a.id)) this.dirty.set(a.id, new Set());
+      this.dirty.get(a.id).add(cellKey(x, z));
     }
   }
-  refresh(a) {
-    // Coalesce edits until the next physics tick. Only this region and its
-    // doorway cells refresh; edits outside all volumes invalidate nothing.
-    const graph = makeGraph(this.world, a.volumes, this.plan.wallCells, this.plan.platformCells);
+  // Rebuilds the graph only around edited columns: nodes within one column
+  // of an edit are rebuilt (from a graph two columns wide, so all their edges
+  // are fresh), and nodes in the ring around them get fresh edges toward the
+  // rebuilt ones. Edges leaving the window (gates into other areas) are
+  // kept. Route caches and the revision only change when the walkable graph
+  // did, so roof and wall repairs don't make every goblin re-plan.
+  refresh(a, columns) {
+    const around = r => {
+      const out = new Set();
+      for (const k of columns) {
+        const [x, z] = k.split(',').map(Number);
+        for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) out.add(cellKey(x + dx, z + dz));
+      }
+      return out;
+    };
+    const inner = around(1), window = around(2), plan = this.plan;
+    const column = key => { const [x, , z] = key.split(','); return `${x},${z}`; };
+    const graph = makeGraph(this.world, a.volumes.filter(v => window.has(cellKey(v.x0, v.z0))), plan.wallCells, plan.platformCells);
     this.reportLadders(graph.ladderProblems);
-    for (const k of a.nodes) {
-      const old = this.plan.graph.get(k), n = graph.get(k);
-      if (!n) { this.plan.graph.delete(k); continue; }
-      for (const e of old?.edges ?? []) if (!a.nodes.has(e.to) && this.plan.graph.has(e.to)) n.edges.push(e);
-      this.plan.graph.set(k, n);
+    const edgesKey = edges => edges.map(e => `${e.to}:${e.cost}:${!!e.ladder}`).sort().join('|');
+    let changed = false;
+    for (const k of [...a.nodes]) {
+      if (!inner.has(column(k))) continue;
+      const old = plan.graph.get(k), n = graph.get(k);
+      if (!n) { plan.graph.delete(k); a.nodes.delete(k); changed = true; continue; }
+      for (const e of old?.edges ?? []) if (!graph.has(e.to) && plan.graph.has(e.to)) n.edges.push(e);
+      // Keep the old node (and its cached fit answers) when nothing differs.
+      if (old && old.grounded === n.grounded && old.ladder === n.ladder && edgesKey(old.edges) === edgesKey(n.edges)
+        && Object.keys(old.fits ?? {}).every(role => this.fits(n, role) === old.fits[role])) continue;
+      plan.graph.set(k, n); changed = true;
     }
-    for (const [k, n] of graph) if (!this.plan.graph.has(k)) { this.plan.graph.set(k, n); a.nodes.add(k); }
+    for (const [k, n] of graph) {
+      if (inner.has(column(k))) {
+        if (!a.nodes.has(k)) { plan.graph.set(k, n); a.nodes.add(k); changed = true; }
+        continue;
+      }
+      const old = plan.graph.get(k); if (!old || !a.nodes.has(k)) continue;
+      const edges = [...old.edges.filter(e => !inner.has(column(e.to))), ...n.edges.filter(e => inner.has(column(e.to)))];
+      if (edgesKey(edges) !== edgesKey(old.edges)) { old.edges = edges; changed = true; }
+    }
+    if (!changed) return;
+    this.caches.delete(a.id); this.waypoints.delete(a.id); this.indexes.delete(a.id);
+    a.revision = (a.revision ?? 0) + 1;
   }
   // Cached on the node: refresh() replaces an edited region's nodes, which
   // drops their cached answers with them.

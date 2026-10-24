@@ -287,7 +287,7 @@ export class EntityRenderer {
       }
       const span = (b.time - a.time) / 1000;
       const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
-      if (object.userData.goblin) animateGoblin(object, dt, b.g === GOBLIN_STATE.WALK ? Math.max(speed, 1.5) : 0, { climbing: b.g === GOBLIN_STATE.CLIMB });
+      if (object.userData.goblin) animateGoblin(object, dt, b.g === GOBLIN_STATE.WALK ? Math.max(speed, 1.5) : 0, { climbing: b.g === GOBLIN_STATE.CLIMB, mining: b.g === GOBLIN_STATE.WORK });
       if (object.userData.totem) animateTotem(object, dt);
       if (object.userData.cow) animateCow(object, dt, speed);
       if (object.userData.crawler) animateCrawler(object, dt, speed, b.climbing);

@@ -613,9 +613,11 @@ PROTOCOL.md                  WebSocket message reference
   completion (so routes longer than the budget still finish); later ones
   return null when the budget is spent. Fit checks are cached on graph nodes
   (refresh replaces an edited region's nodes) and `nearest`/`nodesNear` use a
-  per-area column-bucket index. Changed blocks invalidate only containing
-  volumes, bump their revisions and re-route affected units. Graph refreshes
-  coalesce edits per affected region at the next tick. Stuck recovery
+  per-area column-bucket index. Edits are coalesced per area and column until
+  the next tick; `refresh` rebuilds only nodes within one column of an edit
+  (and ring edges toward them), keeps identical nodes, and only then drops
+  route caches and bumps the revision (which re-routes that area's units).
+  Wall and roof edits usually change nothing walkable. Stuck recovery
   re-routes first, then permits a short body-clear advance only out of every
   player's line of sight at both endpoints.
 - `server/mobSteering.js` retains target approach offsets and applies one
@@ -678,6 +680,36 @@ PROTOCOL.md                  WebSocket message reference
   units may leave home (also for overlap pushes in `mobSteering.js`).
 - The client plays goblin strikes from `swing` (`swingGoblin`); goblin
   descriptions carry `name` for the kill feed.
+
+## Goblin work orders, slice 1c
+
+- `server/goblins/work.js` (`WorkOrders`, `garrison.work`) is the one system
+  for block work; repairs now, construction later (write `targets` for a
+  planned area). Tuning is `WORK` in `shared/goblins/life.js`.
+- Footprints are every block the village/fortress plans wrote plus each
+  piece's box (gatehouses, shaft); their contents at match start are the
+  targets. Footprints split into `sectionSize` cubes, each assigned to the
+  area holding most of its cells. `Game`'s block change hook calls
+  `work.changed`, which marks the section dirty (a worker's own write is
+  skipped) and lets waiting jobs in that area retry. No scanning.
+- Differences: plants (`shape: 'plant'`), `ignoredBlocks` and flowing
+  liquids never count; door open/closed state is ignored; blocks with tile
+  entities, turrets and `protectedBlocks` are never removed; tile-entity
+  targets are never placed. Wrong blocks are removed with `Game.breakBlock`
+  (drops their item), then the target is placed.
+- An idle worker asks `nextTask`: the best unclaimed job in its area (or a
+  planned adjacent one) not occupied by an enemy, ranked lost-spawn-building
+  first, then jobs touching existing structure, then nearest. Otherwise, when
+  its area's `inspectSeconds` timer is due, an inspection of a dirty section
+  (else a random one). Inspection clusters the differences (6-connected),
+  splits them along the longest axis to `maxJobBlocks`, and gives each piece
+  the nearest grounded node within `reach` of all its blocks that isn't any
+  job's target cell; with no spot, it splits further, and single blocks wait.
+- `unit.js` `workStep` walks to the spot (a spot it can't reach makes the job
+  wait), then per `swingSeconds` picks the next block (removals top-down,
+  then placements bottom-up, skipping cells a body stands in), faces it and
+  sets it when the swing lands. `g` is `WORK` while hammering. A job is
+  released when its worker dies, flees, or an enemy enters the job's area.
 
 ## Chunk simulation, working monkeys and creative eggs
 

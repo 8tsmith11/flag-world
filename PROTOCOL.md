@@ -1414,9 +1414,11 @@ also carry `goblinWorker`, `goblinSoldier`, `goblinArcher`, `goblinBrute`,
 kill feed), `hp` and `maxHp`.
 Per-tick snapshots contain `{id,type,x,y,z,yaw,g}`. Positions and yaw are
 rounded to two decimal places. `g` is the `GOBLIN_STATE` enum from
-`shared/protocol.js`: 0 idle, 1 walk, 2 climb; 3 work, 4 fight and 5 flee are
+`shared/protocol.js`: 0 idle, 1 walk, 2 climb, 3 work (a worker hammering at
+a repair; clients play the hammer animation); 4 fight and 5 flee are
 reserved. Behavior decisions and paths remain server-owned; animations need
-no per-action messages.
+no per-action messages. Repairs (slice 1c) use the existing batched
+`blockChanges`; a block a worker removes drops its item like a broken one.
 
 These entities use the existing changed-only distance cadence (`u`: 1, 3 or
 6 ticks) and snapshot interpolation. Existing `damage` and `entityDespawn`

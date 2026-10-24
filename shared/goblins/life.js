@@ -1,4 +1,5 @@
 import { WALK_SPEED } from '../config.js';
+import { BLOCK } from '../blocks.js';
 
 // Body/model dimensions recovered from 5be99f1. Roles and duties are data.
 // Combat is data too. sight: target scan range (blocks, line of sight).
@@ -61,3 +62,19 @@ export const DUTIES = {
 };
 export const roleOf = type => type.replace('goblin', '').toLowerCase();
 export const boxOf = role => ({ halfW: GOBLINS[role].width / 2, height: GOBLINS[role].height });
+
+// Work orders (repairs now, construction later). Seconds unless noted.
+export const WORK = {
+  sectionSize: 8,           // plan footprints are split into cubes this many blocks wide
+  inspectSeconds: 8,        // each area sends a worker to inspect a section this often
+  maxJobBlocks: 12,         // clusters larger than this are split in space
+  reach: 8,                 // blocks, worker body center to block center; no line of sight needed
+  swingSeconds: 0.6,        // one block placed or removed per swing
+  arriveDistance: 0.6,      // close enough to a standing spot to work
+  inspectDistance: 6,       // close enough to a section's center to inspect it
+  // Never removed by workers (blocks with a tile entity and turrets are
+  // always protected too, since removing them would lose state).
+  protectedBlocks: [],
+  // Never counted as differences, placed or removed (plants are always ignored).
+  ignoredBlocks: [BLOCK.LEAVES, BLOCK.BRANCH, BLOCK.SAPLING],
+};
