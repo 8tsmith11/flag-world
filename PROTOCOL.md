@@ -512,7 +512,7 @@ Match players only. Sent once per simulation tick (20 per wall-clock second). Ea
 |-----------|--------|-------|
 | `seq`     | int    | Increments by 1 per input, starting at your `lastSeq` + 1 from `welcome` |
 | `forward` | number | -1..1 (W = 1, S = -1) |
-| `sprint`  | bool | Run while moving forward (Ctrl held or W tapped twice within 300 ms); ignored in water, on ladders, while crouching, eating or drawing a bow |
+| `sprint`  | bool | Run while moving forward (R held or W tapped twice within 300 ms); ignored in water, on ladders, while crouching, eating or drawing a bow |
 | `strafe`  | number | -1..1 (D = 1, A = -1) |
 | `jump`    | bool   | Jump held (swim up in water, jump out at the surface) |
 | `flyToggle` | bool | Double-tap jump within 300 ms. Toggles flight while creative |
@@ -826,7 +826,7 @@ snapshot reconciles the teleport.
 `bossState` broadcasts `{boss: BossState}` at the configured cadence and on
 major changes. `BossState` contains `status` (`sleeping`, `active`, `dying` or
 `dead`), `name`, `hp`, `maxHp`, `phase`, `x,y,z,yaw`, `action` (kind, stage,
-start/until ticks and attack geometry), `fireballs` (id, position, reflected),
+start/until ticks and attack geometry), `fireballs` (id, position, velocity `vx`/`vy`/`vz` so clients can move them between updates, reflected),
 `marks` (rain target circles), `lavaState`, `lavaUntil`, `deathTick` and `tick`.
 Clients draw the model, health bar and telegraphs only while viewing the arena.
 `bossVictory` broadcasts `{name}` to every player after the death animation;
@@ -997,6 +997,7 @@ A player died. Broadcast to every match player, for the kill feed. Their
 |------------|-------------|-------|
 | `id`       | int         | Player who died |
 | `killerId` | int \| null | Player or mob who killed them. For `void`, whoever hit them in the last 5 s, else `null` |
+| `killerName` | string \| null | The killer's name, also for killers that aren't entities (the Dragon Lord, poison traps) |
 | `cause`    | string      | `"player"`, `"mob"` (dragon fire, a Crawler or Void Eel bite), `"void"`, `"fall"`, `"lava"` or `"magma"` (`DEATH_CAUSE`). Feed text: "X killed Y" (fall with a killer too), "X knocked Y into the void", "Y fell into the void", "Y fell from a high place" |
 | `eliminated` | bool      | They were flagless, so this death knocks them out of the match (see below) |
 
@@ -1492,7 +1493,10 @@ his HP is 400 plus 150 per additional player then in the arena. He has ground,
 air and enraged phases at 70% and 40% HP. Each attack announces its direction,
 area or impact location before damage. During the air phase he hovers at the
 perch, shoots aimed/fan/rain volleys, and dives after three volleys. Melee hits
-reflect fireballs; arrows and bolts can hit him on the perch. Pillars crumble
+reflect fireballs (the server also checks each ball's last few positions, so
+lag doesn't cost the swing); arrows and bolts can hit him on the perch. Melee
+and arrows hit his body, head, tail and wings, and players are shoved out of
+his grounded body. Pillars crumble
 after several fireball hits and restore on reset. The fight resets when no
 living player remains in the arena; after death he never respawns. His death
 animation ends with a Dragon Crown, 8–12 Dragon Scales and a Dragon Heart

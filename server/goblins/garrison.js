@@ -127,11 +127,16 @@ export class Garrison {
     }
     for (const slot of this.slots.activeValues?.() ?? this.slots.values()) {
       if (this.game.chunkLoading && !this.game.chunkLoading.has(slot.point.x, slot.point.z)) continue;
-      if (slot.mob || slot.ready === null || tick < slot.ready || this.nav.area(slot.home)?.state !== 'active') continue;
-      const spawn = this.spawnFor(slot); if (!spawn || tick < (this.releases.get(spawn.id) ?? 0)) continue;
+      if (slot.mob || slot.ready === null || tick < slot.ready || tick < (slot.retry ?? 0)
+        || this.nav.area(slot.home)?.state !== 'active') continue;
+      // A slot with no spawn site or no route waits before searching again,
+      // rather than repeating the search every tick.
+      const spawn = this.spawnFor(slot); if (!spawn) { slot.retry = tick + C.spawnRetryTicks; continue; }
+      if (tick < (this.releases.get(spawn.id) ?? 0)) continue;
       const route = this.nav.route({ x: spawn.point.x + 0.5, y: spawn.point.y, z: spawn.point.z + 0.5 }, slot.point,
         this.nav.area(slot.home), { role: slot.role, ladders: GOBLINS[slot.role].ladders });
-      if (route === null || !route.length && dist(spawn.point, slot.point) > 0.1) continue;
+      if (route === null) continue;
+      if (!route.length && dist(spawn.point, slot.point) > 0.1) { slot.retry = tick + C.spawnRetryTicks; continue; }
       const mob = new GoblinUnit(this.game.nextId++, this, slot, spawn.point); mob.path = route;
       slot.mob = mob; this.game.mobs.set(mob.id, mob);
       this.releases.set(spawn.id, tick + Math.round(C.releaseSeconds * TICK_RATE));

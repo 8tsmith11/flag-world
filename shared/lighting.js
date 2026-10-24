@@ -48,28 +48,48 @@ export class VoxelLighting {
   }
   rayKey(axis,x,y,z) { const w=this.world;return axis===1?x+w.sizeX*z:axis===0?z+w.sizeZ*(y-w.minY):x+w.sizeX*(y-w.minY); }
   // Flood sources that can possibly influence a caller's region. Attenuation
-  // caps each BFS, even in empty sky; walls are checked at every edge.
+  // caps each BFS, even in empty sky; walls are checked at every edge. Light
+  // reaching the box starts within maxLevel of it and spreads at most maxLevel
+  // further, so a flat array over the box plus 2 * maxLevel holds every cell.
+  // Returns a lookup (x, y, z) -> level.
   flood(box) {
-    const values=new Map(), queue=[], w=this.world, r=C.maxLevel;
+    const w=this.world, r=C.maxLevel, m=2*r;
+    const x0=box.x0-m,y0=box.y0-m,z0=box.z0-m,sx=box.x1-box.x0+1+2*m,sy=box.y1-box.y0+1+2*m,sz=box.z1-box.z0+1+2*m;
+    const sxz=sx*sz, values=new Uint8Array(sxz*sy), opaque=new Uint8Array(sxz*sy); // opaque: 0 unknown, 1 clear, 2 opaque
+    const buckets=Array.from({length:r+1},()=>[]);
     for (let cy=Math.floor((box.y0-r)/CHUNK_SIZE);cy<=Math.floor((box.y1+r)/CHUNK_SIZE);cy++)
       for (let cz=Math.floor((box.z0-r)/CHUNK_SIZE);cz<=Math.floor((box.z1+r)/CHUNK_SIZE);cz++)
         for (let cx=Math.floor((box.x0-r)/CHUNK_SIZE);cx<=Math.floor((box.x1+r)/CHUNK_SIZE);cx++) {
-          for (const s of this.emitters.get(chunkKey(cx,cy,cz))?.values() ?? []) {
+          const sources=this.emitters.get(chunkKey(cx,cy,cz)); if (!sources) continue;
+          for (const s of sources.values()) {
             const distance=Math.max(box.x0-s.x,0,s.x-box.x1)+Math.max(box.y0-s.y,0,s.y-box.y1)+Math.max(box.z0-s.z,0,s.z-box.z1);
             if (distance >= s.level) continue;
-            const k=this.key(s.x,s.y,s.z); values.set(k,s.level); queue.push(s);
+            const i=s.x-x0+sx*(s.z-z0)+sxz*(s.y-y0);
+            if (values[i]<s.level) { values[i]=s.level; buckets[s.level].push(i); }
           }
         }
-    for (let i=0;i<queue.length;i++) {
-      const p=queue[i]; if (p.level<=1 || values.get(this.key(p.x,p.y,p.z))!==p.level) continue;
-      for (const [dx,dy,dz] of LIGHT_DIRS) {
-        const x=p.x+dx,y=p.y+dy,z=p.z+dz, level=p.level-1;
-        if (!w.inBounds(x,y,z) || getBlockDef(w.getBlock(x,y,z)).lightOpaque) continue;
-        const k=this.key(x,y,z); if ((values.get(k)??0)>=level) continue;
-        values.set(k,level); queue.push({x,y,z,level});
+    for (let v=r;v>1;v--) {
+      const next=v-1, bucket=buckets[v];
+      for (let b=0;b<bucket.length;b++) {
+        const i=bucket[b]; if (values[i]!==v) continue;
+        const lx=i%sx, lz=Math.floor(i/sx)%sz, ly=Math.floor(i/sxz);
+        for (let d=0;d<6;d++) {
+          const [dx,dy,dz]=LIGHT_DIRS[d], nx=lx+dx, ny=ly+dy, nz=lz+dz;
+          if (nx<0||nx>=sx||ny<0||ny>=sy||nz<0||nz>=sz) continue;
+          const n=i+dx+sx*dz+sxz*dy; if (values[n]>=next) continue;
+          if (!opaque[n]) {
+            const x=nx+x0,y=ny+y0,z=nz+z0;
+            opaque[n]=!w.inBounds(x,y,z)||getBlockDef(w.getBlock(x,y,z)).lightOpaque ? 2 : 1;
+          }
+          if (opaque[n]===2) continue;
+          values[n]=next; if (next>1) buckets[next].push(n);
+        }
       }
     }
-    return values;
+    return (x,y,z)=>{
+      const lx=x-x0,ly=y-y0,lz=z-z0;
+      return lx<0||lx>=sx||ly<0||ly>=sy||lz<0||lz>=sz ? 0 : values[lx+sx*lz+sxz*ly];
+    };
   }
   openAirFlood(box) {
     const w=this.world,r=Math.ceil(C.maxLevel/C.openAirLoss)-1,loss=C.openAirLoss;
@@ -128,8 +148,7 @@ export class VoxelLighting {
     const air=this.openAirFlood({x0,y0,z0,x1:x0+CHUNK_SIZE-1,y1:y0+CHUNK_SIZE-1,z1:z0+CHUNK_SIZE-1});
     for(let z=0;z<CHUNK_SIZE;z++)for(let x=0;x<CHUNK_SIZE;x++) {
       for(let y=0;y<CHUNK_SIZE;y++) {
-        const i=Chunk.index(x,y,z); data.light[i]=this.world.inBounds(x0+x,y0+y,z0+z)
-          ? flood.get(this.key(x0+x,y0+y,z0+z))??0 : 0;
+        const i=Chunk.index(x,y,z); data.light[i]=this.world.inBounds(x0+x,y0+y,z0+z) ? flood(x0+x,y0+y,z0+z) : 0;
         [data.sky[i],data.void[i]]=air(x0+x,y0+y,z0+z);
       }
     }
@@ -143,53 +162,66 @@ export class VoxelLighting {
     }
     for(const cx of xs)for(const cy of ys)for(const cz of zs)this.lastDirty.add(chunkKey(cx,cy,cz));
   }
-  edit(x,y,z,id,oldId) {
+  edit(x,y,z,id,oldId) { return this.editMany([{x,y,z,id,oldId}]); }
+  // Applies block edits in order, then relights once. Block light is redone
+  // over merged boxes around the edits, so a ring of hundreds of lava blocks
+  // costs one flood instead of one per block.
+  editMany(edits) {
     this.lastDirty=new Set();
-    const w=this.world, changed=new Set(), newDef=getBlockDef(id), oldDef=getBlockDef(oldId);
-    const before=newDef.lightOpaque!==oldDef.lightOpaque?[0,1,2].map(axis=>this.rayBounds(axis,x,y,z)):null;
-    w.setBlock(x,y,z,id);
-    if (newDef.emission!==oldDef.emission) {
+    const w=this.world, changed=new Set(), r=C.maxLevel, regions=new Map(), airBoxes=[];
+    const ra=Math.ceil(C.maxLevel/C.openAirLoss)-1;
+    for (const {x,y,z,id,oldId} of edits) {
+      const newDef=getBlockDef(id), oldDef=getBlockDef(oldId);
+      const opaqueChanged=newDef.lightOpaque!==oldDef.lightOpaque;
+      const before=opaqueChanged?[0,1,2].map(axis=>this.rayBounds(axis,x,y,z)):null;
+      w.setBlock(x,y,z,id);
       const ck=chunkKey(Math.floor(x/CHUNK_SIZE),Math.floor(y/CHUNK_SIZE),Math.floor(z/CHUNK_SIZE));
-      let sources=this.emitters.get(ck); if (!sources) this.emitters.set(ck,sources=new Map());
-      sources.delete(this.key(x,y,z));
-      if(newDef.emission) sources.set(this.key(x,y,z),{x,y,z,level:Math.min(C.maxLevel,newDef.emission)});
-    }
-    if (newDef.emission!==oldDef.emission || newDef.lightOpaque!==oldDef.lightOpaque) {
-      const r=C.maxLevel, box={x0:x-r,y0:y-r,z0:z-r,x1:x+r,y1:y+r,z1:z+r};
-      const pending=[];
-      // Remove old illumination only inside the edit's Manhattan radius.
-      for(let dz=-r;dz<=r;dz++)for(let dy=-r;dy<=r;dy++) {
-        const reach=r-Math.abs(dy)-Math.abs(dz); if(reach<0)continue;
-        for(let dx=-reach;dx<=reach;dx++) {
-          const bx=x+dx,by=y+dy,bz=z+dz, buffer=this.buffer(bx,by,bz); if(!buffer)continue;
-          const i=Chunk.index(mod(bx),mod(by),mod(bz)), old=buffer.light[i];
-          pending.push({bx,by,bz,buffer,i,old}); buffer.light[i]=0;
+      if (newDef.emission!==oldDef.emission) {
+        let sources=this.emitters.get(ck); if (!sources) this.emitters.set(ck,sources=new Map());
+        sources.delete(this.key(x,y,z));
+        if(newDef.emission) sources.set(this.key(x,y,z),{x,y,z,level:Math.min(C.maxLevel,newDef.emission)});
+      }
+      if (newDef.emission!==oldDef.emission || opaqueChanged) {
+        const region=regions.get(ck);
+        if (!region) regions.set(ck,{x0:x,y0:y,z0:z,x1:x,y1:y,z1:z});
+        else Object.assign(region,{x0:Math.min(region.x0,x),y0:Math.min(region.y0,y),z0:Math.min(region.z0,z),
+          x1:Math.max(region.x1,x),y1:Math.max(region.y1,y),z1:Math.max(region.z1,z)});
+      }
+      if (before) {
+        const p=[x,y,z];
+        airBoxes.push({lo:p.map(v=>v-ra),hi:p.map(v=>v+ra)});
+        // A changed boundary ray can create/remove direct sources arbitrarily
+        // far away. Reflood only loaded chunks intersecting those changed beams.
+        for(let axis=0;axis<3;axis++) {
+          this.rays[axis].delete(this.rayKey(axis,x,y,z));
+          const after=this.rayBounds(axis,x,y,z);
+          for(let end=0;end<2;end++)if(before[axis][end]!==after[end]) {
+            const lo=p.map(v=>v-ra),hi=p.map(v=>v+ra);
+            lo[axis]=Math.min(before[axis][end],after[end])-ra;hi[axis]=Math.max(before[axis][end],after[end])+ra;
+            airBoxes.push({lo,hi});
+          }
         }
       }
-      // Re-add from all surrounding emitters whose bounded flood reaches it.
+    }
+    for (const box of mergeBoxes([...regions.values()].map(b=>({x0:b.x0-r,y0:b.y0-r,z0:b.z0-r,x1:b.x1+r,y1:b.y1+r,z1:b.z1+r})))) {
       const flood=this.flood(box);
-      for(const p of pending) {
-        const level=flood.get(this.key(p.bx,p.by,p.bz))??0; p.buffer.light[p.i]=level;
-        if(level!==p.old){changed.add(chunkKey(p.buffer.cx,p.buffer.cy,p.buffer.cz));this.markCell(p.bx,p.by,p.bz);}
-      }
-    }
-    if(before) {
-      const r=Math.ceil(C.maxLevel/C.openAirLoss)-1,p=[x,y,z];
-      const boxes=[{lo:p.map(v=>v-r),hi:p.map(v=>v+r)}];
-      // A changed boundary ray can create/remove direct sources arbitrarily
-      // far away. Reflood only loaded chunks intersecting those changed beams.
-      for(let axis=0;axis<3;axis++) {
-        this.rays[axis].delete(this.rayKey(axis,x,y,z));
-        const after=this.rayBounds(axis,x,y,z);
-        for(let end=0;end<2;end++)if(before[axis][end]!==after[end]) {
-          const lo=p.map(v=>v-r),hi=p.map(v=>v+r);
-          lo[axis]=Math.min(before[axis][end],after[end])-r;hi[axis]=Math.max(before[axis][end],after[end])+r;
-          boxes.push({lo,hi});
+      for (const buffer of this.buffers.values()) {
+        const bx0=buffer.cx*CHUNK_SIZE,by0=buffer.cy*CHUNK_SIZE,bz0=buffer.cz*CHUNK_SIZE;
+        const xa=Math.max(box.x0,bx0),xb=Math.min(box.x1,bx0+CHUNK_SIZE-1);
+        const ya=Math.max(box.y0,by0),yb=Math.min(box.y1,by0+CHUNK_SIZE-1);
+        const za=Math.max(box.z0,bz0),zb=Math.min(box.z1,bz0+CHUNK_SIZE-1);
+        if (xa>xb||ya>yb||za>zb) continue;
+        for (let y=ya;y<=yb;y++) for (let z=za;z<=zb;z++) for (let x=xa;x<=xb;x++) {
+          const i=Chunk.index(x-bx0,y-by0,z-bz0), level=w.inBounds(x,y,z) ? flood(x,y,z) : 0;
+          if (buffer.light[i]===level) continue;
+          buffer.light[i]=level; changed.add(chunkKey(buffer.cx,buffer.cy,buffer.cz)); this.markCell(x,y,z);
         }
       }
+    }
+    if (airBoxes.length) {
       for(const [key,buffer] of this.buffers) {
         const origin=[buffer.cx,buffer.cy,buffer.cz].map(v=>v*CHUNK_SIZE);
-        if(!boxes.some(b=>origin.every((v,i)=>v<=b.hi[i]&&v+CHUNK_SIZE-1>=b.lo[i])))continue;
+        if(!airBoxes.some(b=>origin.every((v,i)=>v<=b.hi[i]&&v+CHUNK_SIZE-1>=b.lo[i])))continue;
         const [x0,y0,z0]=origin,air=this.openAirFlood({x0,y0,z0,x1:x0+CHUNK_SIZE-1,y1:y0+CHUNK_SIZE-1,z1:z0+CHUNK_SIZE-1});
         for(let bz=0;bz<CHUNK_SIZE;bz++)for(let by=0;by<CHUNK_SIZE;by++)for(let bx=0;bx<CHUNK_SIZE;bx++) {
           const i=Chunk.index(bx,by,bz),[sky,voidLight]=air(x0+bx,y0+by,z0+bz);
@@ -200,4 +232,21 @@ export class VoxelLighting {
     }
     return [...changed].map(key=>this.buffers.get(key));
   }
+}
+
+const union=(a,b)=>({x0:Math.min(a.x0,b.x0),y0:Math.min(a.y0,b.y0),z0:Math.min(a.z0,b.z0),
+  x1:Math.max(a.x1,b.x1),y1:Math.max(a.y1,b.y1),z1:Math.max(a.z1,b.z1)});
+// Merge boxes while the union costs no more than flooding both separately
+// (each flood also pays for a 2 * maxLevel margin).
+function mergeBoxes(boxes) {
+  const m=4*C.maxLevel, cost=b=>(b.x1-b.x0+1+m)*(b.y1-b.y0+1+m)*(b.z1-b.z0+1+m);
+  for (let merged=true;merged;) {
+    merged=false;
+    for (let i=0;i<boxes.length&&!merged;i++) for (let j=i+1;j<boxes.length;j++) {
+      const u=union(boxes[i],boxes[j]);
+      if (cost(u)>cost(boxes[i])+cost(boxes[j])) continue;
+      boxes[i]=u; boxes.splice(j,1); merged=true; break;
+    }
+  }
+  return boxes;
 }

@@ -258,6 +258,15 @@ export class EntityRenderer {
         this.goblinBounds.radius=height+1;
         if(!this.frustum.intersectsSphere(this.goblinBounds)){object.visible=false;continue;}
       }
+      // Off-screen models keep their position but skip animation and lighting.
+      // Three culls the meshes itself; this saves the per-frame JS.
+      if (camera && !object.userData.dragon && !object.userData.goblin && !entity.grappleLine) {
+        this.goblinBounds.center.copy(object.position);
+        const height = boxOf(entity.info)?.height ?? 2;
+        this.goblinBounds.center.y += height / 2;
+        this.goblinBounds.radius = height + 1;
+        if (!this.frustum.intersectsSphere(this.goblinBounds)) continue;
+      }
       const spin = object.userData.spin;
       if (object.userData.arrow) {
         // Face along the flight. A stuck arrow keeps the direction it hit with.

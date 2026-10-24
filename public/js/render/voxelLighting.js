@@ -48,10 +48,16 @@ export class LightingClient {
     }
     if(batch.length)this.worker.postMessage({type:'load',chunks:batch});
   }
+  // Edits made in the same task (a whole blockChanges message) go to the
+  // worker as one batch, which relights them in a single pass.
   edit(x,y,z,id,oldId){
     const a=getBlockDef(id),b=getBlockDef(oldId);
     if(a.emission===b.emission&&a.lightOpaque===b.lightOpaque&&a.solid===b.solid)return;
-    this.edits++;this.worker.postMessage({type:'edit',x,y,z,id,oldId});}
+    if(!this.batch){
+      this.batch=[];this.edits++;
+      queueMicrotask(()=>{const edits=this.batch;this.batch=null;this.worker.postMessage({type:'edit',edits});});
+    }
+    this.batch.push({x,y,z,id,oldId});}
   dispose(){this.worker.terminate();}
 }
 

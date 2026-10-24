@@ -424,7 +424,7 @@ export const DRAGON_ARENA = {
 export const DRAGON_LORD = {
   baseHp: 400, hpPerExtraPlayer: 150, wakeDistance: 20,
   groundPhaseEnd: 0.7, airPhaseEnd: 0.4, collapseThreshold: 0.1,
-  bodyHalfWidth: 3.2, bodyHeight: 7.5, groundSpeed: 2.4,
+  bodyHalfWidth: 3.2, bodyHeight: 7.5, groundSpeed: 2.4, bodyPush: 7,
   swipeWindup: 0.8, swipeRange: 8, swipeHalfAngle: 0.75, swipeDamage: 5,
   tailWindup: 1, tailRange: 10, tailDamage: 4, jumpHeight: 1.4,
   stompWindup: 1.2, shockwaveSpeed: 10, shockwaveMaxRadius: 17,
@@ -432,6 +432,9 @@ export const DRAGON_LORD = {
   enragedWindupScale: 0.7, attackPause: 1.1,
   fireballSpeed: 12, fireballRadius: 0.55, fireballBlastRadius: 2.5,
   fireballDamage: 3, reflectedDamage: 35, aimedCount: 3,
+  // Reflecting: extra reach around a ball, and how many past ticks of its
+  // flight count (the swinger saw it slightly in the past).
+  reflectGrace: 0.8, reflectHistoryTicks: 6,
   aimedInterval: 0.5, fanCount: 6, fanSpread: 0.55,
   rainCount: 5, rainWarning: 1.5, rainHeight: 15,
   volleysBeforeDive: 3, diveWarning: 1.5, diveSeconds: 1.1,

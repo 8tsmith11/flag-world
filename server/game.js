@@ -1897,7 +1897,7 @@ export class Game {
     player.inventoryDirty = true;
     console.log(killer ? `${killer.name} killed ${player.name} (${cause})` : `${player.name} died (${cause})`);
     this.broadcast({
-      type: S2C.DEATH, id: player.id, killerId: killer?.id ?? null, cause, eliminated: player.eliminated,
+      type: S2C.DEATH, id: player.id, killerId: killer?.id ?? null, killerName: killer?.name ?? null, cause, eliminated: player.eliminated,
     });
     if (player.eliminated) this.checkWin();
   }

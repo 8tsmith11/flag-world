@@ -197,6 +197,16 @@ export function recomputeOutskirts(world, plan = world.goblinPlan) {
       }
     }
   }
+  // Sections that ended up with no gate route to a spawn site (cut off by a
+  // gatehouse, ledge or fence after sectioning) are excluded, like patches
+  // with no safe gate approach: nothing could ever spawn into them.
+  const unreachable = new Set(sections.filter(a => !a.linkedSpawn).map(a => a.id));
+  if (unreachable.size) {
+    plan.outskirts = sections.filter(a => !unreachable.has(a.id));
+    const dropped = new Set(plan.gates.filter(g => g.areas.some(id => unreachable.has(id))).map(g => g.id));
+    plan.gates = plan.gates.filter(g => !dropped.has(g.id));
+    for (const a of [...plan.areas, ...plan.outskirts]) a.gates = a.gates.filter(id => !dropped.has(id));
+  }
   plan.outskirtsVersion = (plan.outskirtsVersion ?? 0) + 1;
-  return sections;
+  return plan.outskirts;
 }

@@ -17,7 +17,7 @@ import { getItemDef, ITEM } from '/shared/items.js';
 import { lookDirection, raycastBlock, raycastPlayers } from '/shared/raycast.js';
 import { playerBoxOf, eyeHeight } from '/shared/physics.js';
 import { Connection } from './net.js';
-import { Input } from './input.js';
+import { Input, SPRINT_KEY } from './input.js';
 import { LocalPlayer } from './localPlayer.js';
 import { DebugHud } from './debug.js';
 import { Hotbar } from './hotbar.js';
@@ -384,14 +384,22 @@ function nameOf(id) {
   return names.get(id) ?? `Player ${id}`;
 }
 
-function deathText({ id, killerId, cause }) {
+// The killer's name: a known entity, else the name the server sent (the
+// Dragon Lord and traps aren't entities), else null.
+function killerOf({ killerId, killerName }) {
+  if (killerId !== null && killerId !== undefined && names.has(killerId)) return names.get(killerId);
+  return killerName ?? (killerId !== null && killerId !== undefined ? nameOf(killerId) : null);
+}
+
+function deathText(msg) {
+  const { id, cause } = msg;
   const victim = nameOf(id);
-  const killer = killerId === null ? null : nameOf(killerId);
+  const killer = killerOf(msg);
   if (cause === DEATH_CAUSE.VOID) return killer ? `${killer} knocked ${victim} into the void` : `${victim} fell into the void`;
   if (cause === DEATH_CAUSE.FALL && !killer) return `${victim} fell from a high place`;
   if (cause === DEATH_CAUSE.LAVA) return `${victim} fell into lava`;
   if (cause === DEATH_CAUSE.MAGMA) return `${victim} burned on magma`;
-  return `${killer} killed ${victim}`;
+  return killer ? `${killer} killed ${victim}` : `${victim} died`;
 }
 
 // msg: the DEATH message, or null when we learn it from a snapshot (reclaiming a dead player).
@@ -407,11 +415,12 @@ function enterDeath(msg, isEliminated) {
   respawnAt = performance.now() + RESPAWN_DELAY * 1000;
   breaking = null;
   let cause = '';
-  if (msg?.cause === DEATH_CAUSE.VOID) cause = msg.killerId === null ? 'You fell into the void' : `${nameOf(msg.killerId)} knocked you into the void`;
-  else if (msg?.cause === DEATH_CAUSE.FALL && msg.killerId === null) cause = 'You fell from a high place';
+  const killer = msg && killerOf(msg);
+  if (msg?.cause === DEATH_CAUSE.VOID) cause = killer ? `${killer} knocked you into the void` : 'You fell into the void';
+  else if (msg?.cause === DEATH_CAUSE.FALL && !killer) cause = 'You fell from a high place';
   else if (msg?.cause === DEATH_CAUSE.LAVA) cause = 'You fell into lava';
   else if (msg?.cause === DEATH_CAUSE.MAGMA) cause = 'You burned on magma';
-  else if (msg) cause = `Killed by ${nameOf(msg.killerId)}`;
+  else if (msg) cause = killer ? `Killed by ${killer}` : 'You died';
   deathCause.textContent = eliminated ? `${cause}${cause ? '. ' : ''}You have no flag, so you are eliminated.` : cause;
   document.body.classList.add('dead');
   document.exitPointerLock();
@@ -975,7 +984,7 @@ function frame(now) {
   turretRenderer.update(dt,world,chunks.daylight);
   audioMixer.update(dt, camera.position, input.yaw, audioDayTime);
   sounds.update(dt, camera.position, player.state, world, entities,
-    input.doubleTapSprint || input.keys.has('ControlLeft') || input.keys.has('ControlRight'), mode === MODE.PLAY && connected && !loading);
+    input.doubleTapSprint || input.keys.has(SPRINT_KEY), mode === MODE.PLAY && connected && !loading);
   flags.update(dt, player.id, pos);
   // The hook's rope runs from about the right hand to where it caught.
   const grapple = playing ? player.state.grapple : null;
@@ -984,6 +993,7 @@ function frame(now) {
   // Frost from an Ice Sword hit rims the screen while it slows you.
   document.body.classList.toggle('frosted', playing && player.state.slowTicks > 0);
   renderer.render(scene, camera);
+  const { calls: drawCalls, triangles } = renderer.info.render;
   if (playing && !inventoryScreen.open) {
     const s = player.state;
     viewModel.update(dt, {
@@ -998,9 +1008,11 @@ function frame(now) {
   }
   inventoryScreen.render(dt, heldItem());
 
-  debug.update({
+  if (debug.enabled) debug.update({
     position: pos,
     chunks: chunks.loadedCount,
+    calls: drawCalls,
+    triangles,
     players: entities.playerTargets().length + 1,
     id: player.id,
     seed,

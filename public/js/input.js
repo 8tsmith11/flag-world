@@ -7,6 +7,8 @@ const MAX_PITCH = Math.PI / 2 - 0.01;
 // Arrow-key look speed in radians/second, for touchpads that ignore input while typing.
 const KEY_TURN_SPEED = 2.5;
 const DOUBLE_TAP_MS = 300;
+// Hold to run. Not Ctrl: Ctrl + W closes the browser tab.
+export const SPRINT_KEY = 'KeyR';
 
 export class Input {
   constructor(element) {
@@ -42,7 +44,6 @@ export class Input {
       }
       this.keys.add(e.code);
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
-      if (e.code === 'KeyW' && e.ctrlKey) e.preventDefault();
       if (e.code === 'KeyQ' && !e.repeat) this.dropPressed = true;
       if (!e.repeat) this.onKey?.(e.code);
       const digit = /^Digit([1-9])$/.exec(e.code);
@@ -130,7 +131,7 @@ export class Input {
       drop,
       slot: this.slot,
       forward: this.axis('KeyW', 'KeyS'),
-      sprint: this.keys.has('KeyW') && (this.doubleTapSprint || this.keys.has('ControlLeft') || this.keys.has('ControlRight')),
+      sprint: this.keys.has('KeyW') && (this.doubleTapSprint || this.keys.has(SPRINT_KEY)),
       strafe: this.axis('KeyD', 'KeyA'),
       jump: this.keys.has('Space'),
       flyToggle,

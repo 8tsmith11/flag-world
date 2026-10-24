@@ -50,7 +50,7 @@ where they can take over any disconnected player.
 |----------------|--------|
 | Click          | Capture mouse and start playing |
 | W A S D        | Move |
-| Ctrl + W / double-tap W | Run while moving forward |
+| R + W / double-tap W | Run while moving forward |
 | Space          | Jump (swim up in water; jump out at the surface) |
 | Shift          | Crouch: slower, lower, fits through 1.5-block gaps, and won't walk off edges higher than 1 block |
 | Mouse          | Look |

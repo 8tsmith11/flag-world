@@ -28,6 +28,7 @@ export class DebugHud {
       `Block ${Math.floor(x)} ${Math.floor(y)} ${Math.floor(z)}`,
       `Chunk ${Math.floor(x / CHUNK_SIZE)} ${Math.floor(y / CHUNK_SIZE)} ${Math.floor(z / CHUNK_SIZE)}`,
       `Chunks ${info.chunks}  Players ${info.players}`,
+      `Draw calls ${info.calls}  Triangles ${info.triangles}`,
       `Player #${info.id}  Seed ${info.seed}`,
       `Target ${info.target ?? '-'}`,
     ].join('\n');

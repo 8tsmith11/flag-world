@@ -49,9 +49,18 @@ export class DragonLord {
   snapshot() {
     return { status: this.status, name: this.name, hp: this.hp, maxHp: this.maxHp,
       phase: this.phase, x: this.state.x, y: this.state.y, z: this.state.z, yaw: this.state.yaw,
-      action: this.action, fireballs: this.fireballs.map(({ id, x, y, z, reflected }) => ({ id, x, y, z, reflected })),
+      action: this.action, fireballs: this.fireballs.map(({ id, x, y, z, vx, vy, vz, reflected }) => ({ id, x, y, z,
+        vx: Math.round(vx * 100) / 100, vy: Math.round(vy * 100) / 100, vz: Math.round(vz * 100) / 100, reflected })),
       marks: this.marks, lavaState: this.lavaState, lavaUntil: this.lavaUntil,
       deathTick: this.deathTick, tick: this.game.tick };
+  }
+  // Head/neck, tail and wings around the body box, matching the 3x model, so
+  // hits on the parts players aim at land (melee and arrows both use these).
+  extraHitBoxes() {
+    const s = this.state, fx = -Math.sin(s.yaw), fz = -Math.cos(s.yaw);
+    const at = (forward, side, y, halfW, height) => ({ x: s.x + fx * forward - fz * side, y: s.y + y,
+      z: s.z + fz * forward + fx * side, halfW, height });
+    return [at(4.8, 0, 4, 1.4, 2.8), at(-6, 0, 3, 1.9, 2.4), at(0, 4.6, 4.8, 1.6, 1.4), at(0, -4.6, 4.8, 1.6, 1.4)];
   }
   publish() { this.game.broadcast({ type: S2C.BOSS_STATE, boss: this.snapshot() }); }
   wake(players) {
@@ -213,7 +222,7 @@ export class DragonLord {
         for (const p of players) if (!a.hit.includes(p.id)
           && Math.abs(p.state.x - a.lineX) < C.diveWidth
           && Math.abs(p.state.z - this.state.z) < C.diveWidth) {
-          a.hit.push(p.id); this.game.damage(p, C.diveDamage, null, DEATH_CAUSE.MOB);
+          a.hit.push(p.id); this.game.damage(p, C.diveDamage, this, DEATH_CAUSE.MOB);
         }
         if (t >= 1) {
           this.state.y = this.arena.y + 1;
@@ -242,7 +251,7 @@ export class DragonLord {
       for (const p of players) {
         if (a.hit.includes(p.id) || p.state.y > this.arena.y + C.jumpHeight) continue;
         if (Math.abs(distance(p.state, this.state) - radius) <= C.shockwaveWidth) {
-          a.hit.push(p.id); this.game.damage(p, C.stompDamage, null, DEATH_CAUSE.MOB);
+          a.hit.push(p.id); this.game.damage(p, C.stompDamage, this, DEATH_CAUSE.MOB);
         }
       }
       if (now >= a.until) this.action = { kind: 'stunned', start: now, until: now + ticks(C.stunSeconds) };
@@ -255,9 +264,22 @@ export class DragonLord {
         if (d > C.breathRange || Math.abs(wrap(angleTo(this.state, p.state) - yaw)) > C.breathHalfAngle) continue;
         if (this.blockedByPillar(p.state)) continue;
         a.hit[p.id] = now + ticks(C.breathHitInterval);
-        this.game.damage(p, C.breathDamage, null, DEATH_CAUSE.MOB);
+        this.game.damage(p, C.breathDamage, this, DEATH_CAUSE.MOB);
       }
       if (now >= a.until) { this.action = null; this.nextAttackTick = now + ticks(C.attackPause); }
+    }
+  }
+  // Players can't stand inside the grounded body: they're shoved out with
+  // knockback (physics state that client prediction replays).
+  pushPlayers(players) {
+    const s = this.state;
+    if (s.y > this.arena.y + 3) return;
+    const radius = C.bodyHalfWidth + 0.3;
+    for (const p of players) {
+      const dx = p.state.x - s.x, dz = p.state.z - s.z, d = Math.hypot(dx, dz);
+      if (d >= radius || p.state.y > s.y + C.bodyHeight) continue;
+      const nx = d > 0.01 ? dx / d : -Math.sin(s.yaw), nz = d > 0.01 ? dz / d : -Math.cos(s.yaw);
+      p.state.kx = nx * C.bodyPush; p.state.kz = nz * C.bodyPush;
     }
   }
   hitArc(players, a) {
@@ -268,7 +290,7 @@ export class DragonLord {
       if (tail && p.state.y > this.arena.y + C.jumpHeight) continue;
       const angle = Math.abs(wrap(angleTo(this.state, p.state) - a.yaw));
       if (tail ? angle < Math.PI - 1.2 : angle > C.swipeHalfAngle) continue;
-      this.game.damage(p, tail ? C.tailDamage : C.swipeDamage, null, DEATH_CAUSE.MOB);
+      this.game.damage(p, tail ? C.tailDamage : C.swipeDamage, this, DEATH_CAUSE.MOB);
     }
   }
   blockedByPillar(target) {
@@ -283,13 +305,17 @@ export class DragonLord {
   }
   reflectFireball(origin, direction, maxRange, player) {
     let best = null, bestT = maxRange;
+    // The swinging player saw each ball where it was a few ticks ago, so test
+    // its recent positions too, with some grace around its radius.
     for (const ball of this.fireballs) {
       if (ball.reflected) continue;
-      const dx = ball.x - origin.x, dy = ball.y - origin.y, dz = ball.z - origin.z;
-      const t = dx * direction.x + dy * direction.y + dz * direction.z;
-      if (t < 0 || t > bestT) continue;
-      if (Math.hypot(dx - direction.x * t, dy - direction.y * t, dz - direction.z * t) > C.fireballRadius + 0.35) continue;
-      best = ball; bestT = t;
+      for (const p of [ball, ...(ball.history ?? [])]) {
+        const dx = p.x - origin.x, dy = p.y - origin.y, dz = p.z - origin.z;
+        const t = dx * direction.x + dy * direction.y + dz * direction.z;
+        if (t < 0 || t > bestT) continue;
+        if (Math.hypot(dx - direction.x * t, dy - direction.y * t, dz - direction.z * t) > C.fireballRadius + C.reflectGrace) continue;
+        best = ball; bestT = t;
+      }
     }
     if (!best) return false;
     const target = this.state;
@@ -297,12 +323,14 @@ export class DragonLord {
     const d = Math.max(0.01, Math.hypot(dx, dy, dz));
     Object.assign(best, { vx: dx / d * C.fireballSpeed * 1.5,
       vy: dy / d * C.fireballSpeed * 1.5, vz: dz / d * C.fireballSpeed * 1.5,
-      reflected: true, owner: player });
+      reflected: true, owner: player, history: [] });
     return true;
   }
   stepFireballs(players) {
     const world = this.game.world;
     this.fireballs = this.fireballs.filter(ball => {
+      (ball.history ??= []).unshift({ x: ball.x, y: ball.y, z: ball.z });
+      if (ball.history.length > C.reflectHistoryTicks) ball.history.pop();
       ball.x += ball.vx * TICK_DT; ball.y += ball.vy * TICK_DT; ball.z += ball.vz * TICK_DT;
       if (!inDragonArena(world, ball.x, ball.z) || ball.y < world.minY || ball.y >= world.sizeY) return false;
       if (ball.reflected) {
@@ -326,7 +354,7 @@ export class DragonLord {
   explode(ball, players) {
     for (const p of players) if (!p.fireImmune()
       && Math.hypot(p.state.x - ball.x, p.state.y + 1 - ball.y, p.state.z - ball.z) <= C.fireballBlastRadius)
-      this.game.damage(p, C.fireballDamage, null, DEATH_CAUSE.MOB);
+      this.game.damage(p, C.fireballDamage, this, DEATH_CAUSE.MOB);
   }
   hitPillar(ball) {
     for (const pillar of this.arena.pillars) {
@@ -423,6 +451,7 @@ export class DragonLord {
       this.landUntil = 0; this.toPerch(); this.action = null;
       this.nextAttackTick = now + ticks(C.attackPause);
     }
+    this.pushPlayers(players);
     if (this.action) this.stepAction(players);
     else if (now >= this.nextAttackTick) {
       if (this.phase === 2 && !this.landUntil) this.startVolley(players);

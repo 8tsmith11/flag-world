@@ -20,7 +20,7 @@ self.onmessage=({data})=>{
       }
       send('load',buffers,{chunks:data.chunks});
     } else if(data.type==='edit') {
-      const buffers=lighting.edit(data.x,data.y,data.z,data.id,data.oldId);
+      const buffers=lighting.editMany(data.edits);
       send('edit',buffers,{dirty:[...lighting.lastDirty]});
     }
   } catch(error) { self.postMessage({type:'error',message:error.message}); }

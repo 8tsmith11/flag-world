@@ -19,7 +19,7 @@ export const LIFE = {
   courtyardArchers: 1, towerArchers: 1, gateGuards: 1, gateArchers: 1,
   postRadius: 2, postWait: [3, 8], wanderWait: [2, 5], patrolPoints: 6,
   stuckTicks: 40, unseenAdvance: 3, creativeRadius: 6,
-  nodeBudget: 1800, ladderCost: 10, cacheDestinations: 48,
+  nodeBudget: 1800, ladderCost: 10, cacheDestinations: 48, spawnRetryTicks: 40,
   walkSpeed: WALK_SPEED,
 };
 export const DUTIES = {

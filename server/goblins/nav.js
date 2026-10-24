@@ -4,6 +4,8 @@ import { LIFE as C, boxOf } from '../../shared/goblins/life.js';
 import { playerFitsAt } from '../../shared/physics.js';
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) + Math.abs(a.y - b.y);
+// Column bucket size for the per-area nearest-node index.
+const BUCKET = 8;
 export function straighten(path) {
   return path.filter((p, i) => {
     if (!i || i === path.length - 1) return true;
@@ -24,7 +26,7 @@ export class GoblinNav {
   constructor(world) {
     this.world = world; this.plan = world.goblinPlan; this.caches = new Map();
     this.budget = C.nodeBudget; this.version = this.plan.outskirtsVersion;
-    this.waypoints = new Map(); this.dirty = new Set();
+    this.waypoints = new Map(); this.dirty = new Set(); this.indexes = new Map();
     this.reportLadders(this.plan.ladderProblems ?? []);
   }
   reportLadders(problems) {
@@ -42,13 +44,21 @@ export class GoblinNav {
     this.dirty.clear();
   }
   regions() { return [...this.plan.areas, ...this.plan.outskirts, ...(this.plan.creativeAreas ?? [])]; }
-  area(id) { return this.regions().find(a => a.id === id); }
+  // By id; rebuilt when outskirts are recomputed or a creative home is added.
+  area(id) {
+    const plan = this.plan;
+    if (!this.byId || this.byIdOutskirts !== plan.outskirts || this.byIdCreative !== (plan.creativeAreas?.length ?? 0)) {
+      this.byId = new Map(this.regions().map(a => [a.id, a]));
+      this.byIdOutskirts = plan.outskirts; this.byIdCreative = plan.creativeAreas?.length ?? 0;
+    }
+    return this.byId.get(id);
+  }
   contains(area, p) { return area?.volumes.some(v => insideBox(v, p)); }
   changed(x, y, z) {
     const p = { x, y, z };
     for (const a of this.regions()) {
       if (!this.contains(a, p)) continue;
-      this.caches.delete(a.id); this.waypoints.delete(a.id);
+      this.caches.delete(a.id); this.waypoints.delete(a.id); this.indexes.delete(a.id);
       a.revision = (a.revision ?? 0) + 1;
       this.dirty.add(a.id);
     }
@@ -66,15 +76,46 @@ export class GoblinNav {
     }
     for (const [k, n] of graph) if (!this.plan.graph.has(k)) { this.plan.graph.set(k, n); a.nodes.add(k); }
   }
+  // Cached on the node: refresh() replaces an edited region's nodes, which
+  // drops their cached answers with them.
   fits(n, role) {
-    return playerFitsAt(this.world, { x: n.x + 0.5, y: n.y, z: n.z + 0.5, box: boxOf(role) }, n.y);
+    const cache = n.fits ??= {};
+    return cache[role] ??= playerFitsAt(this.world, { x: n.x + 0.5, y: n.y, z: n.z + 0.5, box: boxOf(role) }, n.y);
   }
+  // An area's nodes bucketed by column, rebuilt when its graph changes.
+  index(area) {
+    let index = this.indexes.get(area.id);
+    if (index && index.revision === (area.revision ?? 0) && index.size === area.nodes.size) return index;
+    const buckets = new Map(); let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const k of area.nodes) {
+      const n = this.plan.graph.get(k); if (!n) continue;
+      const bx = Math.floor(n.x / BUCKET), bz = Math.floor(n.z / BUCKET), key = `${bx},${bz}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(n);
+      x0 = Math.min(x0, bx); x1 = Math.max(x1, bx); z0 = Math.min(z0, bz); z1 = Math.max(z1, bz);
+    }
+    index = { revision: area.revision ?? 0, size: area.nodes.size, buckets, x0, x1, z0, z1 };
+    this.indexes.set(area.id, index); return index;
+  }
+  // Searches buckets in rings around the point and stops once a ring can't
+  // hold anything closer than the best so far.
   nearest(area, point, role = 'worker', standing = true) {
+    if (!area) return null;
+    const index = this.index(area), bx = Math.floor(point.x / BUCKET), bz = Math.floor(point.z / BUCKET);
+    const rings = Math.max(bx - index.x0, index.x1 - bx, bz - index.z0, index.z1 - bz);
     let best = null, d = Infinity;
-    for (const k of area?.nodes ?? []) {
-      const n = this.plan.graph.get(k); if (!n || standing && !n.grounded || !this.fits(n, role)) continue;
-      const score = distance(n, point);
-      if (score < d) { best = n; d = score; }
+    const scan = (x, z) => {
+      for (const n of index.buckets.get(`${x},${z}`) ?? []) {
+        if (standing && !n.grounded || !this.fits(n, role)) continue;
+        const score = distance(n, point);
+        if (score < d) { best = n; d = score; }
+      }
+    };
+    for (let r = 0; r <= rings; r++) {
+      if ((r - 1) * BUCKET > d) break;
+      if (!r) { scan(bx, bz); continue; }
+      for (let x = bx - r; x <= bx + r; x++) { scan(x, bz - r); scan(x, bz + r); }
+      for (let z = bz - r + 1; z <= bz + r - 1; z++) { scan(bx - r, z); scan(bx + r, z); }
     }
     return best;
   }
@@ -144,9 +185,9 @@ export class GoblinNav {
     if (graph.has(point.key)) return [point];
     const heap = new Heap(), costs = new Map([[point.key, 0]]), parent = new Map(), closed = new Set(); heap.push(0, point.key);
     while (heap.size) {
-      if (!options.unlimited && this.budget <= 0) return null;
+      if (!options.free && this.budget <= 0) return null;
       const k = heap.pop(); if (closed.has(k)) continue;
-      closed.add(k); if (!options.unlimited) this.budget--;
+      closed.add(k); this.budget--;
       if (graph.has(k)) {
         const path = []; for (let n = k; n; n = parent.get(n)) path.push(this.plan.graph.get(n)); return path.reverse();
       }
@@ -160,6 +201,17 @@ export class GoblinNav {
     }
     return [];
   }
+  // Every node in a gate chain's areas, cached until any of them changes.
+  chainNodes(chain) {
+    this.chainCache ??= new Map();
+    const key = chain.join('>'), areas = chain.map(id => this.area(id));
+    const signature = areas.map(a => `${a.revision ?? 0}/${a.nodes.size}`).join(',');
+    const cached = this.chainCache.get(key);
+    if (cached?.signature === signature) return cached.nodes;
+    const nodes = new Set(areas.flatMap(a => [...a.nodes]));
+    if (this.chainCache.size >= C.cacheDestinations) this.chainCache.delete(this.chainCache.keys().next().value);
+    this.chainCache.set(key, { signature, nodes }); return nodes;
+  }
   chain(from, to) {
     const queue = [[from]], seen = new Set([from]);
     for (let i = 0; i < queue.length; i++) {
@@ -171,7 +223,11 @@ export class GoblinNav {
     }
     return null;
   }
+  // Searches share a per-tick node budget and return null when it runs out.
+  // The first search of a tick (full budget) always runs to completion, so a
+  // route longer than the budget still gets found instead of restarting forever.
   route(start, destination, home, { ladders = true, role = 'worker', unlimited = false } = {}) {
+    const free = unlimited || this.budget >= C.nodeBudget;
     const goal = this.nearest(home, destination, role); if (!goal) return [];
     const origin = positionRegion(this.plan, start) ?? home;
     const first = this.nearest(origin, { x: Math.floor(start.x), y: Math.round(start.y), z: Math.floor(start.z) }, role, false);
@@ -179,7 +235,7 @@ export class GoblinNav {
     if (home.nodes.has(first.key)) {
       let start = first, end = goal, prefix = [], suffix = [];
       if (home.kind === 'underground') {
-        const graph = this.waypointGraph(home, role, ladders), options = { role, ladders, unlimited };
+        const graph = this.waypointGraph(home, role, ladders), options = { role, ladders, free };
         const a = this.attach(home, first, graph, options), b = this.attach(home, goal, graph, options);
         if (a === null || b === null) return null;
         if (!a.length || !b.length) return [];
@@ -192,13 +248,13 @@ export class GoblinNav {
       return straighten([first, ...path]).slice(1);
     }
     const chain = this.chain(origin.id, home.id); if (!chain) return [];
-    const allowed = new Set(chain.flatMap(id => [...this.area(id).nodes]));
+    const allowed = this.chainNodes(chain);
     const heap = new Heap(), costs = new Map([[first.key, 0]]), parent = new Map(); heap.push(distance(first, goal), first.key);
     const closed = new Set();
     while (heap.size) {
-      if (!unlimited && this.budget <= 0) return null;
+      if (!free && this.budget <= 0) return null;
       const k = heap.pop(); if (closed.has(k)) continue;
-      closed.add(k); if (!unlimited) this.budget--;
+      closed.add(k); this.budget--;
       if (k === goal.key) {
         const path = []; for (let n = k; n !== first.key; n = parent.get(n)) path.push(this.plan.graph.get(n));
         return straighten([first, ...path.reverse()]).slice(1);
