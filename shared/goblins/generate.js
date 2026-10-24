@@ -215,12 +215,16 @@ export function generateGoblinVillage(world, terrain, progress = () => {}) {
       final: { pieces: [...fortress.pieces, upperShaft], finishing: fortress.finishing } };
     for (const p of fortress.pieces) p.stages = p === totem ? ['initial', 'final'] : ['final'];
     village.civilization = fortress.civilization = 'goblin';
+    // Every cell the village writes keeps its natural block, so the village
+    // can be unbuilt at the end of world generation (goblins/construction.js).
+    world.naturalLog = new Map();
     placePlan(world, village); placePlan(world, fortress);
     world.structures.push({ kind: upperShaft.type, civilization: 'goblin', box: { ...upperShaft.box } });
     for (const p of village.gatehouses) world.structures.push({ kind: 'gatehouse', civilization: 'goblin', box: p.box });
     world.goblinPlan = { seed, site, settings: C, reserved, buildability: map, surface: village, fortress };
     village.gatehouses.forEach((p, i) => { p.id = `gatehouse:${i}`; p.padHeight = p.y; });
     computeAreas(world, world.goblinPlan);
+    world.goblinPlan.natural = world.naturalLog; delete world.naturalLog;
     return world.goblinPlan;
   }
   throw new Error(`No complete goblin village/fortress fits seed ${world.seed}: ${JSON.stringify(audit)}`);

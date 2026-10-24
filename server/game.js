@@ -325,6 +325,7 @@ export class Game {
     else if (action === 'toggleInvisible') player.invisible = !player.invisible;
     else if (action === 'toggleFlight') player.state.flying = !player.state.flying;
     else if (action === 'toggleBreakAny') player.breakAny = !player.breakAny;
+    else if (action === 'maxGoblinFortress') { this.garrison?.construction?.completeAll(); return; }
     else if (action === 'setSpeed') {
       if (!Number.isFinite(value)) return;
       player.state.creativeSpeed = Math.min(CREATIVE_SPEED.max, Math.max(CREATIVE_SPEED.min,
@@ -448,8 +449,12 @@ export class Game {
       const team = door?.reinforced ? this.world.doorTeams.get(`${x},${door.upper ? y - 1 : y},${z}`) ?? null : undefined;
       this.pendingBlockChanges.set(`${x},${y},${z}`, { x, y, z, id,
         ...(team !== undefined ? { team } : {}) });
-      this.garrison?.nav.changed(x, y, z);
-      this.garrison?.work?.changed(x, y, z);
+      // Bulk construction (Max goblin fortress) refreshes navigation once at the end.
+      if (!this.garrison?.bulk) {
+        this.garrison?.nav.changed(x, y, z);
+        this.garrison?.work?.changed(x, y, z);
+        this.garrison?.construction?.changed(x, y, z);
+      }
       this.monkeys?.changed(x,y,z);
       this.water.enqueueAround(x, y, z);
       this.lava.enqueueAround(x, y, z);

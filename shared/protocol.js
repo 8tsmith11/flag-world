@@ -49,6 +49,7 @@ export const S2C = {
   PORTAL_DESPAWN: 'portalDespawn',
   BOSS_STATE: 'bossState', // {boss}: Dragon Lord HP, phase, telegraphs and fireballs
   BOSS_VICTORY: 'bossVictory', // {name}: global slayer announcement
+  ANNOUNCE: 'announce', // {text}: world event for everyone (goblin construction milestones)
   EMBER_BURST: 'emberBurst',
   QUARRY_PUFF: 'quarryPuff',
   STEAM_PUFF: 'steamPuff',

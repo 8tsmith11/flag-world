@@ -627,6 +627,11 @@ conn.on(S2C.BOSS_STATE, msg => {
     && player && inDragonArena(world, player.state.x, player.state.z))
     audioMixer.play(MOB_SOUNDS.dragon.attack, DRAGON_LORD.roarGain, msg.boss, DRAGON_LORD.roarRange);
 });
+// World events such as the goblins breaching the surface.
+conn.on(S2C.ANNOUNCE, msg => {
+  feed.add(msg.text, 'win');
+  toast.show(msg.text);
+});
 conn.on(S2C.BOSS_VICTORY, msg => {
   feed.add(`${msg.name} has slain the Dragon Lord.`, 'win');
   if (world && player && inDragonArena(world, player.state.x, player.state.z)) {

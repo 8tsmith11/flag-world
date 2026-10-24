@@ -146,6 +146,9 @@ export class World {
     return chunk ? chunk.get(x % CHUNK_SIZE, ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE, z % CHUNK_SIZE) : BLOCK.AIR;
   }
 
+  // One number per cell (x fastest, then z, then y from minY).
+  cellIndex(x, y, z) { return x + this.sizeX * (z + this.sizeZ * (y - this.minY)); }
+
   setBlock(x, y, z, id) {
     if (!this.inBounds(x, y, z)) return false;
     const cx = Math.floor(x / CHUNK_SIZE), cy = Math.floor(y / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
@@ -159,6 +162,12 @@ export class World {
     const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
     const oldId = chunk.get(x % CHUNK_SIZE, ly, z % CHUNK_SIZE);
     if (oldId === id) return true;
+    // World generation can log the first block each written cell held
+    // (goblin construction restores that terrain before it's built).
+    if (this.naturalLog) {
+      const key = this.cellIndex(x, y, z);
+      if (!this.naturalLog.has(key)) this.naturalLog.set(key, oldId);
+    }
     chunk.set(x % CHUNK_SIZE, ly, z % CHUNK_SIZE, id);
     this.onBlockChanged?.(x, y, z, id, oldId);
     return true;

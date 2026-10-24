@@ -1,6 +1,7 @@
 import { GoblinNav } from './nav.js';
 import { GoblinUnit } from './unit.js';
 import { WorkOrders } from './work.js';
+import { Construction } from './construction.js';
 import { GOBLINS, LIFE as C, COMBAT as K } from '../../shared/goblins/life.js';
 import { nodeKey, positionRegion, makeGraph, components } from '../../shared/goblins/areas.js';
 import { cellKey } from '../../shared/structures/buildability.js';
@@ -29,6 +30,7 @@ export class Garrison {
     this.releases = new Map(); this.slots = game.chunkLoading ? game.chunkLoading.entityMap(s => s.point) : new Map(); this.version = this.plan.outskirtsVersion;
     this.generateSlots(this.nav.regions());
     this.work = new WorkOrders(this);
+    this.construction = new Construction(this);
   }
   add(area, role, duty, point, extras = {}) {
     const target = this.nav.nearest(area, point, role); if (!target) throw new Error(`No post in ${area.id}`);
@@ -107,7 +109,9 @@ export class Garrison {
       const king = { x: hall.position.x + 2, y: hall.position.y + 1, z: hall.position.z };
       if (area.nodes.has(nodeKey(king))) {
         this.add(area, 'king', 'point', king, { box: hall.box, unique: true, spawnOverride: king });
-        const totem = { x: hall.position.x, y: hall.position.y + 1, z: hall.position.z };
+        // The initial shaft rises through the hall's center while the fortress
+        // is built, so the Totem stands beside it.
+        const totem = { x: hall.position.x, y: hall.position.y + 1, z: hall.position.z + (this.plan.construction ? 3 : 0) };
         this.add(area, 'totem', 'point', totem, { unique: true, spawnOverride: totem });
       }
     }
@@ -116,7 +120,9 @@ export class Garrison {
   // a corner of its box.
   spawnAlive(s) {
     const w = this.game.world;
-    return isSolid(w.getBlock(s.point.x, s.point.y - 1, s.point.z))
+    // Open feet and head cells too: an unbuilt building is solid ground or rock.
+    return !isSolid(w.getBlock(s.point.x, s.point.y, s.point.z)) && !isSolid(w.getBlock(s.point.x, s.point.y + 1, s.point.z))
+      && isSolid(w.getBlock(s.point.x, s.point.y - 1, s.point.z))
       && (!s.supports || s.supports.some(p => isSolid(w.getBlock(p.x, p.y, p.z))))
       && (!s.box || [s.box.x0, s.box.x1].some(x => isSolid(w.getBlock(x, s.box.y0, s.box.z0))));
   }
@@ -155,6 +161,7 @@ export class Garrison {
   }
   update(tick) {
     this.nav.beginTick();
+    this.construction.update();
     this.refreshEnemies();
     if (tick % K.scanTicks === 0) this.watchAreas(tick);
     this.releaseAlarms(tick);
@@ -169,7 +176,7 @@ export class Garrison {
     const ready = [];
     for (const slot of this.slots.activeValues?.() ?? this.slots.values()) {
       if (this.game.chunkLoading && !this.game.chunkLoading.has(slot.point.x, slot.point.z)) continue;
-      if (slot.mob || slot.ready === null || tick < slot.ready || tick < (slot.retry ?? 0)
+      if (slot.mob || slot.held || slot.ready === null || tick < slot.ready || tick < (slot.retry ?? 0)
         || this.nav.area(slot.home)?.state !== 'active') continue;
       ready.push(slot);
     }
@@ -182,7 +189,9 @@ export class Garrison {
       const route = this.nav.route({ x: spawn.point.x + 0.5, y: spawn.point.y, z: spawn.point.z + 0.5 }, slot.point,
         this.nav.area(slot.home), { role: slot.role, ladders: GOBLINS[slot.role].ladders });
       if (route === null) continue;
-      if (!route.length && dist(spawn.point, slot.point) > 0.1) { slot.retry = tick + C.spawnRetryTicks; continue; }
+      // While the fortress is being built a post may not be reachable yet;
+      // the goblin spawns anyway and waits until it is.
+      if (!route.length && dist(spawn.point, slot.point) > 0.1 && this.construction.done) { slot.retry = tick + C.spawnRetryTicks; continue; }
       const mob = new GoblinUnit(this.game.nextId++, this, slot, spawn.point); mob.path = route;
       slot.mob = mob; this.game.mobs.set(mob.id, mob);
       this.releases.set(spawn.id, tick + Math.round(C.releaseSeconds * TICK_RATE));
@@ -192,6 +201,12 @@ export class Garrison {
 
   // ---- Combat ----
 
+  // The region at a point: an active area (positionRegion), else a planned
+  // area under construction.
+  regionAt(p) {
+    return positionRegion(this.plan, p)
+      ?? this.plan.areas.find(a => a.state === 'planned' && this.nav.contains(a, p)) ?? null;
+  }
   // Players and hostile mobs (Crawlers, Void Eels, dragons) that goblins fight.
   // huntable() is the one shared test, so the creative host's invisibility
   // hides them here like everywhere else.
@@ -217,8 +232,8 @@ export class Garrison {
   watchAreas(tick) {
     this.occupied.clear();
     for (const e of this.enemyList) {
-      const area = positionRegion(this.plan, e.state); if (!area) continue;
-      this.occupied.add(area.id); this.alarm(area, e.state, tick);
+      const area = this.regionAt(e.state); if (!area) continue;
+      this.occupied.add(area.id); if (area.state === 'active') this.alarm(area, e.state, tick);
     }
   }
   // Marks an area under attack. The first alarm pulls fighters from directly

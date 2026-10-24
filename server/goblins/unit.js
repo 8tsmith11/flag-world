@@ -4,6 +4,7 @@ import { GOBLINS, LIFE as C, COMBAT as K, WORK as W, DUTIES, boxOf } from '../..
 import { positionRegion } from '../../shared/goblins/areas.js';
 import { ballisticAim, ballisticClear } from '../../shared/ballistics.js';
 import { GOBLIN_STATE, S2C } from '../../shared/protocol.js';
+import { isLadder } from '../../shared/blocks.js';
 import { TICK_RATE } from '../../shared/config.js';
 import { canSee, huntable } from '../provocation.js';
 import { Arrow } from '../arrow.js';
@@ -45,7 +46,7 @@ export class GoblinUnit {
   options() { return { ladders: this.def.ladders, role: this.role }; }
   eye(point = this.state) { return { x: point.x, y: point.y + this.def.height * 0.85, z: point.z }; }
   // Fighting, rallying and returning may leave the home area (through gates).
-  get roaming() { return !!(this.target || this.rally) || this.behavior === 'return'; }
+  get roaming() { return !!(this.target || this.rally || this.task) || this.behavior === 'return'; }
   go(point) {
     const area = this.garrison.nav.area(this.home);
     const route = this.garrison.nav.route(this.state, point, area, this.options());
@@ -219,38 +220,124 @@ export class GoblinUnit {
     this.task = null; this.working = false;
     if (this.behavior === 'work') { this.behavior = 'idle'; this.wait = 0; }
   }
+  // Seconds per swing: construction runs at its paced interval.
+  swing(job) { return ticks(job?.entry || job?.climb ? this.garrison.construction?.swing ?? W.swingSeconds : W.swingSeconds); }
   workStep(tick) {
     const task = this.task, work = this.garrison.work, nav = this.garrison.nav, job = task.job;
     if (job && (!work.jobs.has(job) || job.worker !== this)) { this.endTask(); return; }
     const areaId = job ? job.area : this.home, area = nav.area(areaId);
     // No work while an enemy is inside the area; the job waits for the area to clear.
     if (this.garrison.occupied.has(areaId)) { this.endTask(); return; }
+    // A task with no block placed for taskTimeout (blocked, unroutable, stuck)
+    // is given up; the job waits a while before anyone tries it again.
+    task.since ??= tick;
+    if (tick - task.since > ticks(W.taskTimeout)) {
+      if (job && !job.climb) { job.waiting = true; job.retryAt = tick + ticks(W.waitRetrySeconds * 3); }
+      this.endTask(); return;
+    }
+    if (job?.climb) { this.climbStep(tick, job); return; }
     task.dest ??= job ? job.spot : nav.nearest(area, task.section.center, this.role);
     if (!task.dest) { this.endTask(); return; }
     const s = this.state, dest = center(task.dest);
-    const arrived = flat(s, dest) <= W.arriveDistance && Math.abs(s.y - task.dest.y) < 0.6
+    const arrived = task.close || flat(s, dest) <= W.arriveDistance && Math.abs(s.y - task.dest.y) < 0.6
       || !job && flat(s, task.section.center) <= W.inspectDistance;
     if (!arrived) {
       this.working = false;
       if (this.path.length) return;
       // A spot it can't walk to: the job waits until blocks there change.
       if ((task.tries = (task.tries ?? 0) + 1) > 2) { if (job) job.waiting = true; this.endTask(); return; }
-      const route = nav.route(s, task.dest, area, this.options());
-      if (route === null) task.tries--; else this.path = route;
+      const route = this.routeTo(task.dest, area);
+      // An empty route means it's already on the goal node (crowds can push
+      // it slightly off center): close enough to work.
+      if (route?.length === 0 && flat(s, dest) <= W.closeEnough && Math.abs(s.y - task.dest.y) < 1) { task.close = true; return; }
+      if (route === null || route.exit) task.tries--;
+      if (route) this.path = route;
       return;
     }
     if (!job) { work.inspect(task.section, this); this.endTask(); return; }
     this.path = []; this.working = true;
     if (tick < this.nextSwing) return;
     // The swing lands on the block chosen (and faced) at its start.
-    if (task.current && work.difference(task.current.key)) work.apply(task.current);
+    if (task.current && work.need(task.current)) { work.apply(task.current); this.garrison.construction?.progressed(job); task.since = tick; }
     task.current = null;
     const block = work.nextBlock(job);
     if (block === null) { work.drop(job); this.endTask(); return; }
-    this.nextSwing = tick + ticks(W.swingSeconds);
-    if (block === 'blocked') return;
+    this.nextSwing = tick + this.swing(job);
+    if (block === 'blocked') {
+      // Possibly its own body, off the spot's center: step back onto it.
+      if (job.spot) this.path = [{ x: job.spot.x, y: job.spot.y, z: job.spot.z, grounded: true }];
+      return;
+    }
     task.current = block;
     s.yaw = Math.atan2(-(block.x + 0.5 - s.x), -(block.z + 0.5 - s.z));
+  }
+  // Shaft work: the worker stands on the ladder column (job.climb.offset
+  // blocks from its block), or at the approach node on the floor beside it
+  // when that's out of the column's range or not dug yet.
+  climbStep(tick, job) {
+    const task = this.task, work = this.garrison.work, nav = this.garrison.nav, c = job.climb, s = this.state;
+    if (!task.current) {
+      const block = work.nextBlock(job);
+      if (block === null) { work.drop(job); this.endTask(); return; }
+      if (block === 'blocked') return;
+      const y = block.y + c.offset;
+      const ladder = y >= c.min && y <= c.max && y !== block.y && isLadder(this.game.world.getBlock(c.x, y, c.z));
+      task.current = block; task.stand = ladder ? { x: c.x, y, z: c.z } : null; task.tries = 0; task.swung = false;
+    }
+    const block = task.current, stand = task.stand ?? c.approach;
+    if (!stand) { this.endTask(); return; }
+    const inColumn = Math.abs(s.x - c.x - 0.5) < 0.3 && Math.abs(s.z - c.z - 0.5) < 0.3;
+    const arrived = task.stand ? inColumn && Math.abs(s.y - stand.y) < 0.4
+      : flat(s, center(stand)) <= W.arriveDistance && Math.abs(s.y - stand.y) < 0.6;
+    if (!arrived) {
+      this.working = false;
+      if (this.path.length) return;
+      if ((task.tries = (task.tries ?? 0) + 1) > 3) { this.endTask(); return; }
+      if (!task.stand) {
+        // Off the ladder: walk to the approach node (out of the column first).
+        const route = this.routeTo(stand, nav.area(c.approachArea));
+        if (route === null || route.exit) task.tries--;
+        if (route) this.path = route;
+      } else if (inColumn) this.path = [{ x: c.x, y: stand.y, z: c.z, ladder: true }];
+      else {
+        // Walk to the approach node, step across into the column, then climb.
+        const route = flat(s, center(c.approach)) <= W.arriveDistance ? [] : this.routeTo(c.approach, nav.area(c.approachArea));
+        if (route === null) { task.tries--; return; }
+        if (route.exit) { task.tries--; this.path = route; return; }
+        const steps = [], a = c.approach;
+        for (let x = a.x; x !== c.x; x += Math.sign(c.x - x)) if (x !== a.x) steps.push({ x, y: a.y, z: a.z, grounded: true });
+        for (let z = a.z; z !== c.z; z += Math.sign(c.z - z)) steps.push({ x: c.x, y: a.y, z, grounded: true });
+        this.path = [...route, ...steps, { x: c.x, y: a.y, z: c.z, ladder: true }, { x: c.x, y: stand.y, z: c.z, ladder: true }];
+      }
+      return;
+    }
+    this.path = []; this.working = true;
+    s.yaw = Math.atan2(-(block.x + 0.5 - s.x), -(block.z + 0.5 - s.z));
+    if (!task.swung) { task.swung = true; this.nextSwing = tick + this.swing(job); return; }
+    if (tick < this.nextSwing) return;
+    if (work.need(block)) { work.apply(block); this.garrison.construction?.progressed(job); task.since = tick; }
+    task.current = null;
+  }
+  // Waypoints to a node: through a planned area's construction site when the
+  // destination is in one, walking out of the site it stands in first
+  // (marked .exit, not a real attempt), or a normal route.
+  routeTo(dest, area) {
+    const construction = this.garrison.construction, here = this.garrison.regionAt(this.state);
+    if (here?.state === 'planned' && here !== area) {
+      const exit = construction?.site(here)?.exit(this);
+      if (exit?.length) { exit.exit = true; return exit; }
+    }
+    if (area?.state === 'planned') return construction?.site(area)?.routeTo(this, dest) ?? [];
+    return this.garrison.nav.route(this.state, dest, area, this.options());
+  }
+  // A worker that finished a job inside a construction site walks out
+  // through the site's nearest entry before going home.
+  leaveSite() {
+    const area = this.garrison.regionAt(this.state);
+    if (!area || area.state !== 'planned') return false;
+    const path = this.garrison.construction?.site(area)?.exit(this);
+    if (!path?.length) return false;
+    this.path = path; this.behavior = 'return'; return true;
   }
 
   // ---- Duties ----
@@ -308,14 +395,28 @@ export class GoblinUnit {
     } else if (this.rally) { this.rallyStep(tick); speed *= K.chaseSpeed; }
     else if (this.task) this.workStep(tick);
     else {
+      // Workers look for work wherever they are (a finished job may leave them
+      // outside their home, on a construction site).
+      if (this.slot.duty === 'worker' && !this.path.length && tick >= (this.nextWorkLook ?? 0)) {
+        this.nextWorkLook = tick + K.scanTicks;
+        const task = this.garrison.work.nextTask(this, tick);
+        if (task) { this.task = task; this.behavior = 'work'; return this.afterMove(world, tick); }
+      }
       if (this.behavior === 'post' && !this.path.length && --this.lookWait <= 0) {
         this.state.yaw += (Math.random() - 0.5) * Math.PI; this.lookWait = wait(C.postWait);
       }
       // A hit may knock a goblin outside its home. Only its return journey may
       // use gate crossings; normal decisions are strictly home constrained.
-      if (!nav.contains(area, this.state) && this.behavior !== 'return') { this.behavior = 'return'; this.go(this.slot.point); }
+      if (!nav.contains(area, this.state) && this.behavior !== 'return' && !this.leaveSite()) { this.behavior = 'return'; this.go(this.slot.point); }
       if (this.behavior === 'return' && !this.path.length && !this.routePending && Math.hypot(this.state.x - this.slot.point.x - 0.5,
-        this.state.y - this.slot.point.y, this.state.z - this.slot.point.z - 0.5) > 0.4) this.go(this.slot.point);
+        this.state.y - this.slot.point.y, this.state.z - this.slot.point.z - 0.5) > 0.4) {
+        // A post that isn't built yet: wait at the area's spawn point instead.
+        const route = this.go(this.slot.point);
+        if (route?.length === 0 && !this.garrison.construction?.done) {
+          const spawn = this.garrison.spawnFor(this.slot)?.point;
+          if (spawn) this.go(spawn);
+        }
+      }
       this.think();
     }
     const hadPath = this.path.length > 0, moved = stepMobPath(this, world, speed);

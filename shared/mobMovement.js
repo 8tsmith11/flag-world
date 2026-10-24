@@ -10,7 +10,9 @@ export function stepMobPath(mob, world, speed = 1) {
   while (n) {
     const dx = n.x + 0.5 - s.x, dz = n.z + 0.5 - s.z;
     const next = path[1];
-    const passed = next && Math.abs(n.y - s.y) < 0.35
+    // Past a waypoint toward the next one, and close to it: a mob still well
+    // to the side of a corner hasn't turned it yet.
+    const passed = next && Math.abs(n.y - s.y) < 0.35 && Math.hypot(dx, dz) < 0.75
       && (s.x - n.x - 0.5) * (next.x - n.x) + (s.z - n.z - 0.5) * (next.z - n.z) > 0;
     const heightReached = n.exitHeight !== undefined && n.ladder
       ? s.y >= n.y && s.y < n.y + 1 : Math.abs(n.y - s.y) < (n.grounded ? 0.01 : 0.25);

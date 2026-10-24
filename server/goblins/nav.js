@@ -49,13 +49,28 @@ export class GoblinNav {
   // By id; rebuilt when outskirts are recomputed or a creative home is added.
   area(id) {
     const plan = this.plan;
-    if (!this.byId || this.byIdOutskirts !== plan.outskirts || this.byIdCreative !== (plan.creativeAreas?.length ?? 0)) {
+    const signature = `${plan.areas.length}:${plan.creativeAreas?.length ?? 0}`;
+    if (!this.byId || this.byIdOutskirts !== plan.outskirts || this.byIdSignature !== signature) {
       this.byId = new Map(this.regions().map(a => [a.id, a]));
-      this.byIdOutskirts = plan.outskirts; this.byIdCreative = plan.creativeAreas?.length ?? 0;
+      this.byIdOutskirts = plan.outskirts; this.byIdSignature = signature;
     }
     return this.byId.get(id);
   }
-  contains(area, p) { return area?.volumes.some(v => insideBox(v, p)); }
+  // Volumes indexed by column, rebuilt when an area's volume list changes
+  // (block edits test every region, so a linear scan over thousands of
+  // per-column volumes is too slow).
+  contains(area, p) {
+    if (!area) return false;
+    let index = area.volumeIndex;
+    if (!index || index.count !== area.volumes.length) {
+      index = area.volumeIndex = new Map(); index.count = area.volumes.length;
+      for (const v of area.volumes) for (let z = v.z0; z <= v.z1; z++) for (let x = v.x0; x <= v.x1; x++) {
+        const k = cellKey(x, z); if (!index.has(k)) index.set(k, []);
+        index.get(k).push(v);
+      }
+    }
+    return !!index.get(cellKey(Math.floor(p.x), Math.floor(p.z)))?.some(v => insideBox(v, p));
+  }
   // Edits are coalesced per area until the next tick; see refresh().
   changed(x, y, z) {
     const p = { x, y, z };
@@ -82,7 +97,16 @@ export class GoblinNav {
     };
     const inner = around(1), window = around(2), plan = this.plan;
     const column = key => { const [x, , z] = key.split(','); return `${x},${z}`; };
-    const graph = makeGraph(this.world, a.volumes.filter(v => window.has(cellKey(v.x0, v.z0))), plan.wallCells, plan.platformCells);
+    const volumes = a.volumes.filter(v => window.has(cellKey(v.x0, v.z0)));
+    const graph = makeGraph(this.world, volumes, plan.wallCells, plan.platformCells);
+    // Cells the rebuild covered: inner columns, within this area's volumes
+    // (a column can continue below or above them, e.g. a shaft).
+    const byColumn = new Map();
+    for (const v of volumes) { const k = cellKey(v.x0, v.z0); if (!byColumn.has(k)) byColumn.set(k, []); byColumn.get(k).push(v); }
+    const rebuilt = key => {
+      const [x, y, z] = key.split(',').map(Number);
+      return inner.has(cellKey(x, z)) && !!byColumn.get(cellKey(x, z))?.some(v => y >= v.y0 && y <= v.y1);
+    };
     this.reportLadders(graph.ladderProblems);
     const edgesKey = edges => edges.map(e => `${e.to}:${e.cost}:${!!e.ladder}`).sort().join('|');
     let changed = false;
@@ -90,7 +114,9 @@ export class GoblinNav {
       if (!inner.has(column(k))) continue;
       const old = plan.graph.get(k), n = graph.get(k);
       if (!n) { plan.graph.delete(k); a.nodes.delete(k); changed = true; continue; }
-      for (const e of old?.edges ?? []) if (!graph.has(e.to) && plan.graph.has(e.to)) n.edges.push(e);
+      // Edges into rebuilt columns come only from the new graph; edges leaving
+      // the window (gates into other areas) are kept.
+      for (const e of old?.edges ?? []) if (!graph.has(e.to) && !rebuilt(e.to) && plan.graph.has(e.to)) n.edges.push(e);
       // Keep the old node (and its cached fit answers) when nothing differs.
       if (old && old.grounded === n.grounded && old.ladder === n.ladder && edgesKey(old.edges) === edgesKey(n.edges)
         && Object.keys(old.fits ?? {}).every(role => this.fits(n, role) === old.fits[role])) continue;
@@ -102,7 +128,7 @@ export class GoblinNav {
         continue;
       }
       const old = plan.graph.get(k); if (!old || !a.nodes.has(k)) continue;
-      const edges = [...old.edges.filter(e => !inner.has(column(e.to))), ...n.edges.filter(e => inner.has(column(e.to)))];
+      const edges = [...old.edges.filter(e => !rebuilt(e.to)), ...n.edges.filter(e => rebuilt(e.to))];
       if (edgesKey(edges) !== edgesKey(old.edges)) { old.edges = edges; changed = true; }
     }
     if (!changed) return;
@@ -129,6 +155,24 @@ export class GoblinNav {
     }
     index = { revision: area.revision ?? 0, size: area.nodes.size, buckets, x0, x1, z0, z1 };
     this.indexes.set(area.id, index); return index;
+  }
+  // Nodes goblins can actually walk to: a search from every standing spawn
+  // point through the nodes of active areas. Natural caves inside a planned
+  // volume are walkable but cut off. Recomputed at most every reachTicks.
+  reachable(spawnAlive, tick) {
+    if (this.reach && tick - this.reach.tick < C.reachTicks) return this.reach.set;
+    const active = this.regions().filter(a => a.state === 'active');
+    const member = k => active.some(a => a.nodes.has(k)), set = new Set(), queue = [];
+    for (const a of active) for (const s of a.spawns ?? []) {
+      const k = nodeKey(s.point);
+      if (spawnAlive(s) && this.plan.graph.has(k) && !set.has(k)) { set.add(k); queue.push(k); }
+    }
+    for (let i = 0; i < queue.length; i++) for (const e of this.plan.graph.get(queue[i])?.edges ?? []) {
+      if (set.has(e.to) || !this.plan.graph.has(e.to) || !member(e.to)) continue;
+      set.add(e.to); queue.push(e.to);
+    }
+    this.reach = { tick, set };
+    return set;
   }
   // Grounded nodes that fit the role within `radius` (horizontal) of a point,
   // nearest first.
@@ -174,7 +218,9 @@ export class GoblinNav {
     }
     const key = `${goal.key}:${ladders}:${role}`;
     if (cache.has(key)) return cache.get(key);
-    const waypointGraph = area.kind === 'underground' ? this.waypointGraph(area, role, ladders) : null;
+    // Waypoints follow the finished fortress's rooms; an area still being
+    // built (area.unfinished) routes over its plain graph.
+    const waypointGraph = area.kind === 'underground' && !area.unfinished ? this.waypointGraph(area, role, ladders) : null;
     const members = waypointGraph ? new Set(waypointGraph.keys()) : area.nodes;
     const reverse = new Map();
     for (const k of members) {
@@ -250,7 +296,10 @@ export class GoblinNav {
   // Every node in a gate chain's areas, cached until any of them changes.
   chainNodes(chain) {
     this.chainCache ??= new Map();
-    const key = chain.join('>'), areas = chain.map(id => this.area(id));
+    // Active link areas (the temporary shaft) beside the chain are walkable too.
+    const links = this.regions().filter(a => a.link && a.state === 'active'
+      && this.plan.gates.some(g => g.areas.includes(a.id) && g.areas.some(id => chain.includes(id))));
+    const key = [...chain, ...links.map(a => a.id)].join('>'), areas = [...chain.map(id => this.area(id)), ...links];
     const signature = areas.map(a => `${a.revision ?? 0}/${a.nodes.size}`).join(',');
     const cached = this.chainCache.get(key);
     if (cached?.signature === signature) return cached.nodes;
@@ -274,13 +323,16 @@ export class GoblinNav {
   // route longer than the budget still gets found instead of restarting forever.
   route(start, destination, home, { ladders = true, role = 'worker', unlimited = false } = {}) {
     const free = unlimited || this.budget >= C.nodeBudget;
-    const goal = this.nearest(home, destination, role); if (!goal) return [];
+    // A destination that is itself one of the area's nodes (a ladder rung,
+    // say) is the goal; otherwise the nearest standing node.
+    const exact = home?.nodes.has(nodeKey(destination)) ? this.plan.graph.get(nodeKey(destination)) : null;
+    const goal = exact && this.fits(exact, role) ? exact : this.nearest(home, destination, role); if (!goal) return [];
     const origin = positionRegion(this.plan, start) ?? home;
     const first = this.nearest(origin, { x: Math.floor(start.x), y: Math.round(start.y), z: Math.floor(start.z) }, role, false);
     if (!first) return [];
     if (home.nodes.has(first.key)) {
       let start = first, end = goal, prefix = [], suffix = [];
-      if (home.kind === 'underground') {
+      if (home.kind === 'underground' && !home.unfinished) {
         const graph = this.waypointGraph(home, role, ladders), options = { role, ladders, free };
         const a = this.attach(home, first, graph, options), b = this.attach(home, goal, graph, options);
         if (a === null || b === null) return null;

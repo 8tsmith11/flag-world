@@ -2,6 +2,7 @@ import { selectWoodedBiomes } from './woodedBiomes.js';
 import { generateFallenTrees } from './fallenTrees.js';
 import { generateGoblinVillage } from './goblins/generate.js';
 import { recomputeOutskirts } from './goblins/outskirts.js';
+import { unbuildGoblinVillage } from './goblins/construction.js';
 // Seeded island planning and terrain. The complete island/keep layout is
 // chosen before any blocks are written, so spacing does not depend on order.
 import { BLOCK, isSolid } from './blocks.js';
@@ -656,8 +657,14 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
   attachGeneratedTorches(world);
   generateVegetation(world,ordinaryTerrains,noise);
   // Perimeter navigation must see the final trees and other ground obstacles.
+  // Its outer gates and gatehouses are village blocks too.
+  world.naturalLog = world.goblinPlan.natural;
   recomputeOutskirts(world);
+  delete world.naturalLog;
   generateDragonArena(world);
+  // The goblins build their village during the match: keep the full plan as
+  // targets, and leave only the Totem Hall standing.
+  unbuildGoblinVillage(world);
   progress('complete');
   return world;
 }

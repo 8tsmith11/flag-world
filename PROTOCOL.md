@@ -919,6 +919,20 @@ item within 1.5 blocks of a player's body goes into their inventory. It tops up
 matching stacks first, then fills empty slots, hotbar before main grid in both
 passes. Whatever doesn't fit stays on the ground.
 
+### `announce`
+
+A world event for every player, shown in the event feed and as a toast.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `text` | string | e.g. "The goblins have breached the surface", "The goblin fortress is complete" |
+
+Goblin construction (slice 1d) uses only this message and the existing
+`blockChanges`, entity and `welcome.blockChanges` messages: worlds generate
+with only the Totem Hall standing, and every block goblins build is an
+ordinary block change. The host's creative `maxGoblinFortress` action
+finishes all remaining construction at once.
+
 ### `swing`
 
 Another player swung their arm (punch, mining, or placing a block), or a mob

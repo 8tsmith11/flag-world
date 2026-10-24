@@ -49,6 +49,10 @@ export const LIFE = {
   postRadius: 2, postWait: [3, 8], wanderWait: [2, 5], patrolPoints: 6,
   stuckTicks: 40, unseenAdvance: 3, creativeRadius: 6,
   nodeBudget: 1800, ladderCost: 10, cacheDestinations: 48, spawnRetryTicks: 40,
+  reachTicks: 40,           // reachable-node set refresh (construction standing spots)
+  // The group that starts in the Totem Hall (with the King and the Totem);
+  // the hall's other slots open once its area's spawn room is built.
+  startGroup: { worker: 1, soldier: 2 },
   walkSpeed: WALK_SPEED,
 };
 export const DUTIES = {
@@ -71,10 +75,30 @@ export const WORK = {
   reach: 8,                 // blocks, worker body center to block center; no line of sight needed
   swingSeconds: 0.6,        // one block placed or removed per swing
   arriveDistance: 0.6,      // close enough to a standing spot to work
+  closeEnough: 1.5,         // ...when the route there is empty (already on its node)
   inspectDistance: 6,       // close enough to a section's center to inspect it
   // Never removed by workers (blocks with a tile entity and turrets are
   // always protected too, since removing them would lose state).
   protectedBlocks: [],
-  // Never counted as differences, placed or removed (plants are always ignored).
+  // Never counted as differences, placed or removed by repairs (plants are
+  // always ignored). Construction site prep does clear trees and plants.
   ignoredBlocks: [BLOCK.LEAVES, BLOCK.BRANCH, BLOCK.SAPLING],
+  retriesPerTask: 8,        // waiting jobs re-checked for a standing spot per task request
+  waitRetrySeconds: 3,      // a waiting job is re-checked at least this often
+  taskTimeout: 30,          // a worker gives up a task with no block placed for this long
+
+  // ---- Construction ----
+  terrainBlocks: [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND], // cut/fill targets count as site prep
+  clearBand: 6,             // blocks outside the outer wall cleared of trees and plants
+  clearHeight: 16,          // that clearing reaches this far above the ground
+  maxRestore: 400,          // a piece whose site needs more cut/fill than this is skipped
+  castleDepth: 8,           // the Castle's entry reaches this far below its box (its earthworks)
+  openJobs: 24,             // jobs an entry keeps open at once (more are made as they finish)
+  stallSeconds: 120,        // with no block placed anywhere this long, entries with only unreachable blocks finish without them
+  siteRefreshTicks: 20,     // a construction site's reachable spots are recomputed at most this often
+  // Pace: full completion takes about completionMinutes(island radius). The
+  // swing interval is scaled from the measured completion on the reference
+  // islands (see the report in AGENTS.md).
+  completionMinutes: radius => 40 * radius / 112,
+  buildSwingSeconds: radius => 0.15 * radius / 110,
 };

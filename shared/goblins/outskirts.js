@@ -28,7 +28,10 @@ function perimeterOrder(outline) {
 
 // Rebuild from active development, not a fixed circle or a bounding rectangle.
 // Server garrison/nav observe outskirtsVersion and replace section slots/caches.
-export function recomputeOutskirts(world, plan = world.goblinPlan) {
+// runtime: during construction (server). Only active surface areas define
+// the outline (the outer wall counts once plan.outerBuilt is set), and no
+// new gates are carved: the generated ones are already construction targets.
+export function recomputeOutskirts(world, plan = world.goblinPlan, { runtime = false } = {}) {
   const oldKeys = new Set((plan.outskirts ?? []).flatMap(a => [...a.nodes]));
   for (const k of oldKeys) if (!plan.areas.some(a => a.nodes.has(k))) plan.graph.delete(k);
   plan.gates = plan.gates.filter(g => !g.outskirts);
@@ -37,7 +40,12 @@ export function recomputeOutskirts(world, plan = world.goblinPlan) {
   const outer = plan.surface.rings.find(r => r.name === 'outer');
   // Existing walls define development where they stand. New active regions
   // beyond that wall contribute their own outlines until a new ring is built.
-  const outline = new Set([...(outer?.area ?? []), ...active.flatMap(a => [...a.columns])]);
+  if (!active.length) {
+    plan.outskirts = [];
+    plan.outskirtsVersion = (plan.outskirtsVersion ?? 0) + 1;
+    return plan.outskirts;
+  }
+  const outline = new Set([...(!runtime || plan.outerBuilt ? outer?.area ?? [] : []), ...active.flatMap(a => [...a.columns])]);
   const boundary = [...outline].filter(k => {
     const [x, z] = k.split(',').map(Number);
     return CARDINAL.some(([dx, dz]) => !outline.has(cellKey(x + dx, z + dz)));
@@ -74,7 +82,7 @@ export function recomputeOutskirts(world, plan = world.goblinPlan) {
     const touchesExit = active.some(a => [...a.nodes].some(k => {
       const n = plan.graph.get(k); return n && !plan.wallCells.has(cellKey(n.x, n.z)) && CARDINAL.some(([dx, dz]) => [0, 1, -1].some(dy => keys.has(nodeKey({ x: n.x + dx, y: n.y + dy, z: n.z + dz }))));
     }));
-    if (touchesExit || !outer) continue;
+    if (touchesExit || !outer || runtime) continue;
     const candidates = outer.wall.flatMap(w => {
       if (plan.surface.posts.some(p => Math.abs(p.x - w.x) + Math.abs(p.z - w.z) <= 2)) return [];
       if (plan.surface.rings.some(r => r !== outer && r.wall.some(p => p.x === w.x && p.z === w.z))) return [];

@@ -711,6 +711,67 @@ PROTOCOL.md                  WebSocket message reference
   sets it when the swing lands. `g` is `WORK` while hammering. A job is
   released when its worker dies, flees, or an enemy enters the job's area.
 
+## Goblin construction, slice 1d
+
+- World generation still builds the full village, fortress and outskirts
+  (so every later pass sees them), logging the first block each goblin write
+  replaced (`world.naturalLog` while the village is placed, and around the
+  final `recomputeOutskirts`). `shared/goblins/construction.js`
+  `unbuildGoblinVillage` then runs last, on the server and in the client's
+  world worker alike: every logged cell's built block becomes a target
+  (`plan.construction.targets`, plants as air) and its natural block is
+  restored, except inside the Totem Hall's box. The initial shaft's blocks
+  inside the hall stand (ladder with its backing lining); above it the dig
+  sequence (`plan.construction.dig`) is the 1x1 ladder column up to the
+  column's top solid block, with a backing brick wherever it crosses a cave.
+- `server/goblins/construction.js` (`garrison.construction`) owns the build
+  order. All areas start planned except the hall's; `area.unfinished` makes
+  underground routing use the plain graph instead of finished-room waypoints.
+  A temporary link area `shaft` (gates `shaft:hall`, then `shaft:surface` and
+  `shaft:mid` at the breakthrough) holds the dug column; `linkShaft` adds
+  edges to its active neighbours. `nav.chainNodes` lets routes use active link
+  areas beside a chain. Only `LIFE.startGroup` (plus King and Totem) spawn in
+  the hall until its area's spawn room is built (`slot.held`); while the
+  shaft stands the Totem stands 3 blocks from the hall center and the hall
+  spawn point moves beside the lining.
+- One digger (an ordered climbing job: `job.climb`, standing on the ladder
+  two blocks below its block) digs the shaft; finishing it breaches the
+  surface (`announce`). Each other area gets entries `access` (site prep on a
+  breadth-first walk from its origin to its spawn building, plus that
+  building's footprint), `spawn` (the building; the area becomes active),
+  `prep` (remaining cut/fill and the cleared band, `CLEAR` targets), `walls`
+  (wall columns and gatehouses), `rest`. An entry starts once its area is
+  active or adjacent to an active one; it queues its cells (cuts outward from
+  the area's origin, then fills/building bottom-up) and `feed` turns them into
+  at most `openJobs` jobs, clusters grown through queued cells. Cells with no
+  reachable standing spot are deferred and re-queued every `waitRetrySeconds`.
+  `nav.reachable` (a search from standing spawns through active areas,
+  refreshed every `reachTicks`) filters standing spots, so natural caves inside
+  planned volumes are never used. Only when no block has been placed anywhere
+  for `stallSeconds` does an entry finish without its unreachable blocks.
+- Planned areas are reached through a `Site`: their walkable graph as the
+  world stands (no walls), entries where it touches reachable nodes of an
+  active neighbour, and a breadth-first flow from them; rebuilt around edited
+  columns and refreshed at most every `siteRefreshTicks`; dropped when the
+  area becomes active (which rebuilds its nav graph from the world and
+  recomputes the outskirts with `{ runtime: true }`: only active surface areas
+  count, no new gates are carved).
+- Site prep checks pieces against `maxRestore` cut/fill; a skipped piece and
+  its jigsaw children lose their targets and the parent's doorway is closed
+  with its main block.
+- When every underground area is built, one worker relocates the shaft
+  (climbing job standing two above its block, approached from the Mid Room):
+  the 3x3 lining above the Mid Room, the plug below it and the hall's ceiling,
+  then the shaft area is removed. The Castle entry (its box, down to
+  `castleDepth` below) goes last.
+- Workers check for tasks wherever they stand; `unit.routeTo` walks out of a
+  site first when needed. A task with no block placed for `taskTimeout` is
+  given up. `spawnAlive` also requires open feet and head cells. While building,
+  a goblin whose post is unreachable spawns anyway and waits at its spawn.
+- The `maxGoblinFortress` creative action (`completeAll`) places every
+  remaining target at once with the per-block hooks off (`garrison.bulk`),
+  activates every area, removes the shaft and recomputes the outskirts.
+
 ## Chunk simulation, working monkeys and creative eggs
 
 - `server/chunkLoading.js` indexes entities and queued work by horizontal
