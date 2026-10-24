@@ -1,4 +1,4 @@
-import { createGoblinModel, createTotemModel, animateGoblin, animateTotem } from './goblinModels.js';
+import { createGoblinModel, createTotemModel, animateGoblin, animateTotem, swingGoblin } from './goblinModels.js';
 import { GoblinInstances } from './goblinInstances.js';
 import { GOBLINS, roleOf, boxOf as goblinBox } from '/shared/goblins/life.js';
 import { GOBLIN_STATE } from '/shared/protocol.js';
@@ -160,10 +160,12 @@ export class EntityRenderer {
     if (entity.snapshots.length > MAX_SNAPSHOTS) entity.snapshots.shift();
   }
 
-  // Plays a player's arm swing (sent by the server when they punch, mine or place).
+  // Plays a player's arm swing (sent by the server when they punch, mine or
+  // place), or a melee goblin's strike.
   swing(id) {
     const entity = this.entities.get(id);
     if (entity?.object.userData.player) swingPlayer(entity.object);
+    else if (entity?.object.userData.goblin) swingGoblin(entity.object);
   }
 
   flash(id) {

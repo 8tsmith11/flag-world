@@ -86,7 +86,7 @@ export function resolveMobOverlaps(world, mobs) {
     const scale = Math.min(1, amount / Math.max(1e-9, Math.hypot(push.x, push.y, push.z)));
     const proposed = { ...body.state, x: body.state.x + push.x * scale,
       y: body.state.y + push.y * scale, z: body.state.z + push.z * scale };
-    if (body.goblin && body.behavior !== 'return' && !body.garrison.nav.contains(body.garrison.nav.area(body.home), proposed)) continue;
+    if (body.goblin && !body.roaming && !body.garrison.nav.contains(body.garrison.nav.area(body.home), proposed)) continue;
     if (!safe(world, body, proposed)) continue;
     body.state.x = proposed.x; body.state.y = proposed.y; body.state.z = proposed.z;
     changed.add(body);

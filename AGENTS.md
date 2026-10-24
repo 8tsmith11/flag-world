@@ -599,7 +599,7 @@ PROTOCOL.md                  WebSocket message reference
   the village create a small local navigation volume, separate from village
   development; egg units do not respawn.
 - `server/goblins/unit.js` is one state machine (idle/work/patrol/post/fight/
-  flee/return). Only idle, patrol, post and return run in this slice. All path
+  flee/return); see "Goblin combat, slice 1b" for fight and flee. All path
   steering goes through `shared/mobMovement.js` and the existing `stepPlayer`
   gravity/collision/step/jump/ladder physics. `input.climb` is an optional
   server-side mob direction; normal player inputs retain their original
@@ -609,7 +609,11 @@ PROTOCOL.md                  WebSocket message reference
 - `server/goblins/nav.js` caches surface flow fields and underground
   room-cross/hall-center/shaft waypoint graphs. Local attachments and
   cross-area searches share a per-tick node budget; ladder edges cost more
-  and role data can prohibit them. Changed blocks invalidate only containing
+  and role data can prohibit them. The first search of a tick runs to
+  completion (so routes longer than the budget still finish); later ones
+  return null when the budget is spent. Fit checks are cached on graph nodes
+  (refresh replaces an edited region's nodes) and `nearest`/`nodesNear` use a
+  per-area column-bucket index. Changed blocks invalidate only containing
   volumes, bump their revisions and re-route affected units. Graph refreshes
   coalesce edits per affected region at the next tick. Stuck recovery
   re-routes first, then permits a short body-clear advance only out of every
@@ -636,6 +640,44 @@ PROTOCOL.md                  WebSocket message reference
   prohibition, and writes labeled ASCII and full geometry maps to `/tmp`.
   Cross-area spawn travel is explicitly checked against the gate-chain
   volumes; home patrol/working routes must remain inside their home volume.
+
+## Goblin combat, slice 1b
+
+- Combat is role data in `shared/goblins/life.js`: `GOBLINS[role].sight`,
+  `leash`, `melee` (damage, reach, cooldown, knockback), `ranged` (damage,
+  range, cooldown, arrowSpeed, spread), `flee` (workers) and `floorOnly` (the
+  King), plus shared `COMBAT` tuning. Roles have no special-case code.
+- `server/goblins/garrison.js` rebuilds one `SpatialHash` of enemies per tick
+  (players, Crawlers, Void Eels, dragons, all through `huntable()`, so the
+  creative host's invisibility applies). `findTarget` returns the nearest
+  visible one. Every `scanTicks` it marks occupied areas (enemy inside a
+  volume, via `positionRegion`) and raises alarms; the first alarm of an
+  area rallies `reinforceCount` free melee fighters from each adjacent area
+  (not gate/tower posts, not the King). `damaged()` (called from
+  `Game.hurtMob`) alarms the goblin's area, deploys `reserve` slots when
+  within `reserveRadius` of the Castle, and provokes the goblin. Alarms
+  expire after `reinforceLinger` without enemies and send rallied units home.
+  Occupied areas release no one; spawns come from the nearest safe area by
+  gate crossings. Ready slots spawn in `priority` order. Killing the village
+  Totem (not an egg Totem) stops all respawns.
+- `server/goblins/unit.js`: scans are staggered by id. With a target, melee
+  units chase with `chaseRoute` (a nav route into the target's region,
+  through gates; false when no node is next to the target, or for the King
+  when it leaves his floor) and step straight in within `closeRange`; past
+  `leash` from home (or from the rally point) or with no route they give up
+  and ignore that target for `unreachableSeconds`. Hits are returned from
+  `step()` and landed by `Game.updateMobs` (`meleeHit`, which uses `hurt()`
+  for mob targets). Archers never walk off their home: tower archers pick
+  the post spot (within `postEdge`, nearest edge first) with a clear shot,
+  ground archers step within `archerShift` but stay at least as far from the
+  target as the gate guard they stand behind (`slot.guard`). Shots use
+  `ballisticAim`/`ballisticClear` from half a block toward the target (so
+  shots straight down off a post clear), with lead and spread; goblin arrows
+  only hit players and hostile mobs (`Game.updateArrows`). Workers flee
+  within their home. Losing a target or a rally sets `return`; `roaming`
+  units may leave home (also for overlap pushes in `mobSteering.js`).
+- The client plays goblin strikes from `swing` (`swingGoblin`); goblin
+  descriptions carry `name` for the kill feed.
 
 ## Chunk simulation, working monkeys and creative eggs
 

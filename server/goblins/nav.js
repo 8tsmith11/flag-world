@@ -97,6 +97,19 @@ export class GoblinNav {
     index = { revision: area.revision ?? 0, size: area.nodes.size, buckets, x0, x1, z0, z1 };
     this.indexes.set(area.id, index); return index;
   }
+  // Grounded nodes that fit the role within `radius` (horizontal) of a point,
+  // nearest first.
+  nodesNear(area, point, radius, role) {
+    if (!area) return [];
+    const index = this.index(area), result = [];
+    for (let bz = Math.floor((point.z - radius) / BUCKET); bz <= Math.floor((point.z + radius) / BUCKET); bz++)
+      for (let bx = Math.floor((point.x - radius) / BUCKET); bx <= Math.floor((point.x + radius) / BUCKET); bx++)
+        for (const n of index.buckets.get(`${bx},${bz}`) ?? []) {
+          const d = Math.hypot(n.x + 0.5 - point.x, n.z + 0.5 - point.z);
+          if (d <= radius && n.grounded && this.fits(n, role)) result.push({ n, d });
+        }
+    return result.sort((a, b) => a.d - b.d).map(e => e.n);
+  }
   // Searches buckets in rings around the point and stops once a ring can't
   // hold anything closer than the best so far.
   nearest(area, point, role = 'worker', standing = true) {

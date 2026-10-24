@@ -1,16 +1,30 @@
 import { GoblinNav } from './nav.js';
 import { GoblinUnit } from './unit.js';
-import { GOBLINS, LIFE as C } from '../../shared/goblins/life.js';
+import { GOBLINS, LIFE as C, COMBAT as K } from '../../shared/goblins/life.js';
 import { nodeKey, positionRegion, makeGraph, components } from '../../shared/goblins/areas.js';
 import { cellKey } from '../../shared/structures/buildability.js';
 import { TICK_RATE } from '../../shared/config.js';
 import { S2C } from '../../shared/protocol.js';
 import { isSolid } from '../../shared/blocks.js';
+import { SpatialHash } from '../spatialHash.js';
+import { canSee, huntable } from '../provocation.js';
+import { isGoblin } from '../fortressTraps.js';
+import { Crawler } from '../crawler.js';
+import { VoidEel } from '../eel.js';
+
+// Spawn order when several slots are ready: posts and archers first, then
+// patrols (and the reserve), then Brutes, then workers.
+const priority = slot => slot.duty === 'gate' || slot.duty === 'tower' || slot.duty === 'ground' || slot.role === 'archer' ? 0
+  : slot.role === 'brute' ? 2 : slot.role === 'worker' ? 3 : 1;
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) + Math.abs(a.y - b.y);
 export class Garrison {
   constructor(game) {
     this.game = game; this.plan = game.world.goblinPlan; this.nav = new GoblinNav(game.world);
+    // Enemies (players and hostile mobs) by position, rebuilt each tick;
+    // areas under attack (id -> { last tick, point }); areas with an enemy inside.
+    this.enemies = new SpatialHash(16); this.enemyList = []; this.nearby = [];
+    this.alarms = new Map(); this.occupied = new Set(); this.totemDestroyed = false;
     this.releases = new Map(); this.slots = game.chunkLoading ? game.chunkLoading.entityMap(s => s.point) : new Map(); this.version = this.plan.outskirtsVersion;
     this.generateSlots(this.nav.regions());
   }
@@ -69,7 +83,7 @@ export class Garrison {
         // A reachable point on this side of the gate, two cells behind guards.
         const behind = [...area.nodes].map(k => this.plan.graph.get(k)).filter(n => n && n.y === post.y && dist(n, post) >= 2 && dist(n, post) <= 3)
           .sort((a, b) => dist(a, point) - dist(b, point))[0] ?? post;
-        for (let i = 0; i < C.gateArchers; i++) this.add(area, 'archer', 'ground', behind);
+        for (let i = 0; i < C.gateArchers; i++) this.add(area, 'archer', 'ground', behind, { guard: post });
       }
       if (area.kind === 'surface') {
         for (let i = 0; i < C.courtyardArchers; i++) this.add(area, 'archer', 'ground', area.interests[0] ?? point);
@@ -99,12 +113,26 @@ export class Garrison {
   spawnFor(slot) {
     if (slot.spawnOverride) return { id: slot.id, point: slot.spawnOverride };
     const home = this.nav.area(slot.home);
-    const alive = a => a.spawns.filter(s => isSolid(this.game.world.getBlock(s.point.x, s.point.y - 1, s.point.z))
+    // While an enemy stands inside an area, its buildings release no one.
+    const alive = a => this.occupied.has(a.id) ? [] : a.spawns.filter(s => isSolid(this.game.world.getBlock(s.point.x, s.point.y - 1, s.point.z))
       && (!s.supports || s.supports.some(p => isSolid(this.game.world.getBlock(p.x, p.y, p.z))))
       && (!s.box || [s.box.x0, s.box.x1].some(x => isSolid(this.game.world.getBlock(x, s.box.y0, s.box.z0)))));
     if (home.kind === 'outskirts') {
       const linked = this.nav.area(home.linkedArea), spawns = linked ? alive(linked) : [];
       if (spawns.some(s => s.id === home.linkedSpawn?.id)) return home.linkedSpawn;
+      if (linked && this.occupied.has(linked.id)) {
+        // Walk in from the nearest safe area beyond the occupied one.
+        const queue = [linked], seen = new Set([linked.id, home.id]);
+        for (let i = 0; i < queue.length; i++) {
+          const found = alive(queue[i]);
+          if (found.length) return found.reduce((a, b) => dist(a.point, slot.point) <= dist(b.point, slot.point) ? a : b);
+          for (const g of this.plan.gates.filter(g => g.areas.includes(queue[i].id))) for (const id of g.areas) {
+            const next = this.nav.area(id); if (!next || next.state !== 'active' || seen.has(id)) continue;
+            seen.add(id); queue.push(next);
+          }
+        }
+        return null;
+      }
     }
     const queue = [home], seen = new Set([home.id]);
     for (let i = 0; i < queue.length; i++) {
@@ -119,16 +147,26 @@ export class Garrison {
   }
   update(tick) {
     this.nav.beginTick();
+    this.refreshEnemies();
+    if (tick % K.scanTicks === 0) this.watchAreas(tick);
+    this.releaseAlarms(tick);
     if (this.version !== this.plan.outskirtsVersion) {
       for (const [id, slot] of this.slots) if (slot.home.startsWith('O')) {
         if (slot.mob) this.game.removeMob(slot.mob); this.slots.delete(id);
       }
       this.generateSlots(this.plan.outskirts); this.version = this.plan.outskirtsVersion;
     }
+    // A destroyed Totem stops all respawns for good.
+    if (this.totemDestroyed) return;
+    const ready = [];
     for (const slot of this.slots.activeValues?.() ?? this.slots.values()) {
       if (this.game.chunkLoading && !this.game.chunkLoading.has(slot.point.x, slot.point.z)) continue;
       if (slot.mob || slot.ready === null || tick < slot.ready || tick < (slot.retry ?? 0)
         || this.nav.area(slot.home)?.state !== 'active') continue;
+      ready.push(slot);
+    }
+    ready.sort((a, b) => priority(a) - priority(b));
+    for (const slot of ready) {
       // A slot with no spawn site or no route waits before searching again,
       // rather than repeating the search every tick.
       const spawn = this.spawnFor(slot); if (!spawn) { slot.retry = tick + C.spawnRetryTicks; continue; }
@@ -143,8 +181,88 @@ export class Garrison {
       this.game.broadcast({ type: S2C.ENTITY_SPAWN, entity: mob.describe() });
     }
   }
+
+  // ---- Combat ----
+
+  // Players and hostile mobs (Crawlers, Void Eels, dragons) that goblins fight.
+  // huntable() is the one shared test, so the creative host's invisibility
+  // hides them here like everywhere else.
+  refreshEnemies() {
+    const g = this.game, list = this.enemyList; list.length = 0;
+    for (const p of g.players.values()) if (huntable(p)) list.push(p);
+    for (const m of g.mobs.activeValues?.() ?? g.mobs.values())
+      if ((m instanceof Crawler || m instanceof VoidEel) && !isGoblin(m) && huntable(m)) list.push(m);
+    for (const d of g.dragons.activeValues?.() ?? g.dragons.values()) if (huntable(d)) list.push(d);
+    this.enemies.rebuild(list);
+  }
+  // The nearest enemy within range that the unit can see, skipping one it
+  // recently gave up on.
+  findTarget(unit, radius, tick) {
+    const s = unit.state, eye = unit.eye();
+    const found = this.enemies.query(s, radius, this.nearby)
+      .map(e => ({ e, d: Math.hypot(e.state.x - s.x, e.state.y - s.y, e.state.z - s.z) }))
+      .filter(({ e, d }) => d <= radius && !(unit.ignore?.target === e && tick < unit.ignore.until))
+      .sort((a, b) => a.d - b.d);
+    return found.find(({ e }) => canSee(this.game.world, eye, e))?.e ?? null;
+  }
+  // Areas with an enemy inside are under attack, and release no one.
+  watchAreas(tick) {
+    this.occupied.clear();
+    for (const e of this.enemyList) {
+      const area = positionRegion(this.plan, e.state); if (!area) continue;
+      this.occupied.add(area.id); this.alarm(area, e.state, tick);
+    }
+  }
+  // Marks an area under attack. The first alarm pulls fighters from directly
+  // adjacent areas and outskirts sections; later ones refresh the point.
+  alarm(area, point, tick) {
+    const known = this.alarms.has(area.id);
+    this.alarms.set(area.id, { last: tick, point: { x: point.x, y: point.y, z: point.z } });
+    if (known) return;
+    const neighbours = new Set(this.plan.gates.filter(g => g.areas.includes(area.id)).flatMap(g => g.areas));
+    neighbours.delete(area.id);
+    for (const id of neighbours) {
+      let sent = 0;
+      for (const slot of this.nav.area(id)?.slots ?? []) {
+        if (sent >= K.reinforceCount) break;
+        if (this.sendable(slot)) { slot.mob.rally = { area: area.id }; sent++; }
+      }
+    }
+  }
+  // A melee fighter free to leave: not at a gate/tower post, not the King.
+  sendable(slot) {
+    const u = slot.mob;
+    return u && !u.dead && u.def.melee && !u.def.floorOnly && !u.rally && !u.target
+      && slot.duty !== 'gate' && slot.duty !== 'tower';
+  }
+  // Reinforcements go home once their area has had no enemy for a while.
+  releaseAlarms(tick) {
+    for (const [id, alarm] of this.alarms) {
+      if (tick - alarm.last <= K.reinforceLinger * TICK_RATE) continue;
+      this.alarms.delete(id);
+      for (const slot of this.slots.values()) if (slot.mob?.rally?.area === id) {
+        slot.mob.rally = null; if (!slot.mob.target) slot.mob.behavior = 'return';
+      }
+    }
+  }
+  // A goblin took damage: its area is under attack, the Castle reserve
+  // deploys if it's near the Castle, and it fights (or flees from) the attacker.
+  damaged(unit, attacker) {
+    const tick = this.game.tick, enemy = attacker?.state && !isGoblin(attacker) && huntable(attacker) ? attacker : null;
+    const area = positionRegion(this.plan, unit.state) ?? this.nav.area(unit.home);
+    if (area) this.alarm(area, enemy?.state ?? unit.state, tick);
+    const castle = this.plan.surface.pieces.find(p => p.type === 'castle');
+    if (area && castle && Math.hypot(unit.state.x - castle.position.x, unit.state.z - castle.position.z) <= K.reserveRadius) {
+      for (const slot of this.slots.values()) if (slot.duty === 'reserve' && slot.mob && !slot.mob.rally && !slot.mob.target) {
+        slot.mob.rally = { area: area.id };
+      }
+    }
+    if (enemy) unit.provoked(enemy, tick);
+  }
+
   removed(mob) {
     const slot = mob.slot; if (!slot || this.slots.get(slot.id) !== slot) return;
+    if (mob.role === 'totem') this.totemDestroyed = true;
     slot.mob = null; slot.ready = GOBLINS[slot.role].respawn === null ? null : this.game.tick + GOBLINS[slot.role].respawn * TICK_RATE;
   }
   hatch(type, x, y, z) {

@@ -5,6 +5,7 @@ import { DRAGON_ARENA as A, DRAGON_LORD as C, TICK_DT, TICK_RATE } from '../shar
 import { ITEM } from '../shared/itemIds.js';
 import { DEATH_CAUSE, S2C } from '../shared/protocol.js';
 import { inDragonArena } from '../shared/fireTempleArena.js';
+import { huntable } from './provocation.js';
 
 const ticks = seconds => Math.max(1, Math.round(seconds * TICK_RATE));
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -418,7 +419,8 @@ export class DragonLord {
     const now = this.game.tick;
     for (const p of players) if (p.state.y < this.arena.y - A.lavaKillDepth)
       this.game.kill(p, this.game.recentAttacker(p), DEATH_CAUSE.LAVA);
-    players = players.filter(p => !p.dead);
+    // Targets only: the creative host's invisibility hides them from the boss.
+    players = players.filter(p => !p.dead && huntable(p));
     if (this.status === 'dead') return;
     if (this.status === 'dying') {
       if (now >= this.deathTick + ticks(C.deathSeconds)) this.finishDeath();

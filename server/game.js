@@ -1361,6 +1361,8 @@ export class Game {
       const flying = !arrow.stuckIn;
       const targets = !flying ? [] : arrow.shooter.trap
           ? [...players, ...cows, ...dragons, ...mobs].filter(t => !isGoblin(t))
+          : arrow.shooter.goblin
+          ? [...players, ...dragons, ...mobs.filter(m => !isGoblin(m) && (m instanceof Crawler || m instanceof VoidEel))]
           : arrow.shooter.turret
           ? [...players.filter((p) => p.team !== arrow.shooter.team),
             ...dragons, ...mobs.filter((m) => m instanceof Crawler || m instanceof VoidEel)]
@@ -1648,6 +1650,8 @@ export class Game {
     t.kz = dz / len * KNOCKBACK_SPEED * knockback;
     t.vy = Math.max(t.vy, KNOCKBACK_UP * Math.min(1, knockback));
     t.onGround = false;
+    // Goblins also fight hostile mobs, which take damage through hurt().
+    if (!(target instanceof Player)) { this.hurt(target, amount, mob, DEATH_CAUSE.MOB); return; }
     this.damage(target, amount, mob, DEATH_CAUSE.MOB);
     const thorns = target.thorns?.() ?? 0;
     if (thorns > 0 && !target.dead) this.hurt(mob, thorns, target);
@@ -1659,6 +1663,7 @@ export class Game {
     mob.hp = Math.max(0, mob.hp - amount);
     this.broadcast({ type: S2C.DAMAGE, id: mob.id, attackerId: attacker?.id ?? null, hp: mob.hp });
     if (attacker instanceof Player) mob.provocation?.provoke(attacker, this.tick);
+    if (mob.goblin) this.garrison.damaged(mob, attacker);
     if (mob.hp > 0) return;
     if (mob instanceof Crawler) {
       const silk = CRAWLER_DROPS.silk[0] + Math.floor(Math.random() * (CRAWLER_DROPS.silk[1] - CRAWLER_DROPS.silk[0] + 1));

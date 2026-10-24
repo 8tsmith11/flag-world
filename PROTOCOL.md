@@ -921,12 +921,13 @@ passes. Whatever doesn't fit stays on the ground.
 
 ### `swing`
 
-Another player swung their arm (punch, mining, or placing a block). Not sent to
-the player who swung; their own first-person arm animates locally.
+Another player swung their arm (punch, mining, or placing a block), or a mob
+struck (a melee goblin's swing). Not sent to the player who swung; their own
+first-person arm animates locally.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `id`  | int  | Player who swung |
+| `id`  | int  | Player or mob that swung |
 
 ### `speak`
 
@@ -1405,11 +1406,12 @@ shortcuts through that API. Browser/OS permissions still govern key capture.
   client-side.
 
 
-### Goblins (slice 1a)
+### Goblins (slices 1a and 1b)
 
 The existing `entitySpawn`, `welcome.entities` and `state.entities` messages
 also carry `goblinWorker`, `goblinSoldier`, `goblinArcher`, `goblinBrute`,
-`goblinKing` and `goblinTotem`. Spawn descriptions include `hp` and `maxHp`.
+`goblinKing` and `goblinTotem`. Spawn descriptions include `name` (for the
+kill feed), `hp` and `maxHp`.
 Per-tick snapshots contain `{id,type,x,y,z,yaw,g}`. Positions and yaw are
 rounded to two decimal places. `g` is the `GOBLIN_STATE` enum from
 `shared/protocol.js`: 0 idle, 1 walk, 2 climb; 3 work, 4 fight and 5 flee are
@@ -1420,8 +1422,24 @@ These entities use the existing changed-only distance cadence (`u`: 1, 3 or
 6 ticks) and snapshot interpolation. Existing `damage` and `entityDespawn`
 messages confirm hits and deaths. Slots respawn Workers after 15 seconds,
 Soldiers/Archers after 20 seconds, and Brutes after 45 seconds; the King and
-Totem never respawn. Goblins do not attack, repair, construct or siege in this
-slice. Existing `input.spawnEgg` hatches all six goblin egg items only for a
+Totem never respawn. Goblins don't repair, construct or siege yet.
+
+Combat (slice 1b) uses existing messages only. Goblins fight players and
+hostile mobs (Crawlers, Void Eels, dragons), never each other or the monkeys.
+Melee goblins (Soldiers, Brutes, the King) send `swing` when they strike and
+hit with the normal mob damage and knockback; Archers shoot ordinary arrows
+(`entitySpawn` of an `arrow`) that never hit goblins, cows or monkeys. A goblin
+kill reports the goblin's id and name in `death` (`killerId`, `killerName`).
+Melee goblins chase through gates only, give up past their leash or when no
+walkable route reaches the target, then walk home; the King stays on the
+Totem Hall floor and never climbs. Damage near the Castle deploys the soldier
+reserve, and an area with an enemy inside (or a goblin hit there) pulls
+fighters from adjacent areas until it has been clear for a while. While an
+enemy is inside an area, its buildings release no one; ready goblins spawn
+from the nearest safe area instead, posts and archers first, then patrols,
+Brutes and workers. Destroying the Totem stops all respawns. The creative
+host's invisibility (the existing `creative` toggle) hides them from goblins
+like every other mob, turret and trap. Existing `input.spawnEgg` hatches all six goblin egg items only for a
 creative player (creative is granted only to the local host); no new message
 is introduced. Historical item ids are unchanged.
 
