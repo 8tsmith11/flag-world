@@ -76,6 +76,16 @@ import { NPC_KIND, NPC_DEFS } from '../shared/npcs.js';
 import { inDragonArena, inFireSanctum } from '../shared/fireTempleArena.js';
 import { FIRE_TEMPLE, DRAGON_ARENA } from '../shared/config.js';
 import { DragonLord } from './dragonLord.js';
+import { appendFileSync } from 'node:fs';
+
+// Runs fn, logging instead of throwing, so one error can't crash the server.
+function guard(label, fn) {
+  try { fn(); } catch (err) {
+    const line = `[${new Date().toISOString()}] ${label}: ${err?.stack ?? err}\n`;
+    console.error(line);
+    try { appendFileSync('server-errors.log', line); } catch {}
+  }
+}
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -188,7 +198,9 @@ export class Game {
   }
 
   start() {
-    setInterval(() => this.update(), 1000 / TICK_RATE);
+    // One bad tick or message must not take the whole match down: log the
+    // stack (console and server-errors.log) and carry on.
+    setInterval(() => guard('tick', () => this.update()), 1000 / TICK_RATE);
   }
 
   // A socket stays anonymous until its HELLO; after that it is exactly one of
@@ -196,8 +208,8 @@ export class Game {
   connect(socket, remoteAddress) {
     const session = { socket, greeted: false, member: null, player: null, spectating: false,
       localHost: isLocalAddress(remoteAddress), creative: false };
-    socket.on('message', (data) => this.handleMessage(session, data));
-    socket.on('close', () => this.disconnect(session));
+    socket.on('message', (data) => guard('message', () => this.handleMessage(session, data)));
+    socket.on('close', () => guard('disconnect', () => this.disconnect(session)));
     return session;
   }
 
