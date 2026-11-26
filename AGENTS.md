@@ -109,6 +109,37 @@ including the host, plays by opening `http://<host-ip>:3000`.
   inventory preview.
 - `DEBUG` in `shared/config.js` toggles the FPS / coordinates overlay.
 
+## Commerce, automation and defense
+
+- Hostility is one rule (`server/hostility.js`): arrow turrets, guard and
+  lookout monkeys and monkey arrows only target what `isHostileTo(team, x)`
+  allows (other teams' players and tamed monkeys, goblins, Crawlers, Void Eels,
+  dragons). Use it for anything new that picks targets.
+- Sky Merchant (`server/merchants.js`, economy and docking in
+  `shared/merchant.js`, tuning in `MERCHANT`): one depot per team
+  (`BLOCK.MERCHANT_DEPOT`, container `depot`), placed on the team island's far
+  edge with a clear dock (`checkDepotSite`). The airship is an `airship`
+  entity (`merchants.ships`, sent to everyone each tick it moves); the merchant
+  is an NPC (`skyMerchant`). Prices are fixed lists; any change to them,
+  recipes, smelting, crushing or alloying must keep
+  `node scripts/commerce-check.js` (no-arbitrage check) passing. Requested
+  goods come from the seed (`merchantRequests`).
+- Monkeys: roles in `shared/monkeys.js`; guard and lookout logic in
+  `server/monkeyGuard.js`; craftsman, Collect drops (`config.collect`) and
+  destination slots (`config.destSlots`, `SLOT_OPTIONS`) in
+  `server/monkeyWorkers.js`. New config fields must default when a saved
+  config lacks them (`parseConfig`). Babies (`m.baby`, `growAt`) can't work.
+- Quests: data in `shared/quests.js`, team books in `server/quests.js`.
+  Completion only reads team progress (`TeamProgress`: obtained, crafted,
+  placed, and `event(team, key)` milestones), so instrument new mechanics with
+  an event rather than special cases. Rewards stay small and are per team.
+- Machine screens share `public/js/machinePanels.js`; containers report a
+  `status` string in `view()` explaining why they aren't working.
+- `TeamProgress`, quest books, depots, baby purchases and merchant stock are
+  saved (`server/save.js`); ships and merchants are not (they fly in again).
+- Checks: `node scripts/commerce-check.js`, `node scripts/merchant-check.js`,
+  `node scripts/monkey-duty-check.js`, plus `npm run check`.
+
 ## File layout
 
 ```
@@ -130,6 +161,10 @@ server/
   npcs.js                    NPC entities (Wise/Ancient Monkeys): head turns, sit/stand/stroll, what they say
   teamProgress.js            Per-team items obtained, crafted and placed, for Wise Monkey hints
   flag.js                    A player's flag: home / carried / dropped / captured
+  hostility.js               Who turrets, guard/lookout monkeys and monkey arrows may target
+  merchants.js               Sky Merchant: daily airship visits, trading, depot sales, baby monkeys
+  monkeyGuard.js             Guard (patrol, pursuit, melee/bow) and lookout (reports) monkeys
+  quests.js                  Team quest books: completion, rewards, depot requests
   containers.js              Chest and furnace tile entities: slots, shift-click, smelting
 shared/                      Runs on server and client
   modifiers.js               Item modifier pools, rolls, names and tooltip lines
@@ -156,6 +191,8 @@ shared/                      Runs on server and client
   dialogue.js                Reusable dialogue: voices, subtitle timing, progress conditions, line choice
   npcLines.js                Wise Monkey hints/clues/stranger lines, Ancient Monkey sound responses
   protocol.js                Message type names, phases, entity type names
+  merchant.js                Merchant prices, requested goods, dock geometry, merchant looks
+  quests.js                  Quest book chapters, quests, goals and knowledge text
 public/
   index.html                 Page shell and import map
   css/style.css
@@ -167,6 +204,9 @@ public/
     itemIcon.js              DOM item icons for the hotbar and inventory
     inventoryScreen.js       Inventory / workbench / furnace / chest screen: slots, cursor, recipes, preview
     hud.js                   Health bar, kill feed, flag grab bar, notifications
+    merchantScreen.js        Sky Merchant trade screen
+    questScreen.js           Wise Monkey quest book: chapters, graph, details
+    machinePanels.js         Shared machine/depot screen layout (slots, gauges, recipes, status)
     lobby.js                 Lobby and match-in-progress screens, remembered name
     dialogue.js              Subtitles (bottom center), speech synthesis and sound-only NPC voices
     spectator.js             Free-fly camera for eliminated players
@@ -186,6 +226,8 @@ public/
       blockHighlight.js      Targeted block outline and break progress overlay
       flagRenderer.js        Flags, carried flags on backs, light beams, return puffs
       grappleLine.js         Grappling hook rope and hook head while a pull is on
+      merchantModels.js      Sky Merchant (octopus) and airship models
+      depotRenderer.js       Lantern signs over Merchant Depots (lit while docked)
       monkeyModels.js        Orangutan and gorilla NPC models on one rig; pose blending and idle animation
       stormEffects.js        Storm cloud flashes (additive sprites) and thunder
 scripts/

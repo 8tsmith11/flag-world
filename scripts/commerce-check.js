@@ -12,6 +12,10 @@ import { sortSlots } from '../server/inventory.js';
 import { TurretController } from '../server/turrets.js';
 import { isHostileTo, hostileKind } from '../server/hostility.js';
 import { NPC_KIND } from '../shared/npcs.js';
+import { buyList, purchaseCosts, materialValue, merchantRequests, MERCHANT_SELLS, babyPrice } from '../shared/merchant.js';
+import { Depot, DEPOT_OUTPUTS } from '../server/containers.js';
+import { MonkeyWorkers } from '../server/monkeyWorkers.js';
+import { MERCHANT } from '../shared/config.js';
 
 // ---- Sorting ----
 {
@@ -89,4 +93,47 @@ const target = (props) => ({ connected: true, dead: false, eliminated: false, in
   goblin.dead = false;
 }
 
-console.log('OK: sorting, reinforced walls, recipes, hostility and turret targeting');
+// ---- Merchant economy: no money loops ----
+// For every seed's buy list (requests included), what the merchant pays per
+// item must be less than the cheapest way to get that item with coins:
+// buying it, or buying what makes it and crafting, smelting, crushing or
+// alloying (fuel and steam counted as free, which only makes this stricter).
+{
+  const costs = purchaseCosts();
+  for (let seed = 0; seed < 300; seed++) {
+    const requests = merchantRequests(seed);
+    assert.equal(requests.length, MERCHANT.requests, `seed ${seed} has ${requests.length} requests`);
+    assert.deepEqual(requests, merchantRequests(seed), 'requests are not deterministic');
+    for (const r of requests) {
+      assert.ok(r.coins > materialValue(r.item), `request ${r.recipe} pays no more than its materials`);
+      assert.ok(!MERCHANT_SELLS.some((o) => o.item === r.item), `requested ${r.recipe} is also sold`);
+    }
+    for (const o of buyList(seed)) {
+      const pay = o.coins / o.count, cost = costs.get(o.item) ?? Infinity;
+      assert.ok(pay < cost - 1e-9, `seed ${seed}: ${getItemDef(o.item).name} pays ${pay} per item but costs ${cost} to buy back`);
+    }
+  }
+  assert.ok(babyPrice(1) > babyPrice(0) && babyPrice(2) > babyPrice(1));
+}
+
+// ---- Depot: selling slots, coin output, couriers ----
+{
+  const { setDepotOffers } = await import('../server/containers.js');
+  setDepotOffers(buyList(1));
+  const depot = new Depot();
+  assert.equal(depot.insert({ item: BLOCK.DIRT, count: 5 }), false, 'depot took dirt');
+  const wood = { item: BLOCK.WOOD, count: 20 };
+  assert.ok(depot.insert(wood)); assert.equal(wood.count, 0);
+  const workers = Object.create(MonkeyWorkers.prototype);
+  workers.container = () => depot;
+  // Couriers may deliver sellable goods (not dirt) and take only coins out.
+  assert.ok(workers.accepts({}, [{ stack: { item: BLOCK.STONE, count: 4 } }]));
+  assert.ok(!workers.accepts({}, [{ stack: { item: BLOCK.DIRT, count: 4 } }]));
+  assert.deepEqual(workers.sourceSlots(depot), DEPOT_OUTPUTS);
+  assert.deepEqual(depot.sellOne(), { item: BLOCK.WOOD, count: 8, coins: 1 });
+  assert.deepEqual(depot.sellOne(), { item: BLOCK.WOOD, count: 8, coins: 1 });
+  assert.equal(depot.sellOne(), null, '4 wood is not a batch');
+  assert.equal(depot.slots[DEPOT_OUTPUTS[0]].count, 2);
+}
+
+console.log('OK: sorting, reinforced walls, recipes, hostility and turret targeting, no merchant money loops (300 seeds), depot');
