@@ -69,6 +69,8 @@ export const RECIPES = [
     inputs: needs([ITEM.SULFUR, EXPLOSIVES.gunpowder.craftSulfur], [ITEM.CHARCOAL, EXPLOSIVES.gunpowder.craftCharcoal]) },
   { id: 'grenade', station: 'workbench', output: ITEM.GRENADE, count: EXPLOSIVES.grenade.craftCount,
     inputs: needs([ITEM.GUNPOWDER, EXPLOSIVES.grenade.craftGunpowder], [ITEM.COPPER_INGOT, EXPLOSIVES.grenade.craftCopper]) },
+  { id: 'lighter', station: 'workbench', output: ITEM.LIGHTER, count: 1,
+    inputs: needs([ITEM.GUNPOWDER, EXPLOSIVES.lighter.craftGunpowder], [ITEM.IRON_INGOT, EXPLOSIVES.lighter.craftIron]) },
   { id: 'explosive_barrel', station: 'workbench', output: BLOCK.EXPLOSIVE_BARREL, count: 1,
     inputs: needs([ITEM.GUNPOWDER, EXPLOSIVES.barrel.craftGunpowder], [BLOCK.PLANKS, EXPLOSIVES.barrel.craftPlanks],
       [ITEM.COPPER_INGOT, EXPLOSIVES.barrel.craftCopper]) },

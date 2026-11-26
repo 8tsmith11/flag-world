@@ -12,11 +12,15 @@
 // sections or new planks. Breaking the mechanism drops its planks and the
 // planks of every stored section.
 //
-// Movement: each section takes steamPerSection steam, drawn at up to
-// steamPerSecond only while it is moving (demand is zero standing still,
-// finished, obstructed or out of planks). Without steam it holds where it is
-// and carries on when steam returns. It never lays a section into a solid
-// block or an entity ("Obstructed") and never removes anything but deck.
+// Steam: a state change (extend or retract) costs steamPerSection * length,
+// taken all at once from the connected pipes, boilers and tanks when it
+// starts (FluidSystem.draw); without that much steam it doesn't start
+// ("Insufficient steam"). Once started it lays or lifts one section every
+// sectionSeconds until done, whatever happens to the steam; it uses none
+// while moving or standing still, and takes no new command while moving.
+// It stops early ("Obstructed", "Missing construction materials") rather
+// than lay a section into a solid block or an entity or without planks, and
+// never removes anything but deck; the next command pays again.
 //
 // Control: everything goes through command(game, node, action, value), the
 // same entry point levers, pressure plates or remote controls can use later.
@@ -41,9 +45,8 @@ export class Drawbridge {
     this.target = 'retracted';
     this.stored = 0;
     this.progress = 0;
-    this.received = 0;
-    this.lastReceived = 0;
     this.moving = false;
+    this.available = 0;
     this.extended = 0;
     this.state = 'Retracted';
   }
@@ -105,56 +108,78 @@ export class Drawbridge {
     return { done: true };
   }
 
-  demand(fluid) { return fluid === 'steam' && this.moving ? C.steamPerSecond / TICK_RATE : 0; }
-  accept(fluid, amount) { if (fluid === 'steam') this.received += amount; }
+  // It draws nothing from the pipes passively; command() takes a move's
+  // steam all at once.
+  demand() { return 0; }
+  accept() {}
 
-  // One tick (from the fluid system, after steam has been handed out).
+  // The steam a state change costs at the configured length.
+  cost() { return C.steamPerSection * this.length; }
+
+  // Ends a move with a state.
+  stop(state) { this.moving = false; this.progress = 0; this.state = state; }
+  finished() { return this.target === 'extended' ? 'Extended' : 'Retracted'; }
+
+  // One tick (from the fluid system).
   tick(game, node) {
-    const before = JSON.stringify([this.state, this.progress, this.extended, this.stored, this.lastReceived]);
-    this.lastReceived = this.received; this.received = 0;
-    const move = this.nextMove(game, node);
-    if (move.done) {
-      this.moving = false; this.progress = 0;
-      this.state = this.target === 'extended' ? 'Extended' : 'Retracted';
-    } else if (move.blocked) {
-      this.moving = false;
-      this.state = move.blocked;
-    } else {
-      this.moving = true;
-      this.progress += this.lastReceived / C.steamPerSection;
-      this.state = this.lastReceived <= 1e-9 ? 'Insufficient steam' : move.place ? 'Extending' : 'Retracting';
+    const before = JSON.stringify([this.state, this.progress, this.extended, this.stored, Math.round(this.available * 10)]);
+    this.available = game.fluids?.available(node, 'steam') ?? 0;
+    if (this.moving) {
+      this.progress += 1 / Math.max(1, Math.round(C.sectionSeconds * TICK_RATE));
       if (this.progress >= 1 - 1e-9) {
         this.progress = 0;
-        const c = move.cell;
-        if (move.place) {
-          if (this.stored > 0) this.stored--;
-          else { this.slots[0].count -= C.sectionPlanks; if (this.slots[0].count <= 0) this.slots[0] = null; }
-          game.world.setBlock(c.x, c.y, c.z, BLOCK.BRIDGE_DECK);
-        } else {
-          game.world.setBlock(c.x, c.y, c.z, BLOCK.AIR);
-          this.stored++;
+        const move = this.nextMove(game, node);
+        if (move.done) this.stop(this.finished());
+        else if (move.blocked) this.stop(move.blocked);
+        else {
+          const c = move.cell;
+          if (move.place) {
+            if (this.stored > 0) this.stored--;
+            else { this.slots[0].count -= C.sectionPlanks; if (this.slots[0].count <= 0) this.slots[0] = null; }
+            game.world.setBlock(c.x, c.y, c.z, BLOCK.BRIDGE_DECK);
+          } else {
+            game.world.setBlock(c.x, c.y, c.z, BLOCK.AIR);
+            this.stored++;
+          }
+          const next = this.nextMove(game, node);
+          if (next.done) this.stop(this.finished());
+          else if (next.blocked) this.stop(next.blocked);
         }
-        // Ask for steam next tick only if there is another move to make.
-        const next = this.nextMove(game, node);
-        this.moving = !next.done && !next.blocked;
       }
     }
     this.extended = this.deckCount(game.world, node);
+    if (!this.moving && this.state === 'Extended' && this.extended === 0) this.state = 'Retracted';
     // Quest book: the owning team has had a bridge all the way out.
     if (this.state === 'Extended' && this.extended > 0 && this.team !== null) game.teamProgress?.discover(this.team, 'drawbridgeExtended');
-    const after = JSON.stringify([this.state, this.progress, this.extended, this.stored, this.lastReceived]);
+    const after = JSON.stringify([this.state, this.progress, this.extended, this.stored, Math.round(this.available * 10)]);
     if (after !== before) this.dirty = true;
     return this.dirty;
   }
 
   // Controls: 'extend', 'retract', 'toggle', 'length' (value 1..maxLength)
-  // and 'direction' (value 0..3). Length and direction only change while
-  // fully retracted. Returns null, or why it was refused.
+  // and 'direction' (value 0..3). Nothing is taken while it is moving. A
+  // move starts only if there is something to do, its first section isn't
+  // blocked and its whole steam cost can be paid now. Length and direction
+  // only change while fully retracted. Returns null, or why it was refused.
   command(game, node, action, value) {
+    if (this.moving) return 'The drawbridge is already moving';
     if (action === 'extend' || action === 'retract' || action === 'toggle') {
+      const previous = this.target;
       this.target = action === 'toggle' ? (this.target === 'extended' ? 'retracted' : 'extended')
         : action === 'extend' ? 'extended' : 'retracted';
-      this.progress = 0;
+      const move = this.nextMove(game, node);
+      if (move.done) { const wanted = this.target; this.target = previous; return wanted === 'extended' ? 'Already extended' : 'Already retracted'; }
+      if (move.blocked) { this.target = previous; this.state = move.blocked; this.dirty = true; return move.blocked; }
+      const cost = this.cost();
+      if (!game.fluids?.draw(node, 'steam', cost)) {
+        this.target = previous;
+        this.state = 'Insufficient steam';
+        this.dirty = true;
+        return `Insufficient steam: a move takes ${cost}, ${Math.floor(game.fluids?.available(node, 'steam') ?? 0)} available`;
+      }
+      this.available = game.fluids.available(node, 'steam');
+      this.moving = true; this.progress = 0;
+      this.state = this.target === 'extended' ? 'Extending' : 'Retracting';
       this.dirty = true;
       return null;
     }
@@ -177,7 +202,7 @@ export class Drawbridge {
 
   view() {
     return { kind: this.kind, slots: this.slots, team: this.team, dir: this.dir, length: this.length, target: this.target, stored: this.stored,
-      extended: this.extended, progress: this.progress, steamReceived: this.lastReceived * TICK_RATE, steamNeeded: C.steamPerSecond,
+      extended: this.extended, progress: this.progress, moving: this.moving, steamAvailable: this.available, steamCost: this.cost(),
       planks: this.planks(), required: this.required(), status: this.state };
   }
 

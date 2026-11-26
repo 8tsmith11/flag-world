@@ -1,7 +1,7 @@
 // Authoritative fluid graph. Topology is rebuilt only after edits to fluid
 // blocks or ports; transfers use the cached pipe components each fixed tick.
 import { BLOCK, fluidKind } from '../shared/blocks.js';
-import { FLUID, TICK_RATE, DRAWBRIDGE } from '../shared/config.js';
+import { FLUID, TICK_RATE } from '../shared/config.js';
 import { S2C } from '../shared/protocol.js';
 import { FLUID_FACES, fluidFace, oppositeFluidFace } from '../shared/fluidFaces.js';
 
@@ -144,7 +144,7 @@ export class FluidSystem {
   canSink(port,fluid) {
     if(port.mode===FLUID.faceInput)return false;
     return port.node.kind==='tank'||port.node.kind==='boiler'&&fluid==='water'
-      ||(port.node.kind==='crusher'||port.node.kind==='drawbridge')&&fluid==='steam';
+      ||port.node.kind==='crusher'&&fluid==='steam';
   }
   tick(tick) {
     this.outputBudget=new Map();this.inputBudget=new Map();
@@ -155,7 +155,6 @@ export class FluidSystem {
         this.inputBudget.set(node,FLUID.boilerPerSecond/TICK_RATE);
       }
       if(node.kind==='crusher')this.inputBudget.set(node,FLUID.crusherPerSecond/TICK_RATE);
-      if(node.kind==='drawbridge')this.inputBudget.set(node,DRAWBRIDGE.steamPerSecond/TICK_RATE);
     }
     for(const network of this.networks) {
       if(!network.pipes.every(p=>this.active(p)))continue;
@@ -203,6 +202,44 @@ export class FluidSystem {
       else if(node.kind==='drawbridge')node.container.tick(this.game,node);
     }
     if(tick%FLUID.networkSendTicks===0)this.broadcast();
+  }
+  // Stores of `fluid` a machine can draw from at once (the drawbridge pays
+  // for a whole move up front): the pipe networks touching it on sides not
+  // set to "into the pipe" only, and the boilers and tanks feeding those
+  // networks. [{ take(amount) -> taken, amount }]
+  stores(node,fluid) {
+    const out=[],seen=new Set();
+    for(const network of this.networks) {
+      const port=network.ports.find(p=>p.node===node&&p.mode!==FLUID.faceInput);
+      if(!port||!network.pipes.every(p=>this.active(p)))continue;
+      if(network.fluid===fluid&&network.amount>epsilon&&!seen.has(network)){seen.add(network);
+        out.push({amount:network.amount,take:(n)=>{n=Math.min(n,network.amount);network.amount-=n;if(network.amount<epsilon){network.amount=0;network.fluid=null;}return n;}});}
+      for(const p of network.ports) {
+        if(p.node===node||!this.canSource(p)||!this.active(p.node))continue;
+        if(p.node.kind==='tank') {
+          const tank=p.node.tank;
+          if(!tank||tank.fluid!==fluid||seen.has(tank))continue;seen.add(tank);
+          out.push({amount:tank.amount,take:(n)=>{n=Math.min(n,tank.amount);tank.amount-=n;if(tank.amount<epsilon){tank.amount=0;tank.fluid=null;}
+            for(const m of tank.members)if(m.container)m.container.dirty=true;return n;}});
+        } else if(p.node.kind==='boiler'&&fluid==='steam') {
+          const boiler=p.node.container;
+          if(!boiler||seen.has(boiler))continue;seen.add(boiler);
+          out.push({amount:boiler.steam,take:(n)=>{n=Math.min(n,boiler.steam);boiler.steam-=n;boiler.dirty=true;return n;}});
+        }
+      }
+    }
+    return out;
+  }
+  // How much `fluid` the machine at `node` could take right now.
+  available(node,fluid) { return this.stores(node,fluid).reduce((n,s)=>n+s.amount,0); }
+  // Takes `amount` of `fluid` for the machine at `node`, all or nothing:
+  // pipes first, then boilers and tanks. True if taken.
+  draw(node,fluid,amount) {
+    const stores=this.stores(node,fluid);
+    if(stores.reduce((n,s)=>n+s.amount,0)+epsilon<amount)return false;
+    let left=amount;
+    for(const store of stores){if(left<=epsilon)break;left-=store.take(left);}
+    return true;
   }
   snapshot() {
     return [...this.nodes.values()].map(node=>({x:node.x,y:node.y,z:node.z,kind:node.kind,

@@ -162,13 +162,17 @@ including the host, plays by opening `http://<host-ip>:3000`.
   resistance (`blastResistance(id)`); anything new that blows up should use
   it. Barrels are lit only through `Explosives.ignite(x, y, z, { source,
   seconds })`, the single trigger entry point for later pressure plates or
-  remote detonators. Grenades never damage spike barricades.
+  remote detonators. Players light things only with the lighter: a block
+  def's `ignite` kind plus an `IGNITERS` entry (server/explosives.js) makes a
+  new block lightable. Grenades never damage spike barricades.
 - Spike barricades (`server/spikes.js`) remember the placing team and use
   `isHostileTo` for contact, breaking and arrow damage; their caltrop shape
   (four body diagonals, eight points) is `shared/spikeGeometry.js`.
 - Drawbridges (`server/drawbridge.js`) are steam containers driven only
   through `Drawbridge.command(game, node, action, value)` (the UI's
-  `machineAction` today; levers or plates later). Sections are paid for once
+  `machineAction` today; levers or plates later). A move's steam is paid in
+  full up front (`FluidSystem.draw`), then it runs to the end without steam;
+  it takes no command while moving. Sections are paid for once
   and conserved: never add a path that creates or deletes deck sections
   without going through `stored` or dropping their planks.
 - New block shapes for these live in `public/js/render/defenseParts.js`

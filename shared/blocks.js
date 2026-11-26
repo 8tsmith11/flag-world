@@ -15,6 +15,7 @@
 //                   'boiler', 'crusher', 'barrel', 'litBarrel', 'spikes',
 //                   'drawbridge', 'bridgeDeck')
 //   dropCount    - how many of `drops` it drops (default 1)
+//   ignite       - what a lighter does to it ('barrel'; see Explosives.light)
 //   blastResistance - see EXPLOSIVES in config.js
 //
 // Ladders and doors keep their state in the block id:
@@ -333,9 +334,10 @@ define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: METALS.h
 define(BLOCK.REINFORCED_WALL, 'reinforced wall', { color: 0x6f7378, hardness: REINFORCED_WALL.hardness,
   breakTime: REINFORCED_WALL.breakTime, blastResistance: REINFORCED_WALL.blastResistance });
 // Wise Monkey shrine floors and thrones, so he can't be dug out from under.
-// Explosive barrel: right click to light it (BLOCK.LIT_BARREL while the
-// fuse burns, server/explosives.js). Unlit barrels break and drop normally.
-define(BLOCK.EXPLOSIVE_BARREL, 'explosive barrel', { color: 0xa83a2a, transparent: true, hardness: 1, breakTime: 0.8, shape: 'barrel',
+// Explosive barrel: lit with a lighter (BLOCK.LIT_BARREL while the fuse
+// burns, server/explosives.js). Unlit barrels break and drop normally.
+// `ignite` names what a lighter does to a block (Explosives.light).
+define(BLOCK.EXPLOSIVE_BARREL, 'explosive barrel', { color: 0xa83a2a, transparent: true, hardness: 1, breakTime: 0.8, shape: 'barrel', ignite: 'barrel',
   icon: '/textures/explosive-barrel.svg' });
 define(BLOCK.LIT_BARREL, 'lit explosive barrel', { color: 0xd8502e, transparent: true, breakable: false, hardness: Infinity, drops: null,
   shape: 'litBarrel', emission: 6, icon: '/textures/explosive-barrel.svg' });

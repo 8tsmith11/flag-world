@@ -119,6 +119,9 @@ defineItem(ITEM.RIFT_ORB, 'rift orb', { maxStack: RIFT_ORB.maxStack, shape: 'rif
 defineItem(ITEM.SULFUR_SEEDS, 'sulfur seeds', { places: 'crop', crop: 'sulfur', color: 0xd9c22a, icon: '/textures/sulfur-seeds.svg' });
 defineItem(ITEM.SULFUR, 'sulfur', { color: 0xf0d81e, icon: '/textures/sulfur.svg' });
 defineItem(ITEM.GUNPOWDER, 'gunpowder', { color: 0x3b3a38, icon: '/textures/gunpowder.svg' });
+// Right click something ignitable (a block whose def has `ignite`) to light
+// it. Reusable: no durability, no fuel.
+defineItem(ITEM.LIGHTER, 'lighter', { maxStack: 1, tool: 'lighter', color: 0x9aa0a7, icon: '/textures/lighter.svg' });
 defineItem(ITEM.GRENADE, 'grenade', { maxStack: EXPLOSIVES.grenade.maxStack, throwable: true, color: 0x4b5a3a,
   icon: '/textures/grenade.svg' });
 
@@ -139,7 +142,8 @@ export const ITEM_TIPS = {
   [ITEM.GUNPOWDER]: ['Made from sulfur and charcoal', 'Goes into grenades and explosive barrels'],
   [ITEM.GRENADE]: ['Right click to throw; it bounces and goes off after a few seconds',
     'Hurts creatures and players nearby; breaks only soft blocks', 'Never damages spike barricades'],
-  [BLOCK.EXPLOSIVE_BARREL]: ['Right click a placed barrel to light its fuse', 'Blows apart even stone; nearby explosions light it too',
+  [ITEM.LIGHTER]: ['Right click an explosive barrel to light its fuse', 'Reusable: never wears out or runs dry'],
+  [BLOCK.EXPLOSIVE_BARREL]: ['Light it by right clicking with a lighter', 'Blows apart even stone; nearby explosions light it too',
     'An unlit barrel can be picked back up by breaking it'],
   [BLOCK.SPIKE_BARRICADE]: ['Hurts and throws back enemies and hostile creatures that touch it',
     'Enemies breaking it by hand get hurt; explosions and arrows wear it down', 'Never hurts your own team or monkeys'],

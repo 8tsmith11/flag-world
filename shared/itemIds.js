@@ -85,4 +85,5 @@ export const ITEM = {
   SULFUR: EXPLOSIVES_IDS.items.sulfur,
   GUNPOWDER: EXPLOSIVES_IDS.items.gunpowder,
   GRENADE: EXPLOSIVES_IDS.items.grenade,
+  LIGHTER: EXPLOSIVES_IDS.items.lighter,
 };

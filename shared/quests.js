@@ -65,7 +65,7 @@ export const CHAPTERS = [
     regions: [region('Tools and building', 0, 0, 4, 1), region('Metalworking', 5, 1, 7, 2), region('Food and farming', 8, 1, 9, 1),
       region('Keep and combat', 0, 3, 2, 4), region('Iron and defenses', 3, 3, 6, 4),
       region('Monkeys', 0, 5, 4, 7), region('The Sky Merchant', 6, 5, 8, 7), region('Exploration and creatures', 0, 8, 5, 10),
-      region('Explosives', 7, 8, 9, 10)],
+      region('Explosives', 7, 8, 10, 10)],
     intro: 'Everything you can do with wood, stone, copper, tin and iron: tools and buildings, your keep and flag, monkeys and their jobs, furnaces, fights and defenses, explosives, the Sky Merchant, and the islands around you.' },
   { id: 'business', name: 'Monkey Business', icon: ITEM.BRONZE_INGOT,
     unlock: { goal: obtained(ITEM.BRONZE_INGOT), text: 'Unlocks when anyone on your team first holds a bronze ingot (made in an Alloy Furnace).' },
@@ -309,8 +309,11 @@ export const QUESTS = [
   { id: 'grenades', chapter: 'adventure', x: 9, y: 8, deps: ['gunpowder'], icon: ITEM.GRENADE, title: 'Grenades', goal: event('grenadeThrown'),
     text: [`${EXPLOSIVES.grenade.craftGunpowder} gunpowder and ${EXPLOSIVES.grenade.craftCopper} copper ingot make ${EXPLOSIVES.grenade.craftCount} grenades at a workbench. Right click to throw one: it arcs, bounces off blocks, blinks and beeps faster and faster, and goes off ${EXPLOSIVES.grenade.fuseSeconds} seconds after it leaves your hand.`,
       `The blast does up to ${EXPLOSIVES.grenade.damage} damage at the center, less with distance (nothing beyond ${EXPLOSIVES.grenade.damageRadius} blocks) and less through walls, and throws things back. It never hurts your own team. It only breaks soft blocks (dirt, sand, wood, leaves, glass, crops) right next to it, and never spike barricades: it is for creatures and players, not walls.`] },
-  { id: 'barrels', chapter: 'adventure', x: 9, y: 10, deps: ['gunpowder'], icon: BLOCK.EXPLOSIVE_BARREL, title: 'Explosive Barrels', goal: event('barrelLit'),
-    text: [`${EXPLOSIVES.barrel.craftGunpowder} gunpowder, ${EXPLOSIVES.barrel.craftPlanks} planks and ${EXPLOSIVES.barrel.craftCopper} copper ingot make an explosive barrel at a workbench. Place it, then right click it to light the fuse: it sparks and hisses for ${EXPLOSIVES.barrel.fuseSeconds} seconds and can't be picked up once lit. An unlit barrel breaks back into its item.`,
+  { id: 'lighter', chapter: 'adventure', x: 10, y: 10, deps: ['gunpowder'], icon: ITEM.LIGHTER, title: 'Lighter', goal: obtained(ITEM.LIGHTER),
+    text: [`${EXPLOSIVES.lighter.craftGunpowder} gunpowder and ${EXPLOSIVES.lighter.craftIron} iron ingot make a lighter at a workbench. It never wears out and needs no fuel.`,
+      'Hold it and right click an explosive barrel to light the fuse. It is the only way to light a barrel by hand: right clicking one with anything else does nothing.'] },
+  { id: 'barrels', chapter: 'adventure', x: 9, y: 10, deps: ['gunpowder'], links: ['lighter'], icon: BLOCK.EXPLOSIVE_BARREL, title: 'Explosive Barrels', goal: event('barrelLit'),
+    text: [`${EXPLOSIVES.barrel.craftGunpowder} gunpowder, ${EXPLOSIVES.barrel.craftPlanks} planks and ${EXPLOSIVES.barrel.craftCopper} copper ingot make an explosive barrel at a workbench (look for the skull). Place it, then right click it with a lighter to light the fuse: it sparks and hisses for ${EXPLOSIVES.barrel.fuseSeconds} seconds and can't be picked up once lit. An unlit barrel breaks back into its item.`,
       `It blows apart stone and most blocks within about ${Math.floor(EXPLOSIVES.barrel.blastRadius * (1 - 1 / EXPLOSIVES.barrel.power))} blocks and hurts everything nearby (up to ${EXPLOSIVES.barrel.damage} damage). Stone bricks only crack, and reinforced walls take several barrels; damage adds up. Spike barricades go. Unbreakable blocks never do.`,
       'Another explosion lights any barrel in its blast with a short fuse, so rows of barrels go off one after another.'] },
 
@@ -347,7 +350,8 @@ export const QUESTS = [
     goal: { all: [made(BLOCK.DRAWBRIDGE), event('drawbridgeExtended')] }, reward: [{ item: BLOCK.PLANKS, count: 9 }],
     text: [`Craft a drawbridge from ${DRAWBRIDGE.craftBronze} bronze ingots, ${DRAWBRIDGE.craftIron} iron ingots and ${DRAWBRIDGE.craftPipe} bronze pipe at a workbench, and place it at the edge of a platform: it extends the way you were facing. Right click it to set its direction and its length (1 to ${DRAWBRIDGE.maxLength}); while its screen is open an outline shows where the bridge will go. Length and direction only change while it is fully retracted. Only your team can open it.`,
       `Put planks in its slot: each section is built once from ${DRAWBRIDGE.sectionPlanks} planks. Retracted sections are stored inside and laid again for free, so moving it back and forth costs nothing.`,
-      `Pipe steam in from a boiler. It uses ${DRAWBRIDGE.steamPerSecond} steam a second while moving (${DRAWBRIDGE.steamPerSection} per section) and none standing still; without steam it stops where it is and carries on later. It won't build into a block or anyone in the way. A broken section drops its planks and leaves a gap; press Extend with planks supplied to replace it. Monkeys walk across an extended bridge.`] },
+      `Pipe steam in from a boiler (add tanks to store more). Each extend or retract costs ${DRAWBRIDGE.steamPerSection} steam per block of length (${DRAWBRIDGE.steamPerSection * DRAWBRIDGE.defaultLength} for ${DRAWBRIDGE.defaultLength} blocks, ${DRAWBRIDGE.steamPerSection * DRAWBRIDGE.maxLength} for ${DRAWBRIDGE.maxLength}), all taken from the connected pipes, boilers and tanks the moment you press the button. Without enough it won't start. Once started it moves a section every ${DRAWBRIDGE.sectionSeconds} seconds to the end, even if the steam runs out, and you can't change your mind until it stops. It uses no steam moving or standing still.`,
+      'It stops early rather than build into a block or anyone in the way, or without planks; press the button again (paying again) once the way is clear. A broken section drops its planks and leaves a gap; press Extend with planks supplied to replace it. Monkeys walk across an extended bridge.'] },
 
   // ---- Industry ----
   { id: 'metalwork', chapter: 'business', x: 5, y: 1, icon: BLOCK.BRONZE_PIPE, title: 'Automated Metalwork', goal: anyEvent('monkeyCrafted', BRONZE_GOODS),

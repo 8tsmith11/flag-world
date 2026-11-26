@@ -1083,8 +1083,11 @@ export class Game {
   // Right click on a door: open or close both halves. A door can't close on a player.
   stepUse(player, pos, crouch = false) {
     const id = this.world.getBlock(pos.x, pos.y, pos.z);
-    // Right click an explosive barrel: light its fuse.
-    if (id === BLOCK.EXPLOSIVE_BARREL && this.inReach(player, pos)) { this.explosives.ignite(pos.x, pos.y, pos.z, { source: player }); this.swing(player); return; }
+    // A lighter lights whatever it is used on that can be lit (barrels).
+    if (getItemDef(player.held()).tool === 'lighter') {
+      if (getBlockDef(id).ignite && this.inReach(player, pos) && this.explosives.light(pos.x, pos.y, pos.z, player)) this.swing(player);
+      return;
+    }
     if (configurableFluidFaces(fluidKind(id)) && crouch
       && this.inReach(player,pos)) {
       const eye={x:player.state.x,y:player.state.y+eyeHeight(player.state),z:player.state.z};

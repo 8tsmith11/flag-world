@@ -8,9 +8,10 @@
 // in its blast with a short chain fuse instead of destroying it.
 //
 // Triggers: anything that should set a barrel off calls ignite(x, y, z,
-// { source, seconds }). Right clicking a barrel and nearby explosions are
-// the triggers today; pressure plates, remote detonators and the like can
-// call the same method later.
+// { source, seconds }). A lighter (light(), through the block's `ignite`
+// kind and IGNITERS) and nearby explosions are the triggers today; pressure
+// plates, remote detonators and new ignitable blocks plug in the same way.
+// Right clicking a barrel by hand does nothing.
 //
 // An explosion hurts entities by distance (less through solid blocks), never
 // anyone on the same team as whoever set it off (the game's usual friendly
@@ -35,6 +36,12 @@ export function blastResistance(id) {
   if (!def.breakable || def.hardness === Infinity || def.blastResistance === Infinity) return Infinity;
   return def.blastResistance * Math.max(0.5, def.hardness / 2);
 }
+
+// What lighting each kind of ignitable block (its def's `ignite`) does.
+// Add an entry for a new ignitable block. Returns true if something lit.
+export const IGNITERS = {
+  barrel: (explosives, x, y, z, source) => explosives.ignite(x, y, z, { source }),
+};
 
 export class Grenade {
   constructor(id, thrower, x, y, z, vx, vy, vz) {
@@ -127,6 +134,12 @@ export class Explosives {
     this.world.setBlock(x, y, z, BLOCK.LIT_BARREL);
     if (source?.type === 'player') this.game.teamProgress?.event(source.team, 'barrelLit');
     return true;
+  }
+
+  // A lighter used on the block at x, y, z by `source`. True if it lit.
+  light(x, y, z, source = null) {
+    const kind = getBlockDef(this.world.getBlock(x, y, z)).ignite;
+    return !!kind && !!IGNITERS[kind]?.(this, x, y, z, source);
   }
 
   // A block changed: forget damage and fuses that no longer apply.

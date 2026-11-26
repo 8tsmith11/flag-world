@@ -180,12 +180,26 @@ const spawnCrawler = (dx, dz) => { const c = new Crawler(game.nextId++, ox + dx 
 const barrelAt = (dx, dz) => { const p = at(dx, dz); world.setBlock(p.x, p.y, p.z, BLOCK.EXPLOSIVE_BARREL); return p; };
 const fuse = Math.round(X.barrel.fuseSeconds * TICK_RATE);
 {
-  // Lit by hand: visible to everyone, can't be broken, goes off after its fuse.
+  // Only a lighter lights one: an empty hand or anything else does nothing.
   const p = barrelAt(50, 10);
   park(host, 48, 10);
+  host.inventory.slots[host.selected] = null;
+  game.stepUse(host, p);
+  host.inventory.slots[host.selected] = { item: ITEM.GUNPOWDER, count: 3 };
+  game.stepUse(host, p);
+  assert.equal(world.getBlock(p.x, p.y, p.z), BLOCK.EXPLOSIVE_BARREL, 'a barrel was lit without a lighter');
+  const lighter = getRecipe('lighter');
+  assert.deepEqual(lighter.inputs.map((i) => [i.item, i.count]).sort(), [[ITEM.GUNPOWDER, 1], [ITEM.IRON_INGOT, 1]].sort());
+  assert.equal(getItemDef(ITEM.LIGHTER).tool, 'lighter');
+  // A lighter lights it: visible to everyone, can't be broken, goes off
+  // after its fuse. The lighter is not used up.
+  host.inventory.slots[host.selected] = { item: ITEM.LIGHTER, count: 1 };
   sent.clear();
   game.stepUse(host, p);
-  assert.equal(world.getBlock(p.x, p.y, p.z), BLOCK.LIT_BARREL, 'right clicking did not light the barrel');
+  assert.equal(world.getBlock(p.x, p.y, p.z), BLOCK.LIT_BARREL, 'the lighter did not light the barrel');
+  assert.deepEqual(host.inventory.slots[host.selected], { item: ITEM.LIGHTER, count: 1 }, 'the lighter was used up or worn');
+  game.stepUse(host, at(51, 11, 0));
+  assert.equal(world.getBlock(ox + 51, Y, oz + 11), BLOCK.STONE, 'the lighter did something to stone');
   run(1);
   for (const id of [1, 2, 3]) assert.ok(messages(id, S2C.BLOCK_CHANGES).some((m) => m.changes.some((c) => c.x === p.x && c.id === BLOCK.LIT_BARREL)), `player ${id} was not shown the lit fuse`);
   assert.equal(getBlockDef(BLOCK.LIT_BARREL).breakable, false);
@@ -369,11 +383,9 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   world.setBlock(mx, Y - 1, mz, BLOCK.BRONZE_PIPE);
   world.setBlock(mx, Y - 2, mz, BLOCK.FLUID_TANK);
   const tank = () => game.fluids.nodes.get(`${mx},${Y - 2},${mz}`).tank;
-  const fill = (amount = 4000) => {
-    tank().fluid = amount ? 'steam' : null; tank().amount = amount;
-    // Emptying means the pipe too.
-    if (!amount) for (const n of game.fluids.networks) if (n.pipeKeys.has(`${mx},${Y - 1},${mz}`)) { n.amount = 0; n.fluid = null; }
-  };
+  const pipe = () => game.fluids.networks.find((n) => n.pipeKeys.has(`${mx},${Y - 1},${mz}`));
+  const steam = () => (tank().amount ?? 0) + (pipe()?.amount ?? 0);
+  const fill = (amount = 4000) => { tank().fluid = amount ? 'steam' : null; tank().amount = amount; const n = pipe(); if (n) { n.amount = 0; n.fluid = null; } };
   fill();
   for (let x = mx + L + 1; x <= mx + L + 6; x++) for (let z = mz - 2; z <= mz + 2; z++) world.setBlock(x, Y, z, BLOCK.STONE);
   // Placed by the host, looking east: owned by their team, extending east.
@@ -385,126 +397,144 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   const bridge = world.tileEntities.get(key);
   assert.ok(bridge?.kind === 'drawbridge' && bridge.team === host.team, 'the drawbridge has no owner');
   assert.deepEqual(FACING_DIRS[bridge.dir], [1, 0], 'the drawbridge does not face the way it was placed');
+  run(2);
   const deck = () => { let n = 0; for (let i = 1; i <= DB.maxLength; i++) if (world.getBlock(mx + i, Y, mz) === BLOCK.BRIDGE_DECK) n++; return n; };
   const action = (who, action, value) => { sent.clear(); game.handleMessage(sessions.get(who.id), JSON.stringify({ type: C2S.MACHINE_ACTION, action, value })); return messages(who.id, S2C.CONTAINER).at(-1); };
+  const sectionTicks = Math.round(DB.sectionSeconds * TICK_RATE), whole = sectionTicks * (L + 2);
   // The enemy can't open or work it.
   park(enemy, 61, 31); sent.clear();
   game.openContainer(enemy, { x: mx, y: Y, z: mz });
   assert.ok(messages(2, S2C.NOTICE).some((m) => /another team/.test(m.text)) && !enemy.viewing, 'an enemy opened the drawbridge');
   game.handleMessage(sessions.get(2), JSON.stringify({ type: C2S.MACHINE_ACTION, action: 'extend' }));
-  assert.equal(bridge.target, 'retracted', 'an enemy worked the drawbridge');
+  assert.ok(!bridge.moving && deck() === 0, 'an enemy worked the drawbridge');
   park(enemy, 60, 60);
-  // The owner: length 5, 9 planks (enough for 3 sections), extend.
+  // The owner: length 5, and the screen shows the cost and the steam on hand.
   game.openContainer(host, { x: mx, y: Y, z: mz });
   let view = action(host, 'length', L);
   assert.equal(view.length, L);
   assert.equal(view.required, L * DB.sectionPlanks, 'wrong materials shown for the length');
+  assert.equal(view.steamCost, L * DB.steamPerSection, 'the cost is not proportional to the length');
+  run(1);
+  assert.ok(Math.abs(bridge.view().steamAvailable - 4000) < 1, 'the steam on hand is not shown');
+  // Not enough steam: nothing starts and nothing is taken.
+  fill(L * DB.steamPerSection - 1);
   bridge.slots[0] = { item: BLOCK.PLANKS, count: 9 };
-  const steam0 = tank().amount;
-  action(host, 'extend');
-  const sectionTicks = Math.ceil(DB.steamPerSection / DB.steamPerSecond * TICK_RATE);
-  run(sectionTicks + 2);
-  assert.ok(deck() >= 1 && deck() < 3, `sections did not go out one at a time (${deck()} after one section's time)`);
-  run(sectionTicks * 6);
-  assert.equal(deck(), 3, 'three sections\' worth of planks did not make three sections');
-  assert.equal(bridge.state, 'Missing construction materials');
+  view = action(host, 'extend');
+  assert.match(view.message ?? '', /Insufficient steam/);
+  assert.ok(!bridge.moving && view.status === 'Insufficient steam');
+  run(whole);
+  assert.equal(deck(), 0, 'it moved without enough steam');
+  assert.equal(steam(), L * DB.steamPerSection - 1, 'steam was taken for a move that never started');
+  // Enough steam: the whole cost is taken at once, then it moves on its own
+  // even when the steam is cut off; 9 planks build 3 sections and then it
+  // stops for materials.
+  fill();
+  view = action(host, 'extend');
+  assert.ok(!view.message && bridge.moving, 'the move did not start');
+  assert.equal(4000 - steam(), L * DB.steamPerSection, 'the whole cost was not taken when the move began');
+  fill(0);
+  assert.match(action(host, 'retract').message ?? '', /already moving/, 'a new order was taken while moving');
+  run(sectionTicks + 1);
+  assert.equal(deck(), 1, 'sections did not go out one at a time');
+  run(whole);
+  assert.equal(deck(), 3, 'losing steam stopped a move that had started, or the planks were miscounted');
+  assert.equal(bridge.state, 'Missing construction materials'); assert.ok(!bridge.moving);
   assert.equal(bridge.slots[0], null);
-  const steamAt3 = tank().amount;
-  run(TICK_RATE * 2);
-  assert.ok(Math.abs(tank().amount - steamAt3) < 1e-6, 'steam was used while waiting for planks');
+  // More planks; the next press pays again and finishes the job.
   bridge.slots[0] = { item: BLOCK.PLANKS, count: 10 };
-  run(sectionTicks * 4);
+  fill();
+  action(host, 'extend'); run(whole);
   assert.equal(deck(), L); assert.equal(bridge.state, 'Extended');
   assert.equal(bridge.slots[0].count, 4, 'the wrong number of planks was used');
+  assert.equal(4000 - steam(), L * DB.steamPerSection);
   for (const id of [1, 2, 3]) assert.ok(messages(id, S2C.BLOCK_CHANGES).some((m) => m.changes.some((c) => c.id === BLOCK.BRIDGE_DECK)), `player ${id} did not see the bridge go out`);
-  // What left the tank, less what still sits in the pipe.
-  const inPipe = game.fluids.networks.find((n) => n.pipeKeys.has(`${mx},${Y - 1},${mz}`))?.amount ?? 0;
-  const used = steam0 - tank().amount - inPipe;
-  assert.ok(Math.abs(used - L * DB.steamPerSection) < 1, `steam used ${used}, expected ${L * DB.steamPerSection}`);
-  // Standing still uses no steam.
-  const still = tank().amount; run(TICK_RATE * 3);
-  assert.ok(Math.abs(tank().amount - still) < 1e-6, 'steam used while extended');
+  assert.match(action(host, 'extend').message ?? '', /Already extended/);
+  // Standing still uses nothing.
+  const still = steam(); run(TICK_RATE * 3);
+  assert.equal(steam(), still, 'steam used while extended');
   // The deck is solid ground and monkeys find their way over it.
   const from = { x: mx - 2, y: Y + 1, z: mz }, to = { x: mx + L + 3, y: Y + 1, z: mz };
-  // Reaches the far platform (findPath returns the closest spot otherwise).
   const path = () => { const p = findPath(world, from, to, { height: 2, halfWidth: 0.4, maxNodes: 4000, climb: 1, maxDrop: 3 });
     return p.length && p.at(-1).x === to.x && p.at(-1).z === to.z ? p : []; };
   assert.ok(path().length, 'no path over the extended bridge');
-  assert.ok(getBlockDef(BLOCK.BRIDGE_DECK).solid);
   // Length and direction can't change while it is out.
   view = action(host, 'length', 8);
   assert.match(view.message ?? '', /Retract/); assert.equal(bridge.length, L);
-  // Retract and extend three times: nothing is used up or made.
+  // Retract and extend three times: nothing is used up or made; each move
+  // costs the same steam.
   const planksInSystem = () => (bridge.slots[0]?.count ?? 0) + (bridge.stored + deck()) * DB.sectionPlanks;
   const total = planksInSystem();
   for (let round = 0; round < 3; round++) {
-    action(host, 'retract'); run(sectionTicks * (L + 2));
+    fill(); action(host, 'retract'); run(whole);
     assert.equal(deck(), 0, 'it did not retract fully'); assert.equal(bridge.state, 'Retracted');
+    assert.equal(4000 - steam(), L * DB.steamPerSection, 'retracting cost the wrong steam');
     assert.equal(bridge.stored, L, 'retracted sections were not stored');
     assert.equal(planksInSystem(), total, 'retracting made or lost planks');
-    action(host, 'extend'); run(sectionTicks * (L + 2));
+    fill(); action(host, 'extend'); run(whole);
     assert.equal(deck(), L);
     assert.equal(planksInSystem(), total, 'extending made or lost planks');
   }
   assert.equal(bridge.slots[0].count, 4, 'stored sections were paid for again');
   // Retracted, monkeys have no way across (their paths update).
-  action(host, 'retract'); run(sectionTicks * (L + 2));
+  fill(); action(host, 'retract'); run(whole);
   assert.equal(path().length, 0, 'a path across a retracted bridge');
-  // Steam runs out halfway: it stops where it is, then carries on.
-  action(host, 'extend'); run(sectionTicks * 2 + 1);
-  const partway = deck();
-  fill(0);
-  run(TICK_RATE * 3);
-  assert.equal(deck(), partway, 'it moved without steam');
-  assert.equal(bridge.state, 'Insufficient steam');
-  fill(); run(sectionTicks * (L + 2));
-  assert.equal(deck(), L, 'it did not carry on when steam came back');
+  // Steam drawn from a boiler's store counts too: swap the tank for a boiler.
+  world.setBlock(mx, Y - 2, mz, BLOCK.BOILER);
+  const { createContainer } = await import('../server/containers.js');
+  const boiler = createContainer('boiler'); world.tileEntities.set(`${mx},${Y - 2},${mz}`, boiler); game.fluids.attach(mx, Y - 2, mz, boiler);
+  boiler.steam = 40; { const n = pipe(); if (n) { n.amount = 0; n.fluid = null; } }
+  action(host, 'extend');
+  assert.ok(bridge.moving, 'steam in a boiler did not pay for a move');
+  assert.equal(boiler.steam, 40 - L * DB.steamPerSection);
+  run(whole);
+  world.setBlock(mx, Y - 2, mz, BLOCK.FLUID_TANK); fill();
   // A broken section drops its planks, leaves a gap, and is only replaced with new planks.
   bridge.slots[0] = null;
   const items0 = game.items.size;
   game.breakBlock(mx + 3, Y, mz);
   const dropped = [...game.items.values()].filter((i) => (i.item ?? i.stack?.item) === BLOCK.PLANKS).reduce((n, i) => n + (i.count ?? i.stack?.count ?? 0), 0);
   assert.ok(game.items.size > items0 && dropped >= DB.sectionPlanks, 'a broken section did not drop its planks');
-  run(sectionTicks * 3);
+  run(whole);
   assert.equal(world.getBlock(mx + 3, Y, mz), BLOCK.AIR, 'a broken section came back for free');
-  assert.equal(bridge.state, 'Missing construction materials');
-  action(host, 'retract'); run(sectionTicks * (L + 2));
+  assert.match(action(host, 'extend').message ?? '', /Missing construction materials/, 'extending into a gap without planks');
+  fill(); action(host, 'retract'); run(whole);
   assert.equal(bridge.stored, L - 1, 'a broken section was stored');
-  action(host, 'extend'); run(sectionTicks * (L + 2));
+  fill(); action(host, 'extend'); run(whole);
   assert.equal(deck(), L - 1, 'retracting and extending restored a broken section for free');
   bridge.slots[0] = { item: BLOCK.PLANKS, count: DB.sectionPlanks };
-  run(sectionTicks * 3);
+  fill(); action(host, 'retract'); run(whole); fill(); action(host, 'extend'); run(whole);
   assert.equal(deck(), L, 'new planks did not replace the broken section');
-  // Obstructions: a block in the way stops it (and stays); an entity in the way waits.
-  action(host, 'retract'); run(sectionTicks * (L + 2));
+  // Obstructions: a block in the way stops it (and stays); so does someone standing there.
+  fill(); action(host, 'retract'); run(whole);
   world.setBlock(mx + 3, Y, mz, BLOCK.STONE);
-  action(host, 'extend'); run(sectionTicks * (L + 2));
-  assert.equal(deck(), 2); assert.equal(bridge.state, 'Obstructed');
+  fill(); action(host, 'extend'); run(whole);
+  assert.equal(deck(), 2); assert.equal(bridge.state, 'Obstructed'); assert.ok(!bridge.moving);
   assert.equal(world.getBlock(mx + 3, Y, mz), BLOCK.STONE, 'the bridge removed a block in its way');
   world.setBlock(mx + 3, Y, mz, BLOCK.AIR);
   park(enemy, 63 + 4, 30); enemy.state.y = Y; enemy.state.x = mx + 4.5;   // standing in cell 4
-  run(sectionTicks * (L + 2));
+  fill(); action(host, 'extend'); run(whole);
   assert.equal(deck(), 3, 'the bridge was laid into a player'); assert.equal(bridge.state, 'Obstructed');
   park(enemy, 60, 60);
-  run(sectionTicks * (L + 2));
+  fill(); action(host, 'extend'); run(whole);
   assert.equal(deck(), L);
-  // Another length and direction once retracted: 3 north.
-  action(host, 'retract'); run(sectionTicks * (L + 2));
+  // Another length and direction once retracted: 3 north, at a smaller cost.
+  fill(); action(host, 'retract'); run(whole);
   for (let i = 1; i <= 3; i++) world.setBlock(mx, Y, mz - i, BLOCK.AIR);   // a gap in the floor to the north
   view = action(host, 'direction', 0);
   assert.equal(view.dir, 0); action(host, 'length', 3);
-  action(host, 'extend'); run(sectionTicks * 6);
+  fill(); action(host, 'extend');
+  assert.equal(4000 - steam(), 3 * DB.steamPerSection, 'a shorter bridge did not cost less');
+  run(sectionTicks * 6);
   for (let i = 1; i <= 3; i++) assert.equal(world.getBlock(mx, Y, mz - i), BLOCK.BRIDGE_DECK, `no north section ${i}`);
   assert.equal(world.getBlock(mx, Y, mz - 4), BLOCK.STONE);
   assert.equal(bridge.stored, L - 3, 'a shorter bridge did not keep the spare sections');
   // Breaking the mechanism gives back the slot and the stored sections' planks.
-  action(host, 'retract'); run(sectionTicks * 6);
+  fill(); action(host, 'retract'); run(sectionTicks * 6);
   for (const i of [...game.items.keys()]) { game.items.delete(i); }
   const owed = (bridge.slots[0]?.count ?? 0) + bridge.stored * DB.sectionPlanks;
   game.breakBlock(mx, Y, mz);
   const back = [...game.items.values()].filter((i) => (i.item ?? i.stack?.item) === BLOCK.PLANKS).reduce((n, i) => n + (i.count ?? i.stack?.count ?? 0), 0);
   assert.equal(back, owed, `breaking the mechanism gave back ${back} of ${owed} planks`);
-  assert.ok(game.fluids.nodes.size >= 0);
 }
 
 // ---- Saves: lit barrels, spike owners, drawbridges ----
@@ -520,6 +550,7 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
 // ---- Quests: everything above counts for the host's team, synced to the teammate ----
 {
   host.inventory.add(ITEM.SULFUR_SEEDS, 1); host.inventory.add(ITEM.SULFUR, 1); host.inventory.add(ITEM.BRONZE_INGOT, 1);
+  host.inventory.add(ITEM.LIGHTER, 1);
   host.inventoryDirty = true;
   // The steam line the drawbridge needs (its quest follows the boiler's).
   for (const id of [BLOCK.FLUID_PUMP, BLOCK.BRONZE_PIPE, BLOCK.BOILER]) game.teamProgress.placed(host.team, id);
@@ -527,7 +558,7 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   run(TICK_RATE + 1);
   game.quests.update();
   const book = game.quests.of(host.team);
-  for (const id of ['sulfurSeeds', 'sulfurFarm', 'sulfurAuto', 'gunpowder', 'explosivesFactory', 'grenades', 'barrels', 'drawbridge'])
+  for (const id of ['sulfurSeeds', 'sulfurFarm', 'sulfurAuto', 'gunpowder', 'explosivesFactory', 'grenades', 'barrels', 'lighter', 'drawbridge'])
     assert.ok(book.completed.has(id), `quest ${id} not completed`);
   assert.ok(!game.quests.of(enemy.team).completed.has('grenades'), 'the other team got the host\'s grenade quest');
   const mateBook = messages(3, S2C.QUESTS).at(-1);
@@ -535,7 +566,8 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
 }
 
 console.log('OK: sulfur seeds from the merchant and loot, a renewable sulfur farm run by a farmer monkey, gunpowder and grenades from a',
-  'craftsman, grenade throwing, flight, fuse and falloff damage (soft blocks only, never spikes), barrels (lit by hand, fuse, structure,',
-  'reinforced walls, chain reactions), spike geometry, contact, breaking, arrows and teams, drawbridges (materials, steam use and',
-  'interruption, no duplication, broken sections, obstruction, lengths and directions, pathfinding, ownership), saves, quests, sync');
+  'craftsman, grenade throwing, flight, fuse and falloff damage (soft blocks only, never spikes), barrels (lit only by a lighter, fuse, structure,',
+  'reinforced walls, chain reactions), spike geometry, contact, breaking, arrows and teams, drawbridges (steam paid up front per move,',
+  'refused without it, moves finish without it, no orders while moving, materials, no duplication, broken sections, obstruction,',
+  'lengths and directions, pathfinding, ownership), saves, quests, sync');
 process.exit(0);

@@ -1086,7 +1086,7 @@ function frame(now) {
     // Right click on a door opens or closes it instead of placing.
     const tilling = getItemDef(heldItem()).tool === 'hoe' && (target?.id === BLOCK.GRASS || target?.id === BLOCK.DIRT);
     const useTarget = controls.place && target && (changingFace || tilling || isMatureCrop(target.id) || (!placingWhileCrouched && isDoor(target.id))
-      || (!placingWhileCrouched && target.id === BLOCK.EXPLOSIVE_BARREL)
+      || (getItemDef(heldItem()).tool === 'lighter' && !!getBlockDef(target.id).ignite)
       || ((target.id === BLOCK.WATER || target.id === BLOCK.LAVA) && heldItem() === ITEM.EMPTY_BUCKET));
     controls.use = useTarget ? { x: target.x, y: target.y, z: target.z,
       nx:target.nx,ny:target.ny,nz:target.nz } : null;

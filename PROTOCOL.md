@@ -650,7 +650,7 @@ placed one may use them. The reply is a fresh `container` view, with
 
 | Action | Value | Behavior |
 |--------|-------|----------|
-| `extend` / `retract` / `toggle` | — | Sets where the bridge is heading; it moves one section at a time while it has steam |
+| `extend` / `retract` / `toggle` | — | Starts a move if it isn't moving, has something to do and the whole steam cost can be paid now (then it finishes on its own); refused otherwise |
 | `length` | int 1..16 | Bridge length; refused unless fully retracted |
 | `direction` | int 0..3 | North, east, south, west (`FACING_DIRS`); refused unless fully retracted |
 
@@ -1891,8 +1891,10 @@ to the same successful world and record the resolved seed as `world.seed`.
   plant drops 1 sulfur and 1-3 seeds, so farms are renewable; farmer monkeys
   plant and harvest it like any crop.
 - **Gunpowder** (1 sulfur + 1 charcoal → 2, no station), **grenades** (2
-  gunpowder + 1 copper → 2, workbench) and **explosive barrels** (6 gunpowder
-  + 4 planks + 1 copper, workbench). Craftsman monkeys can make all of them.
+  gunpowder + 1 copper → 2, workbench), **explosive barrels** (6 gunpowder
+  + 4 planks + 1 copper, workbench) and the **lighter** (1 gunpowder + 1 iron,
+  workbench; reusable, no durability or fuel). Craftsman monkeys can make all
+  of them.
 - **Explosions** (`server/explosives.js`, tuning in `EXPLOSIVES`): damage to
   entities falls linearly with distance and is scaled by 0.4 through solid
   blocks; nobody on the same team as whoever set it off is hurt. Blocks take
@@ -1902,7 +1904,9 @@ to the same successful world and record the resolved seed as `world.seed`.
   blocks never); damage adds up across explosions and a block breaks at 1
   (dropping like any broken block). Grenades never damage spike barricades.
   An explosion lights barrels in its blast with a 0.5-0.9 s fuse.
-- **Barrels**: right click (`use`) lights one; it becomes `BLOCK.LIT_BARREL`
+- **Barrels**: `use` on one while holding a lighter lights it (any block whose
+  def has `ignite`, dispatched by `Explosives.light`); right clicking with
+  anything else does nothing. A lit barrel is `BLOCK.LIT_BARREL`
   (unbreakable, glowing fuse) for 3 s, then explodes. Unlit barrels break
   into their item. Lit barrels and accumulated block damage are saved.
 - **Spike barricades** (`server/spikes.js`, `SPIKES`): solid blocks owned by
@@ -1913,11 +1917,16 @@ to the same successful world and record the resolved seed as `world.seed`.
 - **Drawbridges** (`server/drawbridge.js`, `DRAWBRIDGE`): a container
   (`kind: "drawbridge"`) on the steam network, owned by the placing team and
   facing the way they looked. Its view adds `team, dir, length, target
-  ("extended"/"retracted"), stored, extended, progress, steamReceived,
-  steamNeeded, planks, required, status` and `message` (a refusal). It lays
-  `BLOCK.BRIDGE_DECK` sections (solid, broken ones drop 3 planks) one at a
-  time using 8 steam each, at up to 20 steam a second, only while moving.
-  Sections are built once from 3 planks in its slot and stored when
-  retracted; breaking it drops its planks and stored sections' planks.
+  ("extended"/"retracted"), stored, extended, progress, moving,
+  steamAvailable, steamCost, planks, required, status` and `message` (a
+  refusal). Each extend or retract costs `steamCost` (4 per block of length),
+  taken at once from the connected pipes, boilers and tanks when the command
+  arrives; without enough the move doesn't start. Once moving it lays or
+  lifts one `BLOCK.BRIDGE_DECK` section (solid; broken ones drop 3 planks)
+  every 0.4 s to the end whatever happens to the steam, refuses commands
+  until it stops, and stops early if obstructed or out of planks. It uses no
+  steam otherwise. Sections are built once from 3 planks in its slot and
+  stored when retracted; breaking it drops its planks and stored sections'
+  planks.
   Statuses: Extended, Retracted, Extending, Retracting, Insufficient steam,
   Missing construction materials, Obstructed.

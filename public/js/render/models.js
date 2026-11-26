@@ -825,6 +825,18 @@ export function createItemModel(item, blockSize = 0.25) {
     lens.position.y = 0.88 * blockSize * 2.4; group.add(lens);
     return group;
   }
+  if (def.tool === 'lighter') {
+    // A steel flip lighter: a body, a darker lid and a striker wheel, with a
+    // little flame on top.
+    const group = new THREE.Group(), u = blockSize * 1.6;
+    const part = (w, h, d, x, y, z, material) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w * u, h * u, d * u), material); m.position.set(x * u, y * u, z * u); group.add(m); };
+    part(0.36, 0.5, 0.18, 0, 0.25, 0, lambert(0x9aa0a7));
+    part(0.08, 0.46, 0.185, -0.1, 0.25, 0, lambert(0xc9ccd1));
+    part(0.26, 0.14, 0.18, -0.05, 0.57, 0, lambert(0x7d838b));
+    part(0.08, 0.12, 0.12, 0.13, 0.58, 0, lambert(0x3a3c40));
+    part(0.07, 0.12, 0.07, -0.05, 0.7, 0, new THREE.MeshBasicMaterial({ color: 0xffb347 }));
+    return group;
+  }
   if (def.tool === 'hammer') return createHammer(def.color);
   if (def.tool === 'hoe') return createHoe(def.color);
   // Plain items drawn from an SVG icon (seeds, wheat, bread): a flat picture.

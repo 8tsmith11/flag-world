@@ -769,7 +769,7 @@ export const MERCHANT = {
 // growth stages of the sulfur crop (163..166).
 export const EXPLOSIVES_IDS = {
   blocks: { sulfurPlant: 163, explosiveBarrel: 167, litBarrel: 168, spikeBarricade: 169, drawbridge: 170, bridgeDeck: 171 },
-  items: { sulfurSeeds: 332, sulfur: 333, gunpowder: 334, grenade: 335 },
+  items: { sulfurSeeds: 332, sulfur: 333, gunpowder: 334, grenade: 335, lighter: 336 },
 };
 
 // Explosions (server/explosives.js). Each kind has:
@@ -786,8 +786,9 @@ export const EXPLOSIVES_IDS = {
 // Grenades: thrown (throwSpeed along the look, plus lift), bounce off blocks
 // (bounce keeps that share of speed, friction on landing), go off after
 // fuseSeconds. Grenades never damage spike barricades.
-// Barrels: right click to light (fuseSeconds); an explosion lights barrels in
+// Barrels: lit with a lighter (fuseSeconds); an explosion lights barrels in
 // its blast with a short chain fuse (chainFuseSeconds range) instead.
+// Lighter: 1 gunpowder + 1 iron ingot; reusable, no durability or fuel.
 export const EXPLOSIVES = {
   cover: 0.4, maxBlocks: 600,
   grenade: { throwSpeed: 15, lift: 0.18, gravity: 22, radius: 0.14, bounce: 0.35, friction: 0.65,
@@ -796,6 +797,7 @@ export const EXPLOSIVES = {
   barrel: { fuseSeconds: 3, chainFuseSeconds: [0.5, 0.9], power: 9, blastRadius: 4.5, damage: 14,
     damageRadius: 5.5, knockback: 1.8, craftGunpowder: 6, craftPlanks: 4, craftCopper: 1 },
   gunpowder: { craftSulfur: 1, craftCharcoal: 1, craftCount: 2 },
+  lighter: { craftGunpowder: 1, craftIron: 1 },
 };
 
 // Iron spike barricades (server/spikes.js): solid blocks that hurt and push
@@ -814,7 +816,9 @@ export const SPIKES = { hardness: 3, breakTime: 3, blastResistance: 2, contactDa
 // Each section is built once from sectionPlanks planks put in the
 // mechanism, then kept: retracted sections are stored inside it and laid
 // again for free; broken sections drop their planks and must be paid for
-// again. Moving uses steamPerSecond (a section takes steamPerSection steam);
-// standing still uses none.
-export const DRAWBRIDGE = { maxLength: 16, defaultLength: 6, sectionPlanks: 3, steamPerSecond: 20, steamPerSection: 8,
+// again. Steam is paid once per state change: starting to extend or retract
+// takes steamPerSection * length from the connected pipes, boilers and tanks
+// all at once (or the move doesn't start); after that the bridge moves one
+// section every sectionSeconds whatever happens to the steam supply.
+export const DRAWBRIDGE = { maxLength: 16, defaultLength: 6, sectionPlanks: 3, steamPerSection: 4, sectionSeconds: 0.4,
   hardness: 3, breakTime: 2, deckHardness: 1, deckBreakTime: 1.2, craftBronze: 4, craftIron: 2, craftPipe: 1 };
