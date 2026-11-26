@@ -296,6 +296,7 @@ export class MerchantSystem {
     if (!sale) return;
     c.dirty = true;
     this.game.teamProgress?.event(r.team, 'autoSale', sale.coins);
+    this.game.teamProgress?.discover(r.team, `depotSold:${sale.item}`);
     this.game.teamProgress?.event(r.team, 'merchantSale', sale.coins);
     if (this.buys.find((o) => o.item === sale.item)?.request) this.game.teamProgress?.event(r.team, 'requestSold');
   }

@@ -2006,7 +2006,10 @@ export class Game {
     if (dragon.dead) return;
     dragon.hp = Math.max(0, dragon.hp - amount);
     this.broadcast({ type: S2C.DAMAGE, id: dragon.id, attackerId: attacker?.id ?? null, hp: dragon.hp });
-    if (attacker instanceof Player) dragon.provocation.provoke(attacker, this.tick);
+    if (attacker instanceof Player) {
+      dragon.provocation.provoke(attacker, this.tick);
+      this.teamProgress.discover(attacker.team, 'encounter:dragon');
+    }
     if (dragon.hp > 0) return;
     this.teamProgress.event(attacker?.team, 'kill:dragon');
     dragon.dead = true;
@@ -2099,6 +2102,28 @@ export class Game {
     this.send(player, { type: S2C.SPEAK, id: npc.id, name: npc.name, voice: npc.def.voice, ...line });
   }
 
+  // Places a team has been, for the quest book (once a second): the
+  // central, fire and ice islands, the fire temple, the Dragon Lord's arena
+  // (meeting him) and the glacier's hollow. Recorded whatever chapter
+  // they belong to, so they count once it unlocks.
+  noteDiscoveries() {
+    const w = this.world;
+    for (const p of this.players.values()) {
+      if (!p.connected || p.dead || p.team === null || p.team === undefined) continue;
+      const { x, y, z } = p.state, found = (key) => this.teamProgress.discover(p.team, key);
+      for (const island of w.islands ?? []) {
+        if (!['center', 'fire', 'ice'].includes(island.kind)) continue;
+        if (Math.hypot(x - island.x, z - island.z) <= island.radius * 1.1) found(`visit:${island.kind}`);
+      }
+      const t = w.fireTemple?.bounds;
+      if (t && x >= t.x0 && x <= t.x1 && y >= t.y0 && y <= t.y1 && z >= t.z0 && z <= t.z1) found('discover:fireTemple');
+      if (inFireSanctum(w, x, y, z)) found('discover:fireTemple');
+      if (inDragonArena(w, x, z)) found('encounter:dragonLord');
+      const g = w.specialIslands?.ice?.glacierCavity;
+      if (g && Math.hypot(x - g.x, z - g.z) <= g.radius + 0.5 && Math.abs(y - g.y) <= g.height) found('discover:glacier');
+    }
+  }
+
   // ---- Combat ----
 
   // A punch: confirmed by casting from the attacker's eyes along this input's
@@ -2148,6 +2173,7 @@ export class Game {
   damage(target, amount, attacker, cause = DEATH_CAUSE.PLAYER) {
     if (target.dead) return;
     if (target.immortal) return;
+    if (attacker instanceof Dragon && target instanceof Player) this.teamProgress.discover(target.team, 'encounter:dragon');
     if (attacker && attacker.team === target.team) return;
     if (this.tick < target.invulnerableUntilTick) return;
     if (cause !== DEATH_CAUSE.FALL && cause !== DEATH_CAUSE.VOID
@@ -2553,7 +2579,7 @@ export class Game {
     this.boss?.step();
     this.updateNpcs();
     this.merchants.update();
-    if (this.tick % TICK_RATE === 0) { this.merchants.checkViewers(); this.quests.update(); }
+    if (this.tick % TICK_RATE === 0) { this.merchants.checkViewers(); this.noteDiscoveries(); this.quests.update(); }
     this.fluids.tick(this.tick);
     this.updateContainers();
 

@@ -45,6 +45,13 @@ export class TeamProgress {
     this.onEvent?.(team, key);
   }
 
+  // A one-off discovery or milestone ('visit:fire', 'monkeyFed:crusher'...):
+  // recorded once, however often it happens.
+  discover(team, key) {
+    if (team === null || team === undefined || this.of(team).events.has(key)) return;
+    this.event(team, key);
+  }
+
   save() {
     return [...this.teams].map(([team, p]) => ({ team, obtained: [...p.obtained], crafted: [...p.crafted],
       placed: [...p.placed], events: [...p.events] }));

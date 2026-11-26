@@ -12,7 +12,7 @@
 // mouse wheel. The mouse is free while the book is open, so none of those
 // reach the game (input.js only listens while the pointer is locked).
 import { C2S } from '/shared/protocol.js';
-import { CHAPTERS, QUESTS, questById, chapterById, chapterOpen, questAvailable } from '/shared/quests.js';
+import { CHAPTERS, QUESTS, questById, chapterById, chapterOpen, questAvailable, chapterHidden } from '/shared/quests.js';
 import { getItemDef } from '/shared/items.js';
 import { itemIcon } from './itemIcon.js';
 
@@ -178,16 +178,19 @@ export class QuestScreen {
   }
 
   render() {
-    // Sidebar: every chapter. Open ones show done/total and a dot for
-    // unclaimed rewards; locked ones show what unlocks them.
-    this.sidebar.replaceChildren(...CHAPTERS.map((c) => {
+    // Sidebar: open chapters show done/total and a dot for unclaimed
+    // rewards; locked ones show what unlocks them; discovery chapters don't
+    // appear until found.
+    const shown = CHAPTERS.filter((c) => this.chapterOpen(c) || !chapterHidden(c));
+    if (!shown.some((c) => c.id === this.chapter)) { this.chapter = CHAPTERS[0].id; this.selected = null; }
+    this.sidebar.replaceChildren(...shown.map((c) => {
       const list = QUESTS.filter((q) => q.chapter === c.id), open = this.chapterOpen(c);
       const done = list.filter((q) => this.state.completed.has(q.id)).length;
       const reward = open && list.some((q) => this.status(q) === 'reward');
       const b = el('button', `quest-chapter${c.id === this.chapter ? ' selected' : ''}${open ? '' : ' locked'}`); b.type = 'button';
       const icon = el('span', 'quest-chapter-icon'); icon.append(itemIcon(c.icon));
       const text = el('span', 'quest-chapter-text');
-      text.append(el('span', 'quest-chapter-numeral', `Chapter ${c.numeral}`), el('span', 'quest-chapter-name', c.name));
+      text.append(el('span', 'quest-chapter-name', c.name));
       if (!open) text.append(el('span', 'quest-chapter-unlock', c.unlock.text));
       b.append(icon, text, el('span', 'quest-chapter-count', open ? `${done}/${list.length}` : '🔒'));
       if (reward) b.append(el('span', 'quest-dot'));
@@ -202,7 +205,7 @@ export class QuestScreen {
     this.world.classList.toggle('hidden', !open);
     this.lock.classList.toggle('hidden', open);
     if (!open) {
-      this.lock.replaceChildren(el('div', 'quest-locked-icon', '🔒'), el('h2', '', `Chapter ${chapter.numeral}: ${chapter.name}`),
+      this.lock.replaceChildren(el('div', 'quest-locked-icon', '🔒'), el('h2', '', chapter.name),
         el('p', '', chapter.unlock.text), el('p', 'hint', 'Your team keeps progress toward its quests in the meantime: anything already done counts the moment it unlocks.'));
     }
     // Regions, lines, then nodes.
@@ -254,7 +257,7 @@ export class QuestScreen {
     const q = this.chapterOpen(chapter) ? questById.get(this.selected) : null;
     this.details.replaceChildren();
     if (!q) {
-      this.details.append(el('h2', '', `Chapter ${chapter.numeral}: ${chapter.name}`), el('p', '', chapter.intro));
+      this.details.append(el('h2', '', chapter.name), el('p', '', chapter.intro));
       if (!this.chapterOpen(chapter)) this.details.append(el('p', 'quest-badge locked', 'Locked'), el('p', '', chapter.unlock.text));
       else this.details.append(el('p', 'hint', 'Select a quest to read about it. Green: done. Gold: reward waiting. Grey: not done yet. Lock: do the quest before it first (solid line). Dashed lines join related quests. "???": not discovered yet.'));
       return;

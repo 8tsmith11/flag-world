@@ -3,7 +3,9 @@
 // rewards it has claimed (once per team, whoever claims), and keeping every
 // member's copy in step.
 //
-// Everything here is team-wide and server-owned. Team progress
+// Chapters unlock in any order (`unlockGoal`): a discovery chapter opens as
+// soon as any of its quests' goals or reveals is met, even before chapters
+// that look "earlier". Everything here is team-wide and server-owned. Team progress
 // (server/teamProgress.js) records what any member does whether or not the
 // quest or chapter is available yet, so `refresh` completes quests
 // retroactively the moment their chapter unlocks or their prerequisites are
@@ -13,7 +15,7 @@
 // book screen opens by right clicking the team's Wise Monkey.
 import { S2C } from '../shared/protocol.js';
 import { TICK_RATE } from '../shared/config.js';
-import { CHAPTERS, QUESTS, questById, chapterById, goalMet, goalCount, chapterOpen, questAvailable } from '../shared/quests.js';
+import { CHAPTERS, QUESTS, questById, chapterById, goalMet, goalCount, chapterOpen, questAvailable, unlockGoal, chapterHidden } from '../shared/quests.js';
 import { getItemDef } from '../shared/items.js';
 import { Inventory } from './inventory.js';
 import { NPC_KIND } from '../shared/npcs.js';
@@ -38,7 +40,7 @@ export class QuestBook {
     const chapters = [], quests = [];
     for (let changed = true; changed;) {
       changed = false;
-      for (const chapter of CHAPTERS) if (chapter.unlock && !book.unlocked.has(chapter.id) && goalMet(chapter.unlock.goal, progress)) {
+      for (const chapter of CHAPTERS) if (chapter.unlock && !book.unlocked.has(chapter.id) && goalMet(unlockGoal(chapter), progress)) {
         book.unlocked.add(chapter.id); chapters.push(chapter); changed = true;
       }
       for (const quest of QUESTS) {
@@ -54,8 +56,9 @@ export class QuestBook {
   update() {
     for (const team of this.game.occupiedTeams ?? []) {
       const { chapters, quests } = this.refresh(team);
-      for (const chapter of chapters) this.game.teamNotice(team,
-        `Chapter ${chapter.numeral} unlocked: ${chapter.name}. Read it in the Wise Monkey's book.`, 'quest');
+      for (const chapter of chapters) this.game.teamNotice(team, chapterHidden(chapter)
+        ? `A new chapter has appeared in the Wise Monkey's book: ${chapter.name}`
+        : `New chapter unlocked in the Wise Monkey's book: ${chapter.name}`, 'quest');
       for (const quest of quests.slice(0, 2)) this.game.teamNotice(team,
         `Quest complete: ${quest.title}${quest.reward ? ' (reward waiting at your Wise Monkey)' : ''}`, 'quest');
       if (quests.length > 2) this.game.teamNotice(team, `...and ${quests.length - 2} more quests complete`, 'quest');

@@ -652,6 +652,8 @@ export class MonkeyWorkers {
       stack.count-=count-load.count;
       if(!stack.count)m.inventory.slots[slot]=null;
     }
+    // Quest book: a monkey keeping a machine supplied (Monkey Business).
+    if(moved&&c?.kind)this.game.teamProgress?.discover(m.team,`monkeyFed:${c.kind}`);
     m.destIndex=(t.index+1)%Math.max(1,m.config.dests.length);
     m.status=moved?'Delivered':'Destination is full';
     return true;
@@ -799,6 +801,7 @@ export class MonkeyWorkers {
     m.working=true;
     this.game.teamProgress?.crafted(m.team,t.recipe.output);
     this.game.teamProgress?.event(m.team,'monkeyCrafted');
+    this.game.teamProgress?.discover(m.team,`monkeyCrafted:${t.recipe.output}`);
     m.status=`Crafting ${getItemDef(t.recipe.output).name}`;
     return !m.inventory.has(t.recipe.inputs);
   }

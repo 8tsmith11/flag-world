@@ -1,11 +1,16 @@
 // Checks for the Wise Monkey's quest book: chapter and quest data (ids,
 // prerequisites within a chapter, regions, a tidy graph, every mechanic
-// represented), and in a real match: chapter unlocking, independent quests,
-// prerequisites with retroactive completion, team-wide progress kept in step
-// for every member, simultaneous reward claims, reconnecting, and saves.
+// represented, every milestone actually recorded by the server), and in a
+// real match: A Brand New Adventure open at once, Monkey Business on bronze,
+// Beyond the Island hidden until a discovery (before bronze too), hidden
+// objectives counted, independent quests, prerequisites with retroactive
+// completion, team-wide progress kept in step for every member, separate
+// teams, simultaneous reward claims, reconnecting, and saves.
 //   node scripts/quest-check.js
 import assert from 'node:assert/strict';
-import { CHAPTERS, QUESTS, questById, chapterById, goalMet } from '../shared/quests.js';
+import { CHAPTERS, QUESTS, questById, chapterById, goalMet, chapterHidden, unlockGoal } from '../shared/quests.js';
+import { readFileSync, readdirSync } from 'node:fs';
+import { inDragonArena } from '../shared/fireTempleArena.js';
 import { RECIPES } from '../shared/recipes.js';
 import { MONKEY_ROLES } from '../shared/monkeys.js';
 import { BLOCK } from '../shared/blocks.js';
@@ -21,18 +26,23 @@ const goalItems = (goal) => !goal ? [] : goal.all || goal.any ? (goal.all ?? goa
 const goalEvents = (goal) => !goal ? [] : goal.all || goal.any ? (goal.all ?? goal.any).flatMap(goalEvents) : goal.event ? [goal.event] : [];
 {
   assert.equal(new Set(QUESTS.map((q) => q.id)).size, QUESTS.length, 'duplicate quest ids');
-  assert.equal(CHAPTERS[0].unlock, null, 'the first chapter must be open from the start');
-  assert.equal(CHAPTERS[0].name, 'A Brand New Adventure');
-  assert.equal(CHAPTERS[1].name, 'Monkey Business');
-  assert.deepEqual(CHAPTERS[1].unlock.goal, { obtained: [ITEM.BRONZE_INGOT] }, 'Chapter II must unlock on a bronze ingot');
-  for (const c of CHAPTERS.slice(1)) assert.ok(c.unlock?.goal && c.unlock.text, `${c.id} has no unlock goal and text`);
+  assert.deepEqual(CHAPTERS.map((c) => c.name), ['A Brand New Adventure', 'Monkey Business', 'Beyond the Island']);
+  for (const c of CHAPTERS) assert.ok(!('numeral' in c) && !/\bchapter\s+(I|II|III|\d)\b/i.test(c.name), `${c.id} is numbered`);
+  assert.ok(!/Chapter (I|II|III)\b/.test(QUESTS.map((q) => q.text.join(' ')).join(' ')), 'quest text numbers a chapter');
+  assert.equal(chapterById.get('adventure').unlock, null, 'A Brand New Adventure must be open from the start');
+  assert.deepEqual(unlockGoal(chapterById.get('business')), { obtained: [ITEM.BRONZE_INGOT] }, 'Monkey Business must unlock on bronze');
+  assert.ok(chapterHidden(chapterById.get('beyond')) && !chapterHidden(chapterById.get('business')), 'only Beyond the Island is hidden');
+  // Finding any of a discovery chapter's quests opens it.
+  for (const q of QUESTS.filter((q) => q.chapter === 'beyond')) assert.ok(unlockGoal(chapterById.get('beyond')).any.includes(q.goal), `${q.id} doesn't open Beyond the Island`);
+  for (const c of CHAPTERS) assert.ok(Number.isInteger(c.icon), `${c.id}: bad icon`);
+  for (const c of CHAPTERS) if (c.unlock) assert.ok(unlockGoal(c) && c.unlock.text, `${c.id} has no unlock goal and text`);
   for (const q of QUESTS) {
     assert.ok(chapterById.has(q.chapter), `${q.id}: unknown chapter`);
-    assert.ok(q.title && q.text?.length && q.goal && getItemDef(q.icon), `${q.id}: missing title, text, goal or icon`);
+    assert.ok(q.title && q.text?.length && q.goal && Number.isInteger(q.icon) && getItemDef(q.icon)?.name, `${q.id}: missing title, text, goal or icon`);
     for (const id of goalItems(q.goal)) assert.ok(getItemDef(id)?.name, `${q.id}: goal names an unknown item ${id}`);
     for (const d of [...(q.deps ?? []), ...(q.links ?? [])]) {
       assert.ok(questById.has(d), `${q.id}: unknown dependency ${d}`);
-      // Chapter II never needs Chapter I done, and so on.
+      // A chapter never needs another chapter's quests done.
       assert.equal(questById.get(d).chapter, q.chapter, `${q.id}: ${d} is in another chapter`);
     }
     for (const { count } of q.reward ?? []) assert.ok(count <= 10, `${q.id}: reward is not small`);
@@ -50,8 +60,8 @@ const goalEvents = (goal) => !goal ? [] : goal.all || goal.any ? (goal.all ?? go
     const list = QUESTS.filter((q) => q.chapter === c.id);
     // Branching, not one line: several starting points and standalone quests.
     const roots = list.filter((q) => !q.deps?.length);
-    assert.ok(roots.length >= 5, `${c.id}: only ${roots.length} quests without prerequisites`);
-    assert.ok(list.some((q) => !q.deps?.length && !q.links?.length && !list.some((o) => o.deps?.includes(q.id) || o.links?.includes(q.id))),
+    assert.ok(roots.length >= 3, `${c.id}: only ${roots.length} quests without prerequisites`);
+    if (c.id !== 'business') assert.ok(list.some((q) => !q.deps?.length && !q.links?.length && !list.some((o) => o.deps?.includes(q.id) || o.links?.includes(q.id))),
       `${c.id}: no standalone quest`);
     assert.ok(list.filter((q) => q.reward).length < list.length, `${c.id}: every quest has a reward`);
     // Layout: one quest per cell, each in exactly one region, regions apart,
@@ -83,7 +93,26 @@ const goalEvents = (goal) => !goal ? [] : goal.all || goal.any ? (goal.all ?? go
   const events = new Set(QUESTS.flatMap((q) => goalEvents(q.goal)));
   for (const role of MONKEY_ROLES.filter((r) => r !== 'idle')) assert.ok(events.has(`role:${role}`) || text.includes(`${role}:`), `no quest covers the ${role} role`);
   for (const e of ['tame', 'monkeyCrafted', 'lookoutSpotted', 'depotPlaced', 'merchantTrade', 'autoSale', 'merchantSale', 'requestSold',
-    'babyMonkey', 'kill:goblin', 'kill:crawler', 'kill:eel', 'kill:dragon', 'kill:player', 'flagCaptured']) assert.ok(events.has(e), `no quest uses the ${e} milestone`);
+    'babyMonkey', 'kill:goblin', 'kill:crawler', 'kill:eel', 'kill:dragon', 'kill:player', 'flagCaptured', 'visit:center', 'visit:fire',
+    'visit:ice', 'discover:glacier', 'discover:fireTemple', 'monkeyFed:crusher']) assert.ok(events.has(e), `no quest uses the ${e} milestone`);
+  // Every milestone a quest or chapter waits for is recorded somewhere on the server.
+  const server = readdirSync('server').filter((f) => f.endsWith('.js')).map((f) => readFileSync(`server/${f}`, 'utf8')).join('\n');
+  const allEvents = new Set([...events, ...CHAPTERS.flatMap((c) => c.unlock ? goalEvents(unlockGoal(c)) : []),
+    ...QUESTS.flatMap((q) => goalEvents(q.reveal))]);
+  for (const e of allEvents) {
+    const prefix = e.split(':')[0];
+    assert.ok(server.includes(`'${e}'`) || server.includes(`\`${prefix}:\${`), `nothing on the server records the ${e} milestone`);
+  }
+  // Monkey Business holds only what needs bronze: every quest in it asks for
+  // bronze, bronze goods, iron ore (a bronze hammer) or a bronze machine.
+  const bronzeMade = new Set([ITEM.BRONZE_INGOT, BLOCK.IRON_ORE, ...RECIPES.filter((r) => r.inputs.some((i) => i.item === ITEM.BRONZE_INGOT)).map((r) => r.output),
+    ITEM.IRON_DUST, ITEM.COPPER_DUST, ITEM.TIN_DUST]);
+  for (const q of QUESTS.filter((q) => q.chapter === 'business')) {
+    const items = goalItems(q.goal), evs = goalEvents(q.goal);
+    assert.ok(items.some((i) => bronzeMade.has(i)) || evs.some((e) => /^(monkeyFed:(crusher|boiler)|monkeyCrafted:|depotSold:)/.test(e)),
+      `${q.id} is in Monkey Business but doesn't need bronze`);
+    for (const e of evs.filter((e) => /^(monkeyCrafted|depotSold):/.test(e))) assert.ok(bronzeMade.has(Number(e.split(':')[1])), `${q.id}: ${e} isn't a bronze good`);
+  }
 }
 
 // ---- A match: team 0 has two players, team 1 one ----
@@ -109,7 +138,8 @@ const book = (team) => game.quests.of(team);
 const tick = () => { game.quests.update(); };
 const progress = game.teamProgress;
 
-// Joining: every player's world message carries their team's book, Chapter II locked.
+// Joining: every player's world message carries their team's book; only A
+// Brand New Adventure is open.
 for (const id of [1, 2, 3]) {
   const first = books(id)[0];
   assert.ok(first, `player ${id} got no quest book on joining`);
@@ -126,6 +156,10 @@ assert.ok(!book(1).completed.has('crawlers'), 'one team\'s quest completed for a
 for (const id of [1, 2]) assert.ok(latest(id)?.completed.includes('crawlers'), `teammate ${id} was not told`);
 assert.ok(!books(3).some((m) => m.completed.includes('crawlers')), 'team 1 was sent team 0\'s progress');
 assert.ok(books(1).every((m) => !m.open), 'a team update opened the book');
+// Guards, the merchant and iron need no bronze, so their quests are open now.
+progress.event(0, 'tame'); progress.event(0, 'role:guard'); progress.event(0, 'depotPlaced'); progress.of(0).obtained.add(ITEM.IRON_INGOT);
+tick();
+for (const id of ['guard', 'depot', 'iron']) assert.ok(book(0).completed.has(id), `${id} waited for an unrelated chapter`);
 
 // Prerequisites: stone was mined before any hammer was made; it waits, then
 // completes along with the whole chain the moment the chain is done.
@@ -137,28 +171,68 @@ progress.crafted(0, BLOCK.PLANKS); progress.placed(0, BLOCK.WORKBENCH); progress
 tick();
 for (const id of ['wood', 'planks', 'workbench', 'hammer', 'stone']) assert.ok(book(0).completed.has(id), `${id} not completed retroactively`);
 
-// Chapter II: what the team did before bronze waits, then counts at once.
-progress.event(0, 'depotPlaced'); progress.event(0, 'role:guard'); progress.of(0).obtained.add(BLOCK.IRON_ORE);
+// Places are noticed by the server: standing on the central island completes
+// its quest (no bronze hammer needed).
+const center = game.world.islands.find((i) => i.kind === 'center');
+Object.assign(a.state, { x: center.x + 0.5, z: center.z + 0.5 });
+game.noteDiscoveries(); game.noteDiscoveries();
+tick();
+assert.ok(book(0).completed.has('center') && progress.of(0).events.get('visit:center') === 1, 'visiting the central island not recorded once');
+Object.assign(a.state, game.keepSpawn(game.world.keeps[a.team] ?? game.world.keeps[0]));
+
+// Monkey Business: what the team did before bronze waits, then counts at once.
+progress.discover(0, 'monkeyFed:crusher'); progress.placed(0, BLOCK.FLUID_PUMP); progress.crafted(0, BLOCK.BRONZE_PIPE);
 progress.event(0, 'autoSale', 4);
 tick();
 assert.ok(!book(0).unlocked.has('business'));
-for (const id of ['depot', 'guard', 'center']) assert.ok(!book(0).completed.has(id), `${id} completed while Chapter II was locked`);
-assert.ok(!goalMet(CHAPTERS[1].unlock.goal, progress.of(1)));
+for (const id of ['steamFed', 'pipes']) assert.ok(!book(0).completed.has(id), `${id} completed while Monkey Business was locked`);
 clear();
-// A teammate picks up a bronze ingot: the whole team gets Chapter II.
+// A teammate picks up a bronze ingot: the whole team gets Monkey Business.
 b.inventory.add(ITEM.BRONZE_INGOT, 1); b.inventoryDirty = true;
 game.update();
 tick();
-assert.ok(book(0).unlocked.has('business'), 'bronze did not unlock Chapter II');
-for (const id of ['bronze', 'depot', 'guard', 'center']) assert.ok(book(0).completed.has(id), `${id} not completed on unlocking`);
+assert.ok(book(0).unlocked.has('business'), 'bronze did not unlock Monkey Business');
+// pipes needs bronze first: it completes in the same update, after it.
+for (const id of ['bronze', 'steamFed', 'pipes']) assert.ok(book(0).completed.has(id), `${id} not completed on unlocking`);
 assert.ok(!book(0).completed.has('autosell'), 'a counted goal completed early');
 for (const id of [1, 2]) {
-  assert.ok(latest(id).unlocked.includes('business'), `teammate ${id} did not see Chapter II unlock`);
+  assert.ok(latest(id).unlocked.includes('business'), `teammate ${id} did not see Monkey Business unlock`);
   assert.deepEqual(latest(id).counts.autosell, [4, 10], 'counted progress not sent');
-  assert.ok((sent.get(id) ?? []).some((m) => m.type === S2C.NOTICE && /Chapter II unlocked/.test(m.text)), `teammate ${id} got no unlock notice`);
+  assert.ok((sent.get(id) ?? []).some((m) => m.type === S2C.NOTICE && /New chapter unlocked.*Monkey Business/.test(m.text)), `teammate ${id} got no unlock notice`);
 }
-assert.ok(!book(1).unlocked.has('business'), 'Chapter II unlocked for the other team');
-assert.ok(!(sent.get(3) ?? []).some((m) => m.type === S2C.NOTICE && /Chapter II/.test(m.text)), 'the other team was told');
+assert.ok(!book(1).unlocked.has('business'), 'Monkey Business unlocked for the other team');
+assert.ok(!(sent.get(3) ?? []).some((m) => m.type === S2C.NOTICE && /Monkey Business/.test(m.text)), 'the other team was told');
+assert.ok(!book(0).unlocked.has('beyond'), 'bronze opened Beyond the Island');
+
+// Beyond the Island stays hidden, but what a team does toward it still
+// counts: team 1 (no bronze) wears dragonscale armor first...
+progress.of(1).obtained.add(ITEM.DRAGONSCALE_ARMOR);
+assert.ok(!goalMet(unlockGoal(chapterById.get('business')), progress.of(1)));
+// ...which is one of the chapter's goals, so the chapter appears, before
+// Monkey Business. dragonscale waits for its prerequisite (Dragons).
+clear();
+tick();
+assert.ok(book(1).unlocked.has('beyond') && !book(1).unlocked.has('business'), 'Beyond the Island did not open before bronze');
+assert.ok(!book(1).completed.has('dragonscale'), 'dragonscale completed before Dragons');
+assert.ok((sent.get(3) ?? []).some((m) => m.type === S2C.NOTICE && /Beyond the Island/.test(m.text)), 'no notice of the new chapter');
+assert.ok(!book(0).unlocked.has('beyond') && !books(1).some((m) => m.unlocked.includes('beyond')), 'team 0 got team 1\'s discovery');
+progress.event(1, 'kill:dragon');
+tick();
+assert.ok(book(1).completed.has('dragons') && book(1).completed.has('dragonscale'), 'dragonscale not completed retroactively');
+
+// Meeting the Dragon Lord, without fighting him, opens it too: team 0 steps
+// into his arena.
+const arena = game.world.dragonArena;
+assert.ok(arena?.spawn, 'this world has no Dragon Lord arena');
+Object.assign(b.state, arena.spawn);
+assert.ok(inDragonArena(game.world, b.state.x, b.state.z));
+clear();
+game.noteDiscoveries();
+tick();
+assert.ok(book(0).unlocked.has('beyond'), 'meeting the Dragon Lord did not open Beyond the Island');
+assert.ok(latest(1).revealed.includes('dragonLord') && !book(0).completed.has('dragonLord'), 'the Dragon Lord quest was not revealed (or completed without a fight)');
+for (const id of [1, 2]) assert.ok(latest(id).unlocked.includes('beyond'), `teammate ${id} did not get Beyond the Island`);
+Object.assign(b.state, game.keepSpawn(game.world.keeps[0]));
 
 // Book state is the server's alone: a client claiming an unfinished or
 // unknown quest gets nothing.
@@ -167,9 +241,9 @@ const goTo = (player, npc) => Object.assign(player.state, { x: npc.state.x + 1, 
 const count = (player, item) => player.inventory.slots.reduce((n, s) => n + (s?.item === item ? s.count : 0), 0);
 const send = (id, msg) => game.handleMessage(sessions.get(id), JSON.stringify(msg));
 for (const p of [a, b]) { goTo(p, wise(0)); game.quests.open(p); }
-send(1, { type: C2S.QUEST_ACTION, action: 'claim', quest: 'tame' });
+send(1, { type: C2S.QUEST_ACTION, action: 'claim', quest: 'farming' });
 send(1, { type: C2S.QUEST_ACTION, action: 'claim', quest: 'nonsense' });
-assert.ok(!book(0).claimed.has('tame'), 'claimed an unfinished quest');
+assert.ok(!book(0).claimed.has('farming'), 'claimed an unfinished quest');
 
 // Simultaneous claims: both teammates press Claim on the same reward in the
 // same tick. Exactly one gets the torches; both books show it claimed.
@@ -225,7 +299,8 @@ const old = new QuestBook(game); old.load([{ team: 0, completed: ['pipes', 'wood
 assert.deepEqual([...old.of(0).completed], ['wood']);
 assert.deepEqual([...old.of(0).claimed], ['crusher'], 'an old claim was lost (its reward could be claimed twice)');
 
-console.log('OK: quest data and layout, every recipe and role covered, chapter unlock on bronze (team-wide, per team),',
-  'standalone quests, prerequisites and retroactive completion, team sync and notices, simultaneous claims paid once,',
-  'claims per team and near the Wise Monkey, reconnecting, saves');
+console.log('OK: quest data, layout and coverage, milestones recorded, Monkey Business only for bronze, A Brand New Adventure open,',
+  'Monkey Business on bronze, Beyond the Island hidden then found before bronze (objectives counted while hidden, meeting the Dragon Lord),',
+  'standalone quests, prerequisites and retroactive completion, team sync and notices, separate teams, simultaneous claims paid once,',
+  'claims near the Wise Monkey, reconnecting, saves');
 process.exit(0);

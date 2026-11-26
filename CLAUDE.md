@@ -131,11 +131,13 @@ including the host, plays by opening `http://<host-ip>:3000`.
   destination slots (`config.destSlots`, `SLOT_OPTIONS`) in
   `server/monkeyWorkers.js`. New config fields must default when a saved
   config lacks them (`parseConfig`). Babies (`m.baby`, `growAt`) can't work.
-- Quests: data in `shared/quests.js`, team books in `server/quests.js`.
-  Chapters are technological stages: a chapter with an `unlock` goal opens for
-  the whole team the first time its progress meets it (Chapter II: a bronze
-  ingot); add a stage by appending a chapter and giving quests its id. `deps`
-  are prerequisites (same chapter only, used sparingly); `links` are dashed,
+- Quests: data in `shared/quests.js`, team books in `server/quests.js`;
+  follow "Quest book design rules" below. Chapters are stages of technology
+  or discovery: one with an `unlock` goal opens for the whole team the first
+  time its progress meets it (`unlockGoal`; a discovery chapter also on any
+  of its quests' goals or reveals, and stays out of the sidebar until then);
+  add a stage by appending a chapter and giving quests its id. `deps` are
+  prerequisites (same chapter only, used sparingly); `links` are dashed,
   never required. Completion only reads team progress (`TeamProgress`:
   obtained, crafted, placed, and `event(team, key)` milestones), which is
   always recorded, so quests complete retroactively when their chapter or
@@ -154,6 +156,101 @@ including the host, plays by opening `http://<host-ip>:3000`.
 - Checks: `node scripts/commerce-check.js`, `node scripts/merchant-check.js`,
   `node scripts/monkey-duty-check.js`, `node scripts/quest-check.js`, plus
   `npm run check`.
+
+## Quest book design rules
+
+Permanent rules for the Wise Monkey's quest book (`shared/quests.js`,
+`server/quests.js`, `public/js/questScreen.js`). Follow them in every update
+that adds or changes gameplay mechanics, quests or chapters, not just quest
+book work. `node scripts/quest-check.js` enforces what it can.
+
+Current chapters: **A Brand New Adventure** (open from the start; everything
+reachable without bronze), **Monkey Business** (unlocks on a team's first
+bronze ingot; only what genuinely needs bronze) and **Beyond the Island**
+(hidden discovery chapter; opens when any of its quests' goals or reveals is
+met, or a dragon is encountered, independently of Monkey Business).
+
+### Chapter organization
+
+- Chapters represent meaningful stages of technological development or
+  discovery, not gameplay categories (categories are regions inside a
+  chapter's graph).
+- Prefer expanding existing chapters over creating new ones.
+- Give chapters creative, thematic names. Never number chapters (no
+  "Chapter II", numerals or ordinals, in data, UI or quest text).
+- Chapters must support nonlinear unlocking with no assumed order. Not every
+  chapter is unlocked at the start.
+- A chapter's unlock requirement must be directly relevant to its contents.
+- Never hide information about accessible mechanics behind unrelated
+  technological requirements: if a mechanic can be reached without a
+  chapter's requirement (by crafting, buying, looting or finding it), its
+  quest belongs in a chapter the player already has.
+- Discovery chapters (`unlock: { discovery: true }`) unlock when any
+  associated quest, objective or discovery requirement is fulfilled.
+- Completing a whole chapter should not ordinarily be required to unlock
+  another. Prerequisites (`deps`) never cross chapters.
+
+### Quest dependencies
+
+- Not every quest needs a prerequisite or a connection.
+- Only add dependencies for meaningful technological or gameplay
+  relationships. `deps` are actual prerequisites (solid lines); `links` only
+  suggest related progression (dashed lines, never required).
+- Exploration, creature encounters and independent discoveries generally stay
+  ungated. Chapters may contain disconnected branches and standalone quests.
+- Quest progression must never restrict actual gameplay, crafting, combat or
+  exploration.
+- Objectives completed before their quest or chapter unlocks count
+  retroactively. Discovery and completion conditions keep being evaluated
+  (recorded in `TeamProgress`) while their chapter is locked or hidden.
+
+### Quest information and rewards
+
+- Give clear, specific, actionable explanations: what something does, how to
+  obtain it, how to use it and why it is useful. No vague hints for
+  accessible mechanics.
+- Preserve the mystery of undiscovered secrets and legendary encounters
+  (`hidden` quests with a `reveal` goal, discovery chapters).
+- Descriptions must match the current implementation; update them whenever
+  the mechanic changes. Check numbers against the code or config they come
+  from.
+- Not every quest needs a reward. Rewards are useful without trivializing
+  progression (small stacks, claimed once per team).
+
+### Quest graph layout
+
+- Group related quests spatially, in labelled regions.
+- Use branching graphs, not one linear chain. Keep adequate spacing: one quest
+  per cell, no line through another quest, no crossing lines, regions apart
+  (quest-check verifies these).
+- New quests must fit naturally into the existing layout.
+- Never add artificial dependencies just to connect independent nodes.
+
+### Multiplayer synchronization
+
+- Chapter unlocks, quest progress, completion and reward claims are shared by
+  all members of a team, and any teammate's actions count for the team.
+- Every team has identical quest definitions, objectives, rewards and unlock
+  requirements, with independent progression.
+- A reward can be claimed once per team; simultaneous claims must never pay
+  twice (claim checks and marks without yielding).
+- Quest state is authoritative on the server and sent through `quests`
+  messages: changes reach teammates immediately (`QuestBook.sync`), and
+  joining or reconnecting players get their team's state in the join message.
+
+### When adding new gameplay content
+
+For every gameplay feature:
+
+- Decide whether it needs a quest or knowledge entry.
+- Decide which existing chapter it belongs in, and check that the chapter's
+  unlock requirement doesn't needlessly hide information about it.
+- Decide whether the quest genuinely needs prerequisites.
+- Make sure its objectives are detected (a `TeamProgress` item or `event` /
+  `discover` milestone recorded on the server) and synchronized.
+- Update affected existing quests, descriptions and relationships.
+- Only create a new chapter for a sufficiently distinct progression or
+  discovery branch.
 
 ## File layout
 

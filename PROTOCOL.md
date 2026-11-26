@@ -1189,7 +1189,7 @@ join message as `quests`.
 | Field | Type | Notes |
 |-------|------|-------|
 | `open` | bool | Open the book (right clicking your Wise Monkey) or a reply to your `questAction`; false for team updates, which only refresh it |
-| `unlocked` | string[] | Chapter ids with an `unlock` goal that your team has unlocked (chapters without one are always open) |
+| `unlocked` | string[] | Chapter ids with an `unlock` goal that your team has unlocked (chapters without one are always open; discovery chapters are not shown until listed here) |
 | `completed`, `claimed`, `revealed` | string[] | Quest ids done, rewards claimed and quests shown (others are "???") |
 | `counts` | `{[id]: [have, need]}` | Progress on counted goals |
 | `depot` | `{placed, x?, y?, z?, present?}` | Your team's Merchant Depot |
@@ -1831,16 +1831,24 @@ to the same successful world and record the resolved seed as `world.seed`.
 - **Baby monkeys**: 48 coins for a team's first, ×1.5 (rounded) for each one
   after, all match (merchant deaths don't reset it). They grow up after 20
   minutes; until then they take no role and nothing targets them.
-- **Quests** (`shared/quests.js`, `server/quests.js`): two chapters, I "A
-  Brand New Adventure" (open from the start) and II "Monkey Business"
-  (unlocks for a team when any member first holds a bronze ingot; it never
-  needs Chapter I done). Completion comes from team progress (items
+- **Quests** (`shared/quests.js`, `server/quests.js`): three chapters, in no
+  fixed order. "A Brand New Adventure" is open from the start. "Monkey
+  Business" unlocks for a team when any member first holds a bronze ingot.
+  "Beyond the Island" is a hidden discovery chapter: it appears when the team
+  meets the goal or reveal of any of its quests (setting foot on the fire or
+  ice island, entering the Dragon Lord's arena, meeting an Ancient Monkey,
+  dragon scales, rare accessories...) or a dragon attacks or is attacked by a
+  member, with or without bronze. Completion comes from team progress (items
   obtained, crafted, placed) and milestones counted by `TeamProgress.event`
-  (taming, roles, trades, depot sales, kills, `flagCaptured`, `meet:<npc>`
-  when talking to a Wise or Ancient Monkey...). A quest completes once its
-  chapter is unlocked, its prerequisites (`deps`) are done and its goal is
-  met; progress made earlier counts at that moment. The book never restricts
-  crafting or items. Rewards are claimed once per team: the first claim wins,
-  later ones (even in the same tick) are refused. Every team has the same
-  quests; progress is separate. Saves keep unlocked chapters, completions,
-  claims, team progress, depots, baby purchases and stock.
+  or recorded once by `TeamProgress.discover` (taming, roles, trades, depot
+  sales, kills, `flagCaptured`, `meet:<npc>`, `visit:center|fire|ice`,
+  `discover:fireTemple|glacier`, `encounter:dragon|dragonLord`,
+  `monkeyFed:<machine>`, `monkeyCrafted:<item>`, `depotSold:<item>`...). Places
+  are checked once a second (`Game.noteDiscoveries`). A quest completes once
+  its chapter is unlocked, its prerequisites (`deps`) are done and its goal is
+  met; progress made earlier, including while a chapter was locked or hidden,
+  counts at that moment. The book never restricts crafting or items. Rewards
+  are claimed once per team: the first claim wins, later ones (even in the
+  same tick) are refused. Every team has the same quests; progress is
+  separate. Saves keep unlocked chapters, completions, claims, team progress,
+  depots, baby purchases and stock.
