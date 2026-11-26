@@ -64,7 +64,7 @@ import { Farming } from './farming.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
 import { FluidSystem, fluidFace } from './fluids.js';
-import { configurableFluidFaces } from '../shared/fluidFaces.js';
+import { configurableFluidFaces, chosenPipeFace } from '../shared/fluidFaces.js';
 import { EntityInterest } from './entityInterest.js';
 import { MonkeyWorkers, WorkMonkey } from './monkeyWorkers.js';
 import { ChunkLoading } from './chunkLoading.js';
@@ -859,11 +859,11 @@ export class Game {
     const id = this.world.getBlock(pos.x, pos.y, pos.z);
     if (configurableFluidFaces(fluidKind(id)) && crouch
       && this.inReach(player,pos)) {
-      const face=fluidFace(pos.nx,pos.ny,pos.nz);
       const eye={x:player.state.x,y:player.state.y+eyeHeight(player.state),z:player.state.z};
-      const hit=raycastBlock(this.world,eye,lookDirection(player.state.yaw,player.state.pitch),REACH_DISTANCE,isTargetable);
-      if(hit && hit.x===pos.x && hit.y===pos.y && hit.z===pos.z
-        && fluidFace(hit.nx,hit.ny,hit.nz)===face)this.fluids.cycle(pos.x,pos.y,pos.z);
+      const look=lookDirection(player.state.yaw,player.state.pitch);
+      const hit=raycastBlock(this.world,eye,look,REACH_DISTANCE,isTargetable);
+      if(hit && hit.x===pos.x && hit.y===pos.y && hit.z===pos.z)
+        this.fluids.cycle(pos.x,pos.y,pos.z,chosenPipeFace(this.world,pos.x,pos.y,pos.z,look,fluidKind));
       return;
     }
     if ((id === BLOCK.WATER || id === BLOCK.LAVA) && player.held() === ITEM.EMPTY_BUCKET && this.inReach(player, pos)) {

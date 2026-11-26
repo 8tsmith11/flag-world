@@ -110,8 +110,9 @@ Blocks 128–129 are Bronze Pipe and Fluid Tank; 134–135 are Boiler and Crushe
 Connected tanks share a frame and expose glass only on their outside faces;
 their fluid surface joins across blocks. Pipes, the Fluid Pump, Boiler and
 Crusher have distinct block and held-item models. Pumps output through any
-connected side; crushers accept steam through any connected side. Pipes default
-to automatic flow and can be switched to input or output at the pipe itself.
+connected side; crushers accept steam through any connected side. Each pipe side
+that touches a machine is its own connection: automatic by default, and
+switchable to input or output at the pipe.
 Blocks 136–139 are lava source and three flowing strengths. Blocks 140–146 are
 Basalt, Ash, Magma Block, Snow Block, Packed Ice, Ice and Cobble. Blocks
 147–150 are Basalt Bricks, Chiseled Basalt, Fire Portal and Obsidian. Item 320
@@ -570,7 +571,7 @@ Match players only. Sent once per simulation tick (20 per wall-clock second). Ea
 | `slot`    | int    | Selected hotbar slot, 0..8: the item in hand (tool strength, placing, dropping, `held`) |
 | `breaking`| BlockPos \| null | Block the player is holding the break button on this tick, or `null` |
 | `place`   | `{ x, y, z, nx, ny, nz }` \| null | Place the selected item in cell x, y, z this tick (right click), or `null`. `n` is the normal of the face that was clicked (one axis ±1), pointing into this cell |
-| `use`     | `{x,y,z,nx,ny,nz}` \| null | Right click on a door or water/lava source, or crouch-right-click a bronze pipe. The server checks the raycast before cycling that pipe `automatic → input → output → automatic` |
+| `use`     | `{x,y,z,nx,ny,nz}` \| null | Right click on a door or water/lava source, or crouch-right-click a bronze pipe. The server checks the raycast, then cycles one of that pipe's machine connections `automatic → input → output → automatic`: the one most in line with the player's look direction (`chosenPipeFace` in `shared/fluidFaces.js`) |
 | `drop`    | bool   | Throw one of the selected item this tick (Q) |
 | `attack`  | bool   | Punch this tick (a left click with a player under the crosshair) |
 
@@ -1167,12 +1168,14 @@ block is placed or broken, when a pipe mode changes, and at most every four tick
 when tank levels change. Clients replace their previous node list. `welcome` also
 carries this list as `fluidNodes`.
 
-`FluidNode` has `{x,y,z,kind,mode,fluid,amount,capacity,fill}`. `kind` is
-`"pipe"`, `"tank"`, `"pump"`, `"boiler"` or `"crusher"`. Pipe `mode` is
-0 automatic, 1 input from an adjacent machine into the pipe, or 2 output from
-the pipe into an adjacent machine. Explicit modes draw blue input or orange
-output dots flush on all six faces of the pipe's center junction. Aiming at a
-pipe shows its mode and the change control. Other nodes have `mode:null`. Pumps output
+`FluidNode` has `{x,y,z,kind,faces,fluid,amount,capacity,fill}`. `kind` is
+`"pipe"`, `"tank"`, `"pump"`, `"boiler"` or `"crusher"`. A pipe's `faces` is
+six side modes in `FLUID_FACES` order (-X, +X, -Y, +Y, -Z, +Z): 0 automatic,
+1 input from the machine on that side into the pipe, or 2 output from the pipe
+into that machine. Each side set to input or output draws a blue or orange dot
+on that face of the pipe's center junction. Aiming at a pipe that touches a
+machine shows the connection that would change (the machine's name and its
+mode). Other nodes have `faces:null`. Pumps output
 water, boilers accept water and output steam, crushers accept steam, and tanks
 transfer fluid in either direction on any connected side by default.
 `fluid` is `"water"`, `"steam"` or null;
@@ -1180,7 +1183,7 @@ the amount and capacity are the whole connected tank's units. `fill` (0..1)
 is the fill of this block's vertical layer for rendering.
 
 Pipes connect to adjacent pipes unconditionally and to adjacent fluid blocks.
-Graphs rebuild on placement, break and pipe mode changes, and
+Graphs rebuild on placement, break and pipe connection changes, and
 sleep with their chunks. Each pipe buffers 50 units of one fluid. A filled
 network rejects the other fluid until empty. Connecting two filled networks
 with different fluids retains the larger amount and discards the incompatible

@@ -19,8 +19,9 @@ export class FluidSystem {
     if (!next && !old) return;
     const k=key(x,y,z),prev=this.nodes.get(k);
     if(next) {
-      const mode=next==='pipe'&&prev?.kind==='pipe'?prev.mode:FLUID.faceNone;
-      this.nodes.set(k,{x,y,z,key:k,kind:next,mode,container:prev?.container??null,tank:prev?.tank??null});
+      // Pipes keep one mode per side (the connection to whatever is there).
+      const faces=next==='pipe'?(prev?.kind==='pipe'?prev.faces:Array(6).fill(FLUID.faceNone)):null;
+      this.nodes.set(k,{x,y,z,key:k,kind:next,faces,container:prev?.container??null,tank:prev?.tank??null});
     } else this.nodes.delete(k);
     this.rebuild();this.broadcast(true);
   }
@@ -28,10 +29,11 @@ export class FluidSystem {
     const node=this.nodes.get(key(x,y,z));
     if(node){node.container=container;container.fluidNode=node;container.dirty=true;}
   }
-  cycle(x,y,z) {
+  // Cycles one side's connection: automatic -> input -> output.
+  cycle(x,y,z,face) {
     const node=this.nodes.get(key(x,y,z));
-    if(node?.kind!=='pipe')return false;
-    node.mode=(node.mode+1)%3;
+    if(node?.kind!=='pipe'||!(face>=0&&face<6))return false;
+    node.faces[face]=(node.faces[face]+1)%3;
     this.rebuild();this.broadcast(true);
     return true;
   }
@@ -87,7 +89,7 @@ export class FluidSystem {
         const [dx,dy,dz]=FLUID_FACES[face];
         const other=this.nodes.get(key(pipe.x+dx,pipe.y+dy,pipe.z+dz));
         if(!other||other.kind==='pipe')continue;
-        network.ports.push({node:other,mode:pipe.mode,face:oppositeFluidFace(face)});
+        network.ports.push({node:other,mode:pipe.faces[face],face:oppositeFluidFace(face)});
       }
       networks.push(network);
     }
@@ -202,7 +204,7 @@ export class FluidSystem {
   }
   snapshot() {
     return [...this.nodes.values()].map(node=>({x:node.x,y:node.y,z:node.z,kind:node.kind,
-      mode:node.kind==='pipe'?node.mode:null,fluid:node.kind==='tank'?node.tank?.fluid??null:null,
+      faces:node.kind==='pipe'?node.faces:null,fluid:node.kind==='tank'?node.tank?.fluid??null:null,
       amount:node.kind==='tank'?node.tank?.amount??0:0,
       capacity:node.kind==='tank'?node.tank?.capacity??FLUID.tankCapacity:0,
       fill:node.kind==='tank'?this.tankFill(node):0}));

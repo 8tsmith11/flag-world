@@ -37,7 +37,7 @@ import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
 import { FluidRenderer } from './render/fluidRenderer.js';
-import { configurableFluidFaces } from '/shared/fluidFaces.js';
+import { configurableFluidFaces, chosenPipeFace, FLUID_FACES } from '/shared/fluidFaces.js';
 import { placesThroughInteraction } from '/shared/interactions.js';
 import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
@@ -954,11 +954,13 @@ function frame(now) {
   // Only buckets target water. Other actions reach the block behind it.
   const bucket=heldItem()===ITEM.EMPTY_BUCKET||heldItem()===ITEM.WATER_BUCKET||heldItem()===ITEM.LAVA_BUCKET;
   target=hit?null:bucket&&playing?raycastBlock(world,camera.position,dir,REACH_DISTANCE,isTargetable):miningBlock;
-  const pipeMode=target?.id===BLOCK.BRONZE_PIPE
-    ? fluidRenderer?.modeAt(target.x,target.y,target.z) : undefined;
+  // Aiming at a pipe: the machine connection crouch-right-click would change.
+  const pipeFaces=target?.id===BLOCK.BRONZE_PIPE ? fluidRenderer?.modeAt(target.x,target.y,target.z) : undefined;
+  const pipeFace=pipeFaces ? chosenPipeFace(world,target.x,target.y,target.z,dir,fluidKind) : -1;
+  const pipeMode=pipeFace>=0 ? pipeFaces[pipeFace] : undefined;
   selectionOutlines.update(monkeyScreen.picking ? monkeyScreen.outlines() : null);
   pipeModeHint.hidden=!(playing&&pipeMode!==undefined);
-  if(!pipeModeHint.hidden)pipeModeHint.textContent=`CHANGE DOT: ${pipeMode===1?'INPUT':pipeMode===2?'OUTPUT':'AUTOMATIC'} · Shift + Right-click`;
+  if(!pipeModeHint.hidden)pipeModeHint.textContent=`${getBlockDef(world.getBlock(target.x+FLUID_FACES[pipeFace][0],target.y+FLUID_FACES[pipeFace][1],target.z+FLUID_FACES[pipeFace][2])).name.toUpperCase()} CONNECTION: ${pipeMode===1?'INPUT':pipeMode===2?'OUTPUT':'AUTOMATIC'} · Shift + Right-click`;
   // Looking away (or the block breaking) resets progress, as on the server.
   if (!sameBlock(breaking, target)) breaking = null;
   highlight.update(target, breaking ? breaking.ticks / breakTicks(target.id, heldTool().speed) : 0);

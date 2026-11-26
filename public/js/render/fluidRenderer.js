@@ -12,11 +12,13 @@ const dotMaterials={
   [FLUID.faceOutput]:new THREE.MeshBasicMaterial({color:0xf28b30,side:THREE.DoubleSide}),
 };
 
-function pipeFaceGeometry(pipes) {
+// Dots on the given pipe sides: [{pipe, face}].
+function pipeFaceGeometry(sides) {
   const positions=[],indices=[];
   const forward=new THREE.Vector3(0,0,1),normal=new THREE.Vector3(),
     center=new THREE.Vector3(),point=new THREE.Vector3(),turn=new THREE.Quaternion();
-  for(const pipe of pipes)for(const [dx,dy,dz] of FLUID_FACES) {
+  for(const {pipe,face} of sides) {
+    const [dx,dy,dz]=FLUID_FACES[face];
     normal.set(dx,dy,dz);turn.setFromUnitVectors(forward,normal);
     center.set(pipe.x+0.5+dx*0.201,pipe.y+0.5+dy*0.201,pipe.z+0.5+dz*0.201);
     const base=positions.length/3;
@@ -114,17 +116,18 @@ export class FluidRenderer {
   sync(nodes) {
     const lookup=new Map(nodes.map(node=>[key(node),node]));
     const pipes=nodes.filter(node=>node.kind==='pipe');
-    this.pipeModes=new Map(pipes.map(node=>[key(node),node.mode]));
-    const pipeLayout=pipes.map(node=>`${key(node)}:${node.mode}`).sort().join('|');
+    this.pipeModes=new Map(pipes.map(node=>[key(node),node.faces]));
+    const pipeLayout=pipes.map(node=>`${key(node)}:${node.faces}`).sort().join('|');
     if(pipeLayout!==this.pipeLayout) {
       for(const mesh of this.pipeMeshes.values()){
         this.scene.remove(mesh);mesh.geometry.dispose();
       }
       this.pipeMeshes.clear();this.pipeLayout=pipeLayout;
+      // A dot on each side set to input or output (only machine connections can be set).
       for(const [mode,material] of Object.entries(dotMaterials)) {
-        const group=pipes.filter(node=>node.mode===Number(mode));
-        if(!group.length)continue;
-        const mesh=new THREE.Mesh(pipeFaceGeometry(group),material);
+        const sides=pipes.flatMap(pipe=>(pipe.faces??[]).flatMap((m,face)=>m===Number(mode)?[{pipe,face}]:[]));
+        if(!sides.length)continue;
+        const mesh=new THREE.Mesh(pipeFaceGeometry(sides),material);
         this.pipeMeshes.set(Number(mode),mesh);this.scene.add(mesh);
       }
     }
@@ -167,6 +170,7 @@ export class FluidRenderer {
       this.steamVisuals.delete(id);
     }
   }
+  // A pipe's side modes, or undefined.
   modeAt(x,y,z){return this.pipeModes.get(`${x},${y},${z}`);}
   setBoilerLit(x,y,z,lit) {
     const k=key({x,y,z});

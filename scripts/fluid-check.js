@@ -19,13 +19,14 @@ function fixture() {
     if(kind){const container=createContainer(kind);fluids.attach(x,y,z,container);return container;}
     return null;
   }
-  function mode(x,z,value,y=0) {for(let i=0;i<value;i++)assert.ok(fluids.cycle(x,y,z));}
+  // Sets every side of a pipe (each side has its own mode now).
+  function mode(x,z,value,y=0) {for(let i=0;i<value;i++)for(let face=0;face<6;face++)assert.ok(fluids.cycle(x,y,z,face));}
   function ticks(count,start=0) {for(let i=1;i<=count;i++)fluids.tick(start+i);}
   return {world,game,fluids,events,place,mode,ticks};
 }
 
 const f=fixture();
-assert.equal(f.fluids.cycle(0,0,0),false);
+assert.equal(f.fluids.cycle(0,0,0,0),false);
 for(const [id,output,count] of [
   ['bronze_pipe',BLOCK.BRONZE_PIPE,FLUID.craft.pipeCount],
   ['fluid_tank',BLOCK.FLUID_TANK,1],['fluid_pump',BLOCK.FLUID_PUMP,1],
@@ -41,9 +42,9 @@ for(const [ore,dust,ingot] of [[BLOCK.IRON_ORE,ITEM.IRON_DUST,ITEM.IRON_INGOT],
 assert.deepEqual(CRUSHING[BLOCK.STONE],{item:BLOCK.SAND,count:1});
 f.place(1,0,BLOCK.WATER);
 f.place(0,0,BLOCK.FLUID_PUMP);
-assert.equal(f.fluids.cycle(0,0,0),false,'Machines do not have mode arrows');
+assert.equal(f.fluids.cycle(0,0,0,0),false,'Machines do not have mode arrows');
 f.place(0,-1,BLOCK.BRONZE_PIPE);
-assert.equal(f.fluids.nodes.get('0,0,-1').mode,FLUID.faceNone);
+assert.ok(f.fluids.nodes.get('0,0,-1').faces.every(m=>m===FLUID.faceNone));
 const waterTank=f.place(0,-2,BLOCK.FLUID_TANK);
 f.ticks(100);
 assert.equal(waterTank.view().fluid,'water');
@@ -54,9 +55,9 @@ const manual=fixture();manual.place(1,0,BLOCK.WATER);manual.place(0,0,BLOCK.FLUI
 manual.place(0,-1,BLOCK.BRONZE_PIPE);const manualTank=manual.place(0,-2,BLOCK.FLUID_TANK);
 manual.mode(0,-1,FLUID.faceInput);manual.ticks(10);
 assert.equal(manualTank.view().amount,0,'Input pipe unexpectedly fed a tank');
-manual.mode(0,-1,1);assert.equal(manual.fluids.nodes.get('0,0,-1').mode,FLUID.faceOutput);
+manual.mode(0,-1,1);assert.ok(manual.fluids.nodes.get('0,0,-1').faces.every(m=>m===FLUID.faceOutput));
 manual.ticks(10,10);assert.ok(manualTank.view().amount>0,'Output pipe did not feed a tank');
-manual.mode(0,-1,1);assert.equal(manual.fluids.nodes.get('0,0,-1').mode,FLUID.faceNone);
+manual.mode(0,-1,1);assert.ok(manual.fluids.nodes.get('0,0,-1').faces.every(m=>m===FLUID.faceNone));
 
 f.place(0,-3,BLOCK.BRONZE_PIPE);
 const boiler=f.place(0,-4,BLOCK.BOILER);
@@ -65,7 +66,7 @@ f.place(0,-5,BLOCK.BRONZE_PIPE);
 const steamTank=f.place(0,-6,BLOCK.FLUID_TANK);
 f.place(0,-7,BLOCK.BRONZE_PIPE);
 const crusher=f.place(0,-8,BLOCK.CRUSHER);
-assert.equal(f.fluids.cycle(0,0,-8),false);
+assert.equal(f.fluids.cycle(0,0,-8,0),false);
 crusher.insert({item:BLOCK.COPPER_ORE,count:1});
 f.ticks(250,100);
 assert.equal(steamTank.view().fluid,'steam');
