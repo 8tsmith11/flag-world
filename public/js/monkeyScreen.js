@@ -1,20 +1,34 @@
+// Working monkey screen: taming games, and for a tamed monkey a compact
+// configuration panel. Every explanation is a hover tip (data-tip).
+//
+// Block selections happen in the world: choosing a field closes the panel
+// and enters selection mode (main.js drives input; outlines in
+// render/selectionOutlines.js). Left click selects, right click on a
+// selected block removes it, Esc goes back to the panel. After a pick the
+// mode moves on by itself: a list stays on that list unless the next field
+// is still empty, a single field moves to the next empty one or returns.
 import { C2S, TEAMS } from '/shared/protocol.js';
 import { MONKEY_WORK as C, INVENTORY_SIZE, HOTBAR_SIZE } from '/shared/config.js';
-import { MONKEY_ROLES } from '/shared/monkeys.js';
+import { MONKEY_ROLES, ROLE_INFO, MONKEY_FIELDS, QUARRY_OPTIONS, monkeyFields, fieldName, quarryCells } from '/shared/monkeys.js';
 import { renderStack } from './itemIcon.js';
 
 const clone=data=>JSON.parse(JSON.stringify(data));
-const coordinate=p=>p?`${p.x}, ${p.y}, ${p.z}`:'Not selected';
+const same=(a,b)=>a&&b&&a.x===b.x&&a.y===b.y&&a.z===b.z;
 const cardFaces=['🍌','🥥','🍒','🍋','🍇','🥝'];
 function element(tag,className,text=null) {
-  const el=document.createElement(tag);el.className=className;if(text!==null)el.textContent=text;return el;
+  const el=document.createElement(tag);if(className)el.className=className;if(text!==null)el.textContent=text;return el;
 }
-function button(text,action) {const b=element('button','',text);b.type='button';b.addEventListener('click',action);return b;}
+function button(text,action,tip=null) {
+  const b=element('button','',text);b.type='button';b.addEventListener('click',action);if(tip)b.dataset.tip=tip;return b;
+}
 
 export class MonkeyScreen {
   constructor(conn) {
     this.conn=conn;this.open=false;this.picking=null;this.timers=[];this.played=null;this.worldGame=false;
     this.pendingSave=false;this.queuedSave=false;
+    // A monkey whose screen this player closed: updates for it are ignored
+    // until the player talks to it again, so a late update can't reopen it.
+    this.ignored=null;
     this.inventory={slots:Array(INVENTORY_SIZE).fill(null),cursor:null};
     this.screen=element('div','screen hidden');this.screen.id='monkey';
     this.panel=element('div','panel card monkey-panel');this.screen.append(this.panel);document.body.append(this.screen);
@@ -26,14 +40,17 @@ export class MonkeyScreen {
       if(e.code==='Escape'){e.preventDefault();this.close(false);}
     });
   }
+  // The player right-clicked this monkey: its updates count again.
+  talking(id) {if(this.ignored===id)this.ignored=null;}
   action(action,value=null,extra={}) {
     this.conn.send({type:C2S.MONKEY_ACTION,id:this.data.id,session:this.data.session,action,value,...extra});
   }
   timer(fn,ms) {const id=setTimeout(fn,ms);this.timers.push(id);return id;}
   clearTimers() {for(const id of this.timers)clearTimeout(id);this.timers=[];}
   receive(data) {
-    if(data.closed){if(this.open||this.picking||this.worldGame)this.close(false,false);return;}
-    if(this.picking&&this.data?.id===data.id){this.data=data;return;}
+    if(data.closed){if(this.data?.id===data.id&&(this.open||this.picking||this.worldGame))this.close(false,false);return;}
+    if(this.ignored===data.id)return;
+    if(this.picking){if(this.data?.id===data.id){this.data=data;if(!this.pendingSave&&data.revision!==this.draftRevision){this.draft=clone(data.config);this.draftRevision=data.revision;}}return;}
     const wasOpen=this.open,same=this.data?.id===data.id&&this.data?.mode===data.mode;
     const unchanged=same&&data.mode==='configure'&&(this.draftRevision===data.revision||this.pendingSave);
     this.data=data;
@@ -53,8 +70,7 @@ export class MonkeyScreen {
         this.pendingSave=false;this.draftRevision=data.revision;
         if(this.queuedSave){this.queuedSave=false;this.saveDraft();}
       }
-      this.status.textContent=this.summary(data);this.message.textContent=data.message??'';
-      this.updateInventory();return;
+      this.refreshLive();return;
     }
     if(data.mode==='configure')this.renderConfig();
     else if(data.mode==='result')this.renderResult();
@@ -66,92 +82,141 @@ export class MonkeyScreen {
     this.panel.replaceChildren();
     const row=element('div','monkey-heading');
     row.append(element('h1','',this.data.name),button('Close',()=>this.close(true)));
-    this.panel.append(row,element('p','hint',subtitle));
+    this.panel.append(row);
+    if(subtitle)this.panel.append(element('p','hint',subtitle));
     this.message=element('p','monkey-message',this.data.message??'');this.panel.append(this.message);
   }
-  summary(data) {return data.status;}
+  // Status, health and inventory: things that change while the panel is open.
+  refreshLive() {
+    if(this.statusEl)this.statusEl.textContent=this.data.status??'';
+    if(this.hpEl)this.hpEl.textContent=this.data.hp!==null&&this.data.hp!==undefined?`${Math.ceil(this.data.hp)}/${this.data.maxHp} HP`:'';
+    if(this.message)this.message.textContent=this.data.message??'';
+    this.updateInventory();
+  }
+
+  // ---- Configuration ----
+
   renderConfig() {
     this.clearTimers();this.draft=clone(this.data.config);this.draftRevision=this.data.revision;
     this.pendingSave=false;this.queuedSave=false;
-    this.header(`${TEAMS[this.data.team]?.name??'Another'} team · ${this.data.editable?'Your team can configure this monkey.':'Owned by another team.'}`);
-    this.status=element('p','monkey-status',this.summary(this.data));this.panel.append(this.status);
-    const form=element('div','monkey-settings');
-    const role=element('select','');
-    for(const name of MONKEY_ROLES){const o=element('option','',name[0].toUpperCase()+name.slice(1));o.value=name;role.append(o);}
-    role.value=this.draft.role;role.addEventListener('change',()=>{this.readForm();this.draft.role=role.value;this.renderDraft();this.saveDraft();});
-    const roleLabel=element('label','','Role');roleLabel.append(role);form.append(roleLabel);this.role=role;
-    for(const [field,title,max]of [['radius','Horizontal range',C.maxRadius],['vertical','Vertical range (±)',C.maxVertical]]) {
-      const label=element('label','',title),input=element('input','');input.type='number';input.min=field==='radius'?1:0;
-      input.max=max;input.value=this.draft[field];input.addEventListener('change',()=>this.saveDraft());
-      this[field]=input;label.append(input);form.append(label);
+    this.header(this.data.editable?null:`Belongs to the ${TEAMS[this.data.team]?.name??'other'} team.`);
+    const live=element('div','monkey-live');
+    this.statusEl=element('span','monkey-status');this.hpEl=element('span','monkey-hp');
+    live.append(this.statusEl,this.hpEl);this.panel.append(live);
+    // Roles: one button each, the description on hover.
+    const roles=element('div','monkey-roles');
+    for(const role of MONKEY_ROLES) {
+      const b=button(ROLE_INFO[role].name,()=>{this.draft.role=role;this.renderDraft();this.saveDraft();},ROLE_INFO[role].tip);
+      b.dataset.role=role;roles.append(b);
     }
-    this.panel.append(form);this.details=element('div','monkey-details');this.panel.append(this.details);
-    this.renderDraft();
-    const filterLabel=element('label','','Item filter'),mode=element('select','');
-    for(const value of ['blacklist','whitelist']){const option=element('option','',value==='blacklist'?'Collect everything except':'Only collect these items');option.value=value;mode.append(option);}
-    mode.value=this.draft.filter.mode;mode.onchange=()=>{this.draft.filter.mode=mode.value;this.saveDraft();};filterLabel.append(mode);this.panel.append(filterLabel);
-    this.filterGrid=element('div','monkey-filter inv');this.panel.append(
-      element('p','hint','Pick up an item from your inventory, then click a filter slot to copy its type. The item stays on your cursor. Click a filter with an empty cursor to remove it.'),this.filterGrid);
-    this.renderFilters();
-    this.panel.append(element('h2','','Monkey inventory'));
-    this.monkeySlots=this.inventoryGrid('monkey',Array.from({length:C.inventorySize},(_,i)=>i));
-    this.panel.append(this.monkeySlots.grid);
-    this.panel.append(element('h2','','Your inventory'));
-    this.playerSlots=this.inventoryGrid('player',[
-      ...Array.from({length:INVENTORY_SIZE-HOTBAR_SIZE},(_,i)=>i+HOTBAR_SIZE),
-      ...Array.from({length:HOTBAR_SIZE},(_,i)=>i)]);
-    this.panel.append(this.playerSlots.grid);
-    const actions=element('div','row');
-    actions.append(button('Teleport to keep',()=>this.action('teleportHome')));this.panel.append(actions);
-    this.updateInventory();
-    this.disableForeign();
+    this.roles=roles;this.panel.append(roles);
+    this.details=element('div','monkey-details');this.panel.append(this.details);
+    // Gear and the two inventories.
+    const gear=element('div','monkey-gear');
+    this.gearSlots=[];
+    for(const [i,name,tip]of [[0,'Tool','A hammer to break blocks with: its strength and speed are the monkey\'s.'],
+      [1,'Armor','Armor it wears: reduces damage like yours.']]) {
+      const wrap=element('label','monkey-gear-slot');wrap.dataset.tip=tip;
+      const cell=this.slotButton('gear',i);wrap.append(element('span','',name),cell);gear.append(wrap);this.gearSlots[i]=cell;
+    }
+    const pack=element('div','monkey-pack');pack.dataset.tip='What it carries. Click to move items like a chest; shift-click to send them across.';
+    this.monkeySlots=Array.from({length:C.inventorySize},(_,i)=>{const c=this.slotButton('monkey',i);pack.append(c);return c;});
+    gear.append(pack);this.panel.append(gear);
+    const mine=element('div','monkey-inventory inv');
+    this.playerSlots=[];
+    for(const slot of [...Array.from({length:INVENTORY_SIZE-HOTBAR_SIZE},(_,i)=>i+HOTBAR_SIZE),...Array.from({length:HOTBAR_SIZE},(_,i)=>i)]) {
+      const c=this.slotButton('player',slot);this.playerSlots[slot]=c;mine.append(c);
+    }
+    this.panel.append(mine);
+    const actions=element('div','row monkey-actions');
+    actions.append(button('Teleport to keep',()=>this.action('teleportHome'),'Move it next to your team\'s keep.'));
+    this.panel.append(actions);
+    this.renderDraft();this.refreshLive();this.disableForeign();
   }
-  inventoryGrid(grid,indices) {
-    const el=element('div','monkey-inventory inv'),slots=[];
-    for(const slot of indices) {
-      const cell=button('',()=>{});cell.className='slot';cell.setAttribute('aria-label',`${grid} slot ${slot+1}`);
-      cell.addEventListener('mousedown',e=>{
-        if((e.button!==0&&e.button!==2)||!this.data.editable)return;
-        e.preventDefault();this.action('inventory',null,{grid,slot,button:e.button===2?'right':'left',shift:e.shiftKey});
-      });slots[slot]=cell;el.append(cell);
-    }
-    return {grid:el,slots};
+  slotButton(grid,slot) {
+    const cell=button('',()=>{});cell.className='slot';cell.setAttribute('aria-label',`${grid} slot ${slot+1}`);
+    cell.addEventListener('mousedown',e=>{
+      if((e.button!==0&&e.button!==2)||!this.data.editable)return;
+      e.preventDefault();this.action('inventory',null,{grid,slot,button:e.button===2?'right':'left',shift:e.shiftKey});
+    });
+    return cell;
   }
   setInventory(inventory) {this.inventory=inventory;this.updateInventory();}
   updateInventory() {
     this.cursorEl.hidden=!this.open||this.data?.mode!=='configure';
     renderStack(this.cursorEl,this.cursorEl.hidden?null:this.inventory.cursor);
     if(this.data?.mode!=='configure'||!this.open)return;
-    for(const [els,stacks]of [[this.playerSlots,this.inventory.slots],[this.monkeySlots,this.data.slots??[]]]) {
-      els?.slots.forEach((el,i)=>renderStack(el,stacks[i]));
-    }
+    this.playerSlots?.forEach((el,i)=>el&&renderStack(el,this.inventory.slots[i]));
+    this.monkeySlots?.forEach((el,i)=>renderStack(el,this.data.slots?.[i]??null));
+    this.gearSlots?.forEach((el,i)=>renderStack(el,this.data.gear?.[i]??null));
   }
-  renderFilters() {
-    this.filterGrid.replaceChildren();
-    const list=this.draft.filter.items,count=Math.min(C.maxFilter,Math.max(18,list.length+1));
+  // The role's selections and options.
+  renderDraft() {
+    for(const b of this.roles.children)b.classList.toggle('selected',b.dataset.role===this.draft.role);
+    this.details.replaceChildren();
+    const d=this.draft;
+    if(d.role==='quarry')this.details.append(this.quarryOptions());
+    if(d.role==='collector')this.details.append(this.numberOption('Range','Picks up items within this many blocks of the first destination.',d.radius,1,C.maxRadius,v=>d.radius=v));
+    for(const field of [...monkeyFields(d),'home'])this.details.append(this.fieldRow(field));
+    if(d.role!=='idle')this.details.append(this.filterRow());
+    this.disableForeign();
+  }
+  fieldRow(field) {
+    const info=MONKEY_FIELDS[field],d=this.draft;
+    const value=d[field],count=info.list?value.length:value?1:0;
+    const row=element('div','monkey-field');row.dataset.tip=info.tip;
+    const swatch=element('span','monkey-swatch');swatch.style.background=`#${info.color.toString(16).padStart(6,'0')}`;
+    const label=element('span','monkey-field-name',fieldName(d,field));
+    const summary=element('span','monkey-field-value',info.list?`${count} selected`:value?`${value.x}, ${value.y}, ${value.z}`:'Not set');
+    if(!count&&field!=='home')summary.classList.add('missing');
+    row.append(swatch,label,summary,button(count?'Edit':'Select',()=>this.pick(field)));
+    if(count)row.append(button('Clear',()=>{d[field]=info.list?[]:null;this.renderDraft();this.saveDraft();}));
+    return row;
+  }
+  quarryOptions() {
+    const q=this.draft.quarry,box=element('div','monkey-options');
+    for(const name of ['shape','axis']) {
+      const opt=QUARRY_OPTIONS[name];
+      if(name==='axis'&&q.shape==='blocks')continue;
+      const label=element('label','',opt.name);label.dataset.tip=opt.tip;
+      const select=element('select','');
+      for(const [value,text]of Object.entries(opt.values)){const o=element('option','',text);o.value=value;select.append(o);}
+      select.value=q[name];select.onchange=()=>{q[name]=select.value;this.renderDraft();this.saveDraft();};
+      label.append(select);box.append(label);
+    }
+    if(q.shape!=='blocks')box.append(this.numberOption('Depth',QUARRY_OPTIONS.depth.tip,q.depth,1,QUARRY_OPTIONS.depth.max,v=>q.depth=v));
+    if(q.shape==='circle')box.append(this.numberOption('Radius',QUARRY_OPTIONS.radius.tip,q.radius,1,QUARRY_OPTIONS.radius.max,v=>q.radius=v));
+    box.append(this.numberOption('Return after',QUARRY_OPTIONS.returnAt.tip,q.returnAt,1,QUARRY_OPTIONS.returnAt.max,v=>q.returnAt=v));
+    return box;
+  }
+  numberOption(name,tip,value,min,max,set) {
+    const label=element('label','monkey-number',name);label.dataset.tip=tip;
+    const input=element('input','');input.type='number';input.min=min;input.max=max;input.value=value;
+    input.onchange=()=>{const v=Math.round(Number(input.value));if(v>=min&&v<=max){set(v);this.saveDraft();}else input.value=value;};
+    label.append(input);return label;
+  }
+  // Compact filter: a mode toggle and the item slots (copy the cursor's type).
+  filterRow() {
+    const f=this.draft.filter,wrap=element('div','monkey-filter-row');
+    wrap.dataset.tip='Which items it moves. Hold an item on your cursor and click a slot to add its type; click a slot with an empty cursor to remove it.';
+    const mode=button(f.mode==='whitelist'?'Only these':'All except',()=>{f.mode=f.mode==='whitelist'?'blacklist':'whitelist';this.renderDraft();this.saveDraft();});
+    mode.className='monkey-filter-mode';
+    const grid=element('div','monkey-filter');
+    const count=Math.min(C.maxFilter,Math.max(9,f.items.length+1));
     for(let i=0;i<count;i++) {
       const cell=button('',()=>{
         if(!this.data.editable)return;
         const item=this.inventory.cursor?.item;
-        if(item) {
-          if(list.includes(item))return;
-          if(i<list.length)list[i]=item;else list.push(item);
-        } else if(i<list.length)list.splice(i,1);
-        this.renderFilters();this.saveDraft();
+        if(item){if(f.items.includes(item))return;if(i<f.items.length)f.items[i]=item;else f.items.push(item);}
+        else if(i<f.items.length)f.items.splice(i,1);
+        this.renderDraft();this.saveDraft();
       });
-      cell.className='slot';cell.setAttribute('aria-label',`Filter slot ${i+1}`);
-      renderStack(cell,list[i]?{item:list[i],count:1}:null);this.filterGrid.append(cell);
+      cell.className='slot';renderStack(cell,f.items[i]?{item:f.items[i],count:1}:null);grid.append(cell);
     }
-    this.disableForeign();
+    wrap.append(element('span','monkey-field-name','Items'),mode,grid);return wrap;
   }
-  readForm() {if(this.radius){this.draft.radius=Number(this.radius.value);this.draft.vertical=Number(this.vertical.value);}}
   saveDraft() {
-    if(!this.data.editable||this.picking)return;
-    this.readForm();
-    if(this.draft.role!=='idle'&&!this.draft.target)return;
-    if(this.draft.role==='courier'&&(!this.draft.from||!this.draft.to))return;
-    if(!Number.isInteger(this.draft.radius)||this.draft.radius<1||this.draft.radius>C.maxRadius
-      ||!Number.isInteger(this.draft.vertical)||this.draft.vertical<0||this.draft.vertical>C.maxVertical)return;
+    if(!this.data?.editable)return;
     if(this.pendingSave){this.queuedSave=true;return;}
     this.pendingSave=true;
     this.action('configure',null,{config:clone(this.draft),revision:this.draftRevision});
@@ -160,39 +225,68 @@ export class MonkeyScreen {
     if(this.data.editable)return;
     for(const control of this.panel.querySelectorAll('input,select,button'))if(control.textContent!=='Close')control.disabled=true;
   }
-  targetRow(field,title) {
-    const row=element('div','monkey-target');row.append(element('span','',title),element('code','',coordinate(this.draft[field])),
-      button('Pick block',()=>this.pick(field)));return row;
-  }
-  renderDraft() {
-    this.details.replaceChildren();
-    const courier=this.draft.role==='courier',lumberjack=this.draft.role==='lumberjack';
-    if(courier) {
-      this.details.append(this.targetRow('from','From inventory'),this.targetRow('to','To block'),
-        element('p','hint','From must be within your range of To. Furnace sources use output only; delivery fills fuel first, then input.'));
-    } else this.details.append(this.targetRow('target','Delivery target'));
-    this.details.append(this.targetRow('home','Idle home'));
-    if(this.draft.home)this.details.append(button('Clear idle home',()=>{this.draft.home=null;this.renderDraft();this.saveDraft();}));
-    if(lumberjack) {
-      this.details.append(element('p','hint','Mark tree bases or soil blocks. Each spot authorizes its whole column.'));
-      const list=element('ul','monkey-sites');
-      this.draft.sites.forEach((p,i)=>{const li=element('li','');li.append(element('code','',coordinate(p)),button('Remove',()=>{this.draft.sites.splice(i,1);this.renderDraft();this.saveDraft();}));list.append(li);});
-      this.details.append(list,button(`Add tree / planting spot (${this.draft.sites.length}/${C.maxSites})`,()=>this.pick('sites')));
+
+  // ---- Selecting blocks in the world ----
+
+  // Everything selected, for outlines: [{pos, color}] (plus the quarry/farm box).
+  outlines() {
+    if(!this.draft)return [];
+    const d=this.draft,out=[];
+    for(const field of [...monkeyFields(d),'home']) {
+      const info=MONKEY_FIELDS[field],value=d[field];
+      for(const pos of info.list?value:value?[value]:[])out.push({pos,color:info.color});
     }
-    this.disableForeign();
+    // The whole area it will dig or farm, as one faint box.
+    const cells=d.role==='quarry'&&d.quarry.shape!=='blocks'?quarryCells(d):d.role==='farmer'&&d.cornerA&&d.cornerB?[d.cornerA,d.cornerB]:[];
+    if(cells.length) {
+      const box={x0:Infinity,y0:Infinity,z0:Infinity,x1:-Infinity,y1:-Infinity,z1:-Infinity};
+      for(const c of cells){box.x0=Math.min(box.x0,c.x);box.y0=Math.min(box.y0,c.y);box.z0=Math.min(box.z0,c.z);
+        box.x1=Math.max(box.x1,c.x);box.y1=Math.max(box.y1,c.y);box.z1=Math.max(box.z1,c.z);}
+      out.push({box,color:0xffffff});
+    }
+    return out;
   }
   pick(field) {
-    this.readForm();if(field==='sites'&&this.draft.sites.length>=C.maxSites)return;
-    this.picking=field;this.open=false;this.cursorEl.hidden=true;this.onPick?.();
+    if(!this.data?.editable)return;
+    this.picking=field;this.open=false;this.cursorEl.hidden=true;this.onPick?.(this.pickPrompt());
   }
+  pickPrompt() {
+    const info=MONKEY_FIELDS[this.picking],d=this.draft,name=fieldName(d,this.picking);
+    const n=info.list?` (${d[this.picking].length}/${info.max})`:'';
+    return `Selecting ${name}${n}: left click a block${info.list?' · right click a selected one to remove it':''} · Esc when done`;
+  }
+  // Left click on a block while selecting.
   choose(p) {
-    const point={x:p.x,y:p.y,z:p.z};
-    if(this.picking==='sites') {
-      if(!this.draft.sites.some(s=>s.x===point.x&&s.y===point.y&&s.z===point.z))this.draft.sites.push(point);
-    } else {this.draft[this.picking]=point;if(this.picking==='to')this.draft.target=point;}
-    this.cancelPick();this.saveDraft();
+    const field=this.picking,info=MONKEY_FIELDS[field],d=this.draft,point={x:p.x,y:p.y,z:p.z};
+    if(info.list) {
+      if(d[field].some(s=>same(s,point))||d[field].length>=info.max)return;
+      d[field].push(point);
+    } else d[field]=point;
+    this.saveDraft();
+    // Next: the first empty field after this one; a list otherwise keeps going.
+    const order=monkeyFields(d),next=order.slice(order.indexOf(field)+1).find(f=>MONKEY_FIELDS[f].list?!d[f].length:!d[f]);
+    if(next)this.picking=next;
+    else if(!info.list||d[field].length>=info.max){this.finishPick();return;}
+    this.onPickChanged?.(this.pickPrompt());
   }
-  cancelPick() {this.picking=null;this.open=true;this.renderDraft();this.updateInventory();this.onOpen?.();}
+  // Right click on a block while selecting: removes it from the current list
+  // (or any field it's selected in).
+  unchoose(p) {
+    const d=this.draft;let changed=false;
+    for(const field of [this.picking,...monkeyFields(d),'home']) {
+      const info=MONKEY_FIELDS[field];
+      if(info.list){const i=d[field].findIndex(s=>same(s,p));if(i>=0){d[field].splice(i,1);changed=true;break;}}
+      else if(same(d[field],p)){d[field]=null;changed=true;break;}
+    }
+    if(changed){this.saveDraft();this.onPickChanged?.(this.pickPrompt());}
+  }
+  finishPick() {
+    if(!this.picking)return;
+    this.picking=null;this.open=true;this.renderDraft();this.updateInventory();this.onOpen?.();
+  }
+
+  // ---- Taming games ----
+
   renderResult() {
     this.clearTimers();this.header('A new game is waiting.');
     this.panel.append(element('div','monkey-avatar','🐒'),button('Play again',()=>this.action('retry')));
@@ -231,7 +325,8 @@ export class MonkeyScreen {
       this.progress.textContent='Which cup has the ball?';},data.waitMs+100);
   }
   close(relock=false,send=true) {
-    if(send&&this.data)this.action('close');this.clearTimers();this.open=false;this.picking=null;this.worldGame=false;this.cursorEl.hidden=true;
+    if(send&&this.data){this.action('close');this.ignored=this.data.id;}
+    this.clearTimers();this.open=false;this.picking=null;this.worldGame=false;this.cursorEl.hidden=true;
     this.onClose?.(relock);
   }
 }

@@ -19,7 +19,7 @@ import {
   createCrawlerModel, createEelModel, animatePlayer, animateCow, animateDragon, animateCrawler, animateEel, swingPlayer,
 } from './models.js';
 import { GrappleLine } from './grappleLine.js';
-import { createNpcModel, animateMonkey, updateMonkeyTeam } from './monkeyModels.js';
+import { createNpcModel, animateMonkey, updateMonkeyTeam, setMonkeyHeld } from './monkeyModels.js';
 import { NPC_DEFS } from '/shared/npcs.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
@@ -291,8 +291,11 @@ export class EntityRenderer {
       if (object.userData.totem) animateTotem(object, dt);
       if (object.userData.cow) animateCow(object, dt, speed);
       if (object.userData.crawler) animateCrawler(object, dt, speed, b.climbing);
-      if (object.userData.monkey) animateMonkey(object, dt, { pose: b.pose ?? 'sit', look: b.look, speed,
-        talking: now < (entity.talkUntil ?? 0) });
+      if (object.userData.monkey) {
+        setMonkeyHeld(object, b.tool ?? null, createItemModel);
+        animateMonkey(object, dt, { pose: b.pose ?? 'sit', look: b.look, speed,
+          talking: now < (entity.talkUntil ?? 0) });
+      }
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch);
       if (object.userData.player) {
@@ -316,7 +319,7 @@ export class EntityRenderer {
           : entity.info.type===ENTITY_TYPE.ITEM||entity.info.type===ENTITY_TYPE.RIFT_ORB ? C.entityItemSample : 0;
         updateEntityLight(world,object.position,daylight,entity.light,dt,sampleHeight);
         // Revisit only when equipment changes, since it creates new materials.
-        const equipment = `${b.held}:${b.armor}:${b.accessory}`;
+        const equipment = `${b.held}:${b.armor}:${b.accessory}:${b.tool}`;
         if (!object.userData.goblin && entity.lightEquipment !== equipment) {
           lightModel(object, entity.light);
           entity.lightEquipment = equipment;

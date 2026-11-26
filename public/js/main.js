@@ -32,6 +32,7 @@ import { Sky } from './render/sky.js';
 import { ChunkRenderer } from './render/chunkRenderer.js';
 import { EntityRenderer } from './render/entityRenderer.js';
 import { BlockHighlight } from './render/blockHighlight.js';
+import { SelectionOutlines } from './render/selectionOutlines.js';
 import { FlagRenderer } from './render/flagRenderer.js';
 import { ViewModel } from './render/viewModel.js';
 import { FurnaceEffects } from './render/furnaceEffects.js';
@@ -120,6 +121,7 @@ fullscreen.onResume=()=>{if(lockable())input.requestLock();};
 document.addEventListener('pointerdown', () => sounds.unlock());
 const flags = new FlagRenderer(scene, entities);
 const highlight = new BlockHighlight(scene);
+const selectionOutlines = new SelectionOutlines(scene);
 const freeCamera = new FreeCamera();
 const conn = new Connection(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
 const lobby = new LobbyScreen(conn);
@@ -141,9 +143,13 @@ lobby.onStart=()=>beginLoading();
 const matchScreen = new MatchScreen(conn);
 const inventoryScreen = new InventoryScreen(conn);
 const monkeyScreen = new MonkeyScreen(conn);
-monkeyScreen.onOpen = () => { closeInventory(false); showScreen('monkey'); document.exitPointerLock(); input.release(); };
-monkeyScreen.onClose = relock => { showScreen(null); if (relock && lockable()) input.requestLock(); };
-monkeyScreen.onPick = () => { showScreen(null); toast.show('Right-click a block to select it. Esc cancels.'); input.requestLock(); };
+const pickHint = document.getElementById('pick-hint');
+monkeyScreen.onOpen = () => { pickHint.hidden = true; closeInventory(false); showScreen('monkey'); document.exitPointerLock(); input.release(); };
+monkeyScreen.onClose = relock => { pickHint.hidden = true; showScreen(null); if (relock && lockable()) input.requestLock(); };
+// Selecting blocks for a monkey: a prompt over the crosshair, outlines on
+// what's selected; Esc (which releases the mouse) goes back to the panel.
+monkeyScreen.onPick = prompt => { showScreen(null); pickHint.textContent = prompt; pickHint.hidden = false; input.requestLock(); };
+monkeyScreen.onPickChanged = prompt => { pickHint.textContent = prompt; };
 monkeyScreen.onWorldGame = () => { closeInventory(false); showScreen(null); if (!input.locked) input.requestLock(); };
 monkeyScreen.onCue = text => toast.show(text);
 const creativeLabel = document.getElementById('creative-label');
@@ -282,6 +288,8 @@ document.addEventListener('click', (e) => {
 const resumeHint = document.getElementById('resume-hint');
 const pipeModeHint = document.getElementById('pipe-mode-hint');
 input.onLockChange = (locked) => {
+  // Losing the mouse while selecting blocks (Esc) ends the selection.
+  if (!locked && monkeyScreen.picking) { monkeyScreen.finishPick(); return; }
   if (lockable() && !loading) showScreen(locked ? null : 'overlay');
 };
 
@@ -292,7 +300,7 @@ input.onKey = (code) => {
   if (code === 'KeyE' && mode === MODE.PLAY && !monkeyScreen.picking) openInventory('inventory', null);
 };
 window.addEventListener('keydown', e => {
-  if (e.code === 'Escape' && monkeyScreen.picking) { e.preventDefault(); monkeyScreen.cancelPick(); }
+  if (e.code === 'Escape' && monkeyScreen.picking) { e.preventDefault(); monkeyScreen.finishPick(); }
   else if (e.code === 'Escape' && monkeyScreen.worldGame) monkeyScreen.close(false);
 });
 
@@ -845,8 +853,11 @@ function frame(now) {
     accumulator -= TICK_DT;
     const controls = input.sample();
     localTick++;
-    if (monkeyScreen.picking) {
-      if (controls.place && target) monkeyScreen.choose(target);
+    // Selecting blocks for a monkey: left click selects, right click removes.
+    const picking = !!monkeyScreen.picking;
+    if (picking) {
+      if (controls.attack && target) monkeyScreen.choose(target);
+      else if (controls.place && target) monkeyScreen.unchoose(target);
       controls.place = controls.attack = controls.drop = false;
       input.primaryDown = input.secondaryDown = false;
     }
@@ -854,6 +865,7 @@ function frame(now) {
     const targetType = targetPlayer !== null ? entities.entities.get(targetPlayer)?.info.type : null;
     if (controls.place && (targetType === ENTITY_TYPE.NPC || targetType === ENTITY_TYPE.COW && heldItem() === ITEM.WHEAT)) {
       conn.send({ type: C2S.TALK, id: targetPlayer });
+      monkeyScreen.talking(targetPlayer);
       controls.place = false;
     }
     // Holding a bow, right click (held) draws it instead of placing or using;
@@ -892,7 +904,7 @@ function frame(now) {
     if (controls.attack) viewModel.swing();
     controls.attack = controls.attack && (targetPlayer !== null
       || inDragonArena(world, player.state.x, player.state.z));
-    controls.breaking = breakTarget();
+    controls.breaking = picking ? null : breakTarget();
     // Right click on a workbench, furnace or chest opens its screen instead of placing.
     const changingFace=controls.place&&target&&configurableFluidFaces(fluidKind(target.id))
       &&controls.crouch;
@@ -944,6 +956,7 @@ function frame(now) {
   target=hit?null:bucket&&playing?raycastBlock(world,camera.position,dir,REACH_DISTANCE,isTargetable):miningBlock;
   const pipeMode=target?.id===BLOCK.BRONZE_PIPE
     ? fluidRenderer?.modeAt(target.x,target.y,target.z) : undefined;
+  selectionOutlines.update(monkeyScreen.picking ? monkeyScreen.outlines() : null);
   pipeModeHint.hidden=!(playing&&pipeMode!==undefined);
   if(!pipeModeHint.hidden)pipeModeHint.textContent=`CHANGE DOT: ${pipeMode===1?'INPUT':pipeMode===2?'OUTPUT':'AUTOMATIC'} · Shift + Right-click`;
   // Looking away (or the block breaking) resets progress, as on the server.

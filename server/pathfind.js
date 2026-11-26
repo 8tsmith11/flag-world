@@ -67,7 +67,9 @@ const key = (x, y, z) => `${x},${y},${z}`;
 // Path of standing spots from `start` (integer {x, y, z}, where the mob
 // stands) toward the column (goal.x, goal.z): [{x, y, z}, ...] not including
 // the start, or [] if it can't move at all.
-export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDrop = 1, allowed = null, goalHeight = false, canBreak = null, breakCost = 4, allowWater = false, canSupport = null, supportCost = 4, diagonal = true, halfWidth = 0.3 } = {}) {
+// climb: walls up to this many blocks can be climbed straight up or down
+// (path nodes reached that way carry climb: 'up' or 'down').
+export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDrop = 1, allowed = null, goalHeight = false, canBreak = null, breakCost = 4, allowWater = false, canSupport = null, supportCost = 4, diagonal = true, halfWidth = 0.3, climb = 0 } = {}) {
   const standable=(x,y,z,h=height)=> {
     if(canStand(world,x,y,z,h) && playerFitsAt(world, { x: x + 0.5, y, z: z + 0.5, box: { halfW: halfWidth, height: h } }, y))return true;
     if((!canBreak && !allowWater && !canSupport) || !(isSolid(world.getBlock(x,y-1,z)) || allowWater && isWater(world.getBlock(x,y-1,z)) || canSupport?.(x,y,z)))return false;
@@ -116,6 +118,24 @@ export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDr
           if(!canSupport)break;
         }
       }
+      // Wall climbing (straight moves only): up our own open column onto a
+      // ledge, or over the edge and down the neighbouring open column.
+      let climbed = null;
+      if (climb && !levels.length && !(dx && dz)) {
+        const open = (x, z, y0, y1) => { for (let y = y0; y <= y1; y++) { const id = world.getBlock(x, y, z); if (isSolid(id) || isWater(id)) return false; } return true; };
+        if (isSolid(world.getBlock(nx, node.y, nz))) {
+          for (let dy = 2; dy <= climb; dy++) {
+            if (!open(node.x, node.z, node.y, node.y + dy + height - 1)) break;
+            if (standable(nx, node.y + dy, nz, height) && (!allowed || allowed(nx, node.y + dy, nz))) { levels.push(node.y + dy); climbed = 'up'; break; }
+          }
+        } else if (open(nx, nz, node.y, node.y + height - 1)) {
+          for (let dy = -(maxDrop + 1); dy >= -climb; dy--) {
+            const id = world.getBlock(nx, node.y + dy, nz);
+            if (isSolid(id) || isWater(id)) break;
+            if (standable(nx, node.y + dy, nz, height) && (!allowed || allowed(nx, node.y + dy, nz))) { levels.push(node.y + dy); climbed = 'down'; break; }
+          }
+        }
+      }
       for(const ny of levels) {
       // No corner cutting on diagonals.
       if (dx && dz && (!standable(node.x + dx, ny, node.z, height) || !standable(node.x, ny, node.z + dz, height)
@@ -123,17 +143,18 @@ export function findPath(world, start, goal, { height = 2, maxNodes = 600, maxDr
           || isSolid(world.getBlock(node.x,y,node.z+dz))))) continue;
       const digging=canBreak?Array.from({length:height},(_,dy)=>world.getBlock(nx,ny+dy,nz)).filter(isSolid).length:0;
       const filling=canSupport && !isSolid(world.getBlock(nx,ny-1,nz))?supportCost:0;
-      const g = node.g + (dx && dz ? Math.SQRT2 : 1) + (ny !== node.y ? 0.5 : 0) + digging*breakCost+filling;
+      const g = node.g + (dx && dz ? Math.SQRT2 : 1) + (ny !== node.y ? 0.5 : 0) + digging*breakCost+filling
+        + (climbed ? Math.abs(ny - node.y) * 0.8 : 0);
       const k = key(nx, ny, nz);
       const known = nodes.get(k);
       if (known && (known.closed || known.g <= g)) continue;
-      nodes.set(k, { x: nx, y: ny, z: nz, g, parent: node, closed: false });
+      nodes.set(k, { x: nx, y: ny, z: nz, g, parent: node, closed: false, ...(climbed ? { climb: climbed } : {}) });
       heap.push(g + h(nx, nz, ny), k);
       }
     }
   }
 
   const path = [];
-  for (let n = best; n && n.parent; n = n.parent) path.push({ x: n.x, y: n.y, z: n.z });
+  for (let n = best; n && n.parent; n = n.parent) path.push({ x: n.x, y: n.y, z: n.z, ...(n.climb ? { climb: n.climb } : {}) });
   return path.reverse();
 }

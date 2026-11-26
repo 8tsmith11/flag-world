@@ -48,6 +48,10 @@ const POSES = {
   ready: { hip: 1, pitch: -0.1, thigh: 0.05, knee: -0.1, shoulder: 0.1, elbow: -0.15, spread: 0.1 },
   crouch: { hip: 0.55, pitch: -0.4, thigh: 0.9, knee: -1.4, shoulder: 0.4, elbow: -0.1, spread: 0.1 },
   jump: { hip: 1, pitch: -0.1, thigh: 0.2, knee: -0.4, shoulder: 1.2, elbow: 0.3, spread: 0.2 },
+  // Working monkeys: hugging a wall, arms reaching up (pulled hand over
+  // hand in animateMonkey), and swinging a tool at a block.
+  climb: { hip: 0.85, pitch: 0.15, thigh: 0.9, knee: -1.1, shoulder: 2.7, elbow: 0.4, spread: 0.15 },
+  work: { hip: 1, pitch: -0.25, thigh: 0.1, knee: -0.2, shoulder: 0.6, elbow: 0.2, spread: 0.1 },
 };
 
 // Water: blue-green; lightning: pale violet-white.
@@ -97,7 +101,8 @@ function ape(kind, colors) {
     const elbow = pivot(shoulder, 0, -d.upperArm, 0);
     box(elbow, [d.arm * 0.9, d.foreArm, d.arm * 0.9], [0, -d.foreArm / 2, 0], fur);
     box(elbow, [d.hand, d.hand * 0.7, d.hand], [0, -d.foreArm - d.hand * 0.25, 0], dark);
-    arms.push({ shoulder, elbow, side });
+    const hand = pivot(elbow, 0, -d.foreArm - d.hand * 0.4, 0);
+    arms.push({ shoulder, elbow, side, hand });
     const hip = pivot(pelvis, side * d.hipWidth, 0, 0);
     box(hip, [d.leg, d.thigh, d.leg], [0, -d.thigh / 2, 0], fur);
     const knee = pivot(hip, 0, -d.thigh, 0);
@@ -207,6 +212,22 @@ export function updateMonkeyTeam(model, team) {
 
 // Per frame. pose: the server's ('sit', 'stand', 'walk', 'look'); look: head
 // turn toward a player; speed: blocks/s; talking: the jaw moves.
+// The item a working monkey holds in its right hand (an item id or null).
+export function setMonkeyHeld(model, item, createItemModel) {
+  const m = model.userData.monkey;
+  if (!m || m.heldItem === item) return;
+  m.heldItem = item;
+  const hand = m.arms.find(a => a.side > 0)?.hand;
+  if (!hand) return;
+  for (const child of [...hand.children]) hand.remove(child);
+  if (item === null || item === undefined) return;
+  const held = createItemModel(item, 0.25);
+  // Tools are modeled along +Y; point them forward out of the fist.
+  held.rotation.x = -Math.PI / 2;
+  held.scale.setScalar(1.6);
+  hand.add(held);
+}
+
 export function animateMonkey(model, dt, { pose = 'sit', look = 0, speed = 0, talking = false }) {
   const m = model.userData.monkey, d = m.d;
   m.time += dt;
@@ -223,7 +244,9 @@ export function animateMonkey(model, dt, { pose = 'sit', look = 0, speed = 0, ta
     m.lastPose = pose;
   }
   for (const joint of Object.keys(target)) m.pose[joint] = approach(m.pose[joint], target[joint],
-    ['ready','crouch','jump'].includes(pose) ? 12 : d.poseRate, dt);
+    ['ready','crouch','jump','climb','work'].includes(pose) ? 12 : d.poseRate, dt);
+  if (pose === 'climb') m.phase += dt * 6;
+  if (pose === 'work') m.workPhase = (m.workPhase ?? 0) + dt * 7;
   const p = m.pose, legLength = d.thigh + d.shin;
   const walking = pose === 'walk' ? Math.min(1, speed / 0.6) : 0;
   if (walking) m.phase += dt * (2.5 + speed * 2);
@@ -235,8 +258,9 @@ export function animateMonkey(model, dt, { pose = 'sit', look = 0, speed = 0, ta
   // Sitting still, the weight shifts slowly from side to side.
   m.body.rotation.z = pose === 'sit' ? Math.sin(m.time * 0.37) * 0.04 + Math.sin(m.time * 0.11) * 0.03 : 0;
   m.torso.scale.set(1 + breath * 0.025, 1 + breath * 0.015, 1 + breath * 0.04);
+  const climbStep = pose === 'climb' ? Math.sin(m.phase) * 0.35 : 0;
   m.legs.forEach(({ hip, knee, side }) => {
-    hip.rotation.x = p.thigh + side * swing;
+    hip.rotation.x = p.thigh + side * swing + side * climbStep;
     hip.rotation.z = side * 0.06;
     knee.rotation.x = p.knee;
   });
@@ -253,8 +277,11 @@ export function animateMonkey(model, dt, { pose = 'sit', look = 0, speed = 0, ta
   m.scratch = Math.max(0, m.scratch - dt);
   m.arms.forEach(({ shoulder, elbow, side }) => {
     const beat = beating * Math.max(0, Math.sin(m.time * 14 + (side > 0 ? 0 : Math.PI))) * 0.5;
+    // Climbing pulls hand over hand; working swings the right arm.
+    const climb = pose === 'climb' ? Math.sin(m.phase + (side > 0 ? 0 : Math.PI)) * 0.5 : 0;
+    const strike = pose === 'work' && side > 0 ? (1 + Math.sin(m.workPhase)) * 0.9 : 0;
     // A beat pulls the fist back against the chest.
-    shoulder.rotation.x = p.shoulder - side * swing * 1.2 - beat;
+    shoulder.rotation.x = p.shoulder - side * swing * 1.2 - beat + climb + strike;
     // Positive spread swings the arm out to its side, negative across the chest.
     shoulder.rotation.z = side * p.spread;
     elbow.rotation.x = p.elbow;

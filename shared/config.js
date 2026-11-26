@@ -477,8 +477,24 @@ export const GLASS_SETTINGS = { opacity: 0.14, edgeWidth: 0.035 };
 export const MONKEY_WORK = {
   wildColor: 0x756044,
   maxRadius: 24, defaultRadius: 16, maxVertical: 3, maxSites: 16, maxFilter: 128,
+  maxTargets: 8, maxBlocks: 64, maxQuarryDepth: 64, maxQuarryRadius: 12, maxQuarryCells: 16384,
+  maxFarmWidth: 48,
+  // Tamed monkeys can be hurt (not by their own team); armor in their armor
+  // slot reduces damage like a player's.
+  hp: 20,
+  // Reach (blocks, body center to block center) for breaking and harvesting;
+  // climbs up or down walls of at most climbHeight, at climbSpeed blocks/s.
+  reach: 4.5, climbHeight: 16, climbSpeed: 3, idleRecheckTicks: 40,
+  // A standing spot it couldn't path to is skipped this long; quarries scan
+  // at most quarryScan cells per think and restart a finished pass after
+  // quarryWrapTicks; farmers rescan their area every farmScanTicks.
+  // Quarries of at most quickQuarryCells cells recheck every think.
+  badSpotTicks: 200, quarryScan: 600, quarryWrapTicks: 200, quickQuarryCells: 64, farmScanTicks: 100,
+  // Farmers keep this many seeds per crop for replanting; lumberjacks chop
+  // connected wood up to treeRadius from the trunk (maxTreeBlocks at most).
+  seedReserve: 16, treeRadius: 8, maxTreeBlocks: 600,
   box: { halfW: 0.4, height: 1.4 }, speed: 0.75, capacity: 16, inventorySize: 9,
-  thinkTicks: 10, pathNodes: 600, pathsPerTick: 4, stuckTicks: 40,
+  thinkTicks: 10, pathNodes: 2500, pathsPerTick: 4, stuckTicks: 40,
   chopTicks: 60, chopBlocksPerThink: 12, maxTreeHeight: 64, configureReach: 32,
   spawnArea: 2200, minSpawns: 1, maxSpawns: 6, spawnAttempts: 160,
   tinyIslandChance: 0.1, tinyIslandCount: [1, 2],

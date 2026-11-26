@@ -470,7 +470,7 @@ can continue within 32 blocks. Sessions expire after 60 seconds.
 | `cup` | `session`, integer `value` 0–2 | Choose the final cup position after the watch timer |
 | `retry` | — | Start another random game on a wild monkey |
 | `configure` | `config`, `revision` | Owning team only; reject stale settings rather than overwrite a teammate |
-| `inventory` | `grid:"player"\|"monkey"`, integer `slot`, `button:"left"\|"right"`, optional `shift` | Owning team with this monkey open only; normal cursor clicks, half stacks/right-click singles, or shift transfers between player and the monkey's nine inventory slots |
+| `inventory` | `grid:"player"\|"monkey"\|"gear"`, integer `slot`, `button:"left"\|"right"`, optional `shift` | Owning team with this monkey open only; normal cursor clicks, half stacks/right-click singles, or shift transfers between the player and the monkey. `gear` slot 0 is the tool slot (tools only), slot 1 the armor slot (armor only); shift from the player puts a tool or armor in its empty gear slot, else the inventory |
 | `teleportHome` | — | Owning team only; move the monkey to a clear space beside the team's keep |
 | `close` | — | Close this player's view/session |
 
@@ -481,21 +481,60 @@ Holding a key counts once; `monkeyAction` cannot submit Simon answers. Its
 sequence remains server-only. Memory and cup shuffle stay in the GUI; cups
 have identical, unlabeled appearances.
 
-The filter grid copies the type of the player's cursor stack into the local
-configuration draft and automatically sends `configure`. It never transfers or
-consumes that stack. Saplings and deliveries use the monkey's inventory.
-Closing configuration stows the player's cursor as for other inventory screens.
+The filter slots copy the type of the player's cursor stack into the local
+configuration draft and automatically send `configure`. They never transfer or
+consume that stack. Closing configuration stows the player's cursor as for
+other inventory screens.
 
-`config` is `{role, target, from, to, home, radius, vertical, sites, filter}`.
-Roles: `idle`, `collector`, `courier`, `lumberjack`. Targets are BlockPos or
-null; `sites` is up to 16 explicit tree-base/planting BlockPos entries (a soil
-selection becomes the cell above it). Radius is 1–24 blocks, vertical range
-0–3 blocks above/below the delivery target. Filter is
+`config` is `{role, sources, dests, sites, blocks, cornerA, cornerB, home,
+quarry, radius, filter}` (`defaultMonkeyConfig` in `shared/monkeys.js`).
+Roles: `idle`, `courier`, `collector`, `lumberjack`, `quarry`, `farmer`.
+Lists are BlockPos arrays: `sources` and `dests` up to 8, `sites` up to 16
+(a grass/dirt selection becomes the cell above it), `blocks` up to 64.
+`cornerA`, `cornerB` and `home` are BlockPos or null. `quarry` is
+`{shape:"box"|"circle"|"blocks", axis:"down"|"north"|"south"|"east"|"west",
+depth 1–64, radius 1–12, returnAt 1–576}`. `radius` (1–24) is the collector's
+range around its first destination. Filter is
 `{mode:"whitelist"|"blacklist", items: ItemId[]}`, up to 128 registered items.
-Courier `from` must be a container within range of `to`; `target` becomes `to`.
-Every non-idle role needs a target. `home` is an optional idle location; the
-monkey returns there only when no task is available and can travel beyond its
-original work range to reach the configured work area. Settings changes retain inventory items.
+A farm area is under 48 blocks on each side. Settings changes keep inventory
+items and gear; any change drops the current task.
+
+Work (`server/monkeyWorkers.js`): every working role delivers to `dests` in
+turn (round robin), skipping full ones; a destination that isn't a container
+gets items dropped on top. A monkey delivers once it carries its threshold
+(courier and collector: anything; quarry: `returnAt`; others: 16), when its
+inventory is full, or when it has nothing else to do. With nothing to do it
+waits (at `home` if set) and only rechecks from afar, so it never walks back
+and forth. It paths with wall climbing (up to 16 blocks, straight up or down;
+pose `climb`) and works from any spot within 4.5 blocks of a block (pose
+`work`). Breaking needs the tool slot's strength and takes the block's
+break time at its speed, exactly like a player (bare hands without one);
+drops go into its inventory.
+
+- Courier: takes filtered items from `sources` in turn (furnace, alloy furnace
+  and crusher output only; nothing from boilers or tanks) and delivers them.
+  Fuel goes into furnace and boiler fuel slots before inputs.
+- Collector: picks up filtered drops within `radius` of the first destination,
+  except the pile on that destination.
+- Lumberjack: chops the whole tree on a site (connected logs and branches up
+  to 8 blocks from the trunk, once leaves crown it), leaving the leaves to
+  decay normally; replants a sapling (keeping two back from deliveries,
+  gathering fallen ones near its sites, or fetching one from a destination).
+- Quarry: digs `quarryCells(config)` in order, layer by layer along `axis`
+  (a side axis turns the shape on its side and tunnels from `cornerA`); a
+  circle is centered on `cornerA`. It skips air, liquids, containers, doors,
+  ladders, rope, blocks under a destination, blocks too hard for its tool, and
+  any block with nothing solid below it all the way down (digging it would open
+  the void). After a pass it looks again: regions of up to 64 cells (and
+  single-block mode) every 0.5 s, larger ones up to every 10 s, so regrowing
+  quarry stone or placed blocks are dug again.
+- Farmer: in the box between its corners (one block deeper, two higher)
+  harvests ripe crops on farmland and replants the crop kind it last saw on
+  each plot, keeping 16 seeds per crop back from deliveries. It never tills.
+
+Tamed or wild working monkeys have 20 HP. Their own team's players can't
+hurt them; armor in the armor slot reduces damage as for players. A dead
+monkey drops its inventory and gear.
 
 ### `reclaim`
 
@@ -976,28 +1015,18 @@ Private reply/view for a working monkey. Common fields: `{id,name,team}`;
 | Mode | Additional fields |
 |------|-------------------|
 | `tame` | `session`, `game:"simon"|"memory"|"cups"`, `waitMs`, `stepMs`, `progress`; Simon includes `length` and keeps movement controls active; memory includes `cards` (hidden entries null), `matched` indices and `hideMs`; cups include initial `ball` and ordered `swaps` of positions |
-| `configure` | `editable`, `config`, `revision`, `slots` (nine `Stack|null` entries), `seeds` (sapling count in inventory), `status`, optional `message` |
+| `configure` | `editable`, `config`, `revision`, `slots` (nine `Stack|null` entries), `gear` (`[tool, armor]`, `Stack|null`), `hp`, `maxHp`, `status`, optional `message` |
 | `result` | `won:false`, `message` (retry allowed) |
 
 The final cup answer and unrevealed card faces remain server-only. Winning
 assigns team ownership and opens configuration for all viewers; other teams
-receive a read-only view. `state` NPC snapshots additionally carry `role`
-and `tamed` for working monkeys; `team` changes after taming.
+receive a read-only view. `state` NPC snapshots additionally carry `role`,
+`tamed` and `tool` (the tool slot's item id or null, drawn in its hand) for
+working monkeys; `team` changes after taming. Their `pose` can also be
+`climb` or `work`.
 
-Collectors ignore drops on their own target. Couriers extract furnace, alloy
-furnace and crusher output only; they can fuel a boiler but take nothing from
-it. They put fuel into furnace and boiler fuel slots before inputs. Alloy furnace
-inputs accept copper/tin in either slot, filling a matching stack or empty
-slot. Crushers accept stone and ores in their input slot. Lumberjacks require a reserved
-sapling, supplied by a teammate or taken from their delivery target, and only
-cut wood/branches in explicitly marked columns with a grown leaf crown.
-That whole column is authorized above its marked base, up to 64 blocks tall;
-horizontal branches outside the column are left to ordinary decay. No new
-grown-tree registry is introduced. Fallen saplings within 2.5 blocks of a
-marked spot are gathered within the work range, reserving one if needed and
-delivering extras that pass the filter; the delivery pile is excluded.
-Each harvested tree supplies one sapling
-for the same-site replanting cycle; extra leaf drops use normal decay rules.
+Alloy furnace inputs accept copper/tin in either slot, filling a matching
+stack or empty slot. Crushers accept stone and ores in their input slot.
 
 ### `damage`
 

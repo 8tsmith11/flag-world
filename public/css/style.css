@@ -1181,22 +1181,46 @@ body.loading-world #status { font-size: 1.65em; }
 #dragon-lord-health i { display:block; height:100%; width:100%;
   background:linear-gradient(90deg,#8a1d14,#eb6132); transition:width .15s; }
 /* Team-owned working monkeys and their taming games. */
-.monkey-panel { width:min(700px,94vw); max-height:90vh; overflow:auto; text-align:left; }
-.monkey-heading,.monkey-target { display:flex; align-items:center; gap:12px; justify-content:space-between; }
+.monkey-panel { width:min(640px,94vw); max-height:90vh; overflow:auto; text-align:left; }
+.monkey-heading { display:flex; align-items:center; gap:12px; justify-content:space-between; }
 .monkey-heading h1 { margin:0; }
-.monkey-settings { display:flex; gap:16px; flex-wrap:wrap; margin:16px 0; }
-.monkey-settings label { display:flex; flex-direction:column; gap:6px; flex:1; }
-.monkey-settings input { width:100%; box-sizing:border-box; }
-.monkey-target { margin:10px 0; flex-wrap:wrap; }
-.monkey-target code { flex:1; text-align:right; }
-.monkey-sites { padding-left:20px; }
-.monkey-sites li { margin:8px 0; }
-.monkey-sites button { margin-left:16px; }
-.monkey-message { color:#ffd884; min-height:1.2em; }
+.monkey-message { color:#ffd884; min-height:1.2em; margin:4px 0; }
+.monkey-live { display:flex; justify-content:space-between; color:#b5d7af; margin-bottom:10px; }
+.monkey-hp { color:#e9a0a0; }
 .monkey-status { color:#b5d7af; }
-.monkey-filter,.monkey-inventory { display:grid; grid-template-columns:repeat(9,var(--slot)); gap:5px; margin:12px 0; --slot:min(54px,8vw); }
-.monkey-filter .slot,.monkey-inventory .slot { padding:0; }
-.monkey-filter { max-height:180px; overflow:auto; }
+.monkey-roles { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.monkey-roles button { flex:1; min-width:90px; }
+.monkey-roles button.selected { background:#3d6b3f; outline:2px solid #8fd18a; }
+.monkey-details { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+.monkey-field, .monkey-filter-row { display:flex; align-items:center; gap:8px; padding:4px 6px; background:#0003; border-radius:4px; }
+.monkey-field button { padding:3px 10px; }
+.monkey-swatch { width:12px; height:12px; border-radius:2px; flex:none; }
+.monkey-field-name { min-width:110px; }
+.monkey-field-value { flex:1; color:#cfd6dc; }
+.monkey-field-value.missing { color:#ffb070; }
+.monkey-options { display:flex; flex-wrap:wrap; gap:10px; }
+.monkey-options label, .monkey-number { display:flex; flex-direction:column; gap:3px; font-size:13px; }
+.monkey-number input { width:80px; }
+.monkey-filter-row { flex-wrap:wrap; }
+.monkey-filter-mode { padding:3px 10px; }
+.monkey-filter { display:flex; flex-wrap:wrap; gap:3px; flex:1 1 100%; }
+.monkey-filter .slot { width:36px; height:36px; padding:0; }
+.monkey-gear { display:flex; gap:10px; align-items:flex-end; margin:8px 0; flex-wrap:wrap; }
+.monkey-gear-slot { display:flex; flex-direction:column; align-items:center; font-size:12px; gap:2px; }
+.monkey-pack { display:grid; grid-template-columns:repeat(9,var(--slot)); gap:4px; --slot:min(48px,7vw); }
+.monkey-pack .slot, .monkey-gear-slot .slot { width:var(--slot,48px); height:var(--slot,48px); padding:0; }
+.monkey-inventory { display:grid; grid-template-columns:repeat(9,var(--slot)); gap:4px; margin:10px 0; --slot:min(48px,7vw); }
+.monkey-inventory .slot { padding:0; }
+.monkey-actions { margin-top:6px; }
+/* Hover descriptions: anything with data-tip in the monkey panel. */
+.monkey-panel [data-tip] { position:relative; }
+.monkey-panel [data-tip]:hover::after { content:attr(data-tip); position:absolute; left:0; top:100%; z-index:20; margin-top:4px;
+  width:max-content; max-width:320px; padding:6px 9px; background:#11171bf2; color:#eef; font-size:12px; line-height:1.35;
+  border:1px solid #5a6a74; border-radius:4px; white-space:normal; pointer-events:none; text-align:left; font-weight:normal; }
+.monkey-panel .monkey-field:hover::after, .monkey-panel .monkey-filter-row:hover::after { left:auto; right:0; }
+#pick-hint { position:fixed; left:50%; top:calc(50% + 30px); transform:translateX(-50%); padding:5px 10px; border-radius:4px;
+  background:#172026d0; color:#fff; font-size:13px; text-shadow:1px 1px #000; white-space:nowrap; pointer-events:none; }
+#pick-hint[hidden] { display:none; }
 .monkey-cursor { position:fixed; left:-27px; top:-27px; width:54px; height:54px; pointer-events:none; z-index:100; display:flex; align-items:center; justify-content:center; }
 .monkey-cursor[hidden] { display:none; }
 .monkey-avatar { font-size:78px; text-align:center; height:120px; padding-top:30px; transition:transform .18s; }

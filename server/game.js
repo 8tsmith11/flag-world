@@ -1820,10 +1820,16 @@ export class Game {
   hurtNpc(npc, amount, attacker) {
     // LATER UPDATE: Ancient Monkeys are not damageable yet (see shared/npcs.js).
     if (npc.dead || !npc.damageable) return;
+    if (npc instanceof WorkMonkey) {
+      // A team's own players can't hurt its monkeys; armor softens hits.
+      if (attacker instanceof Player && npc.team !== null && attacker.team === npc.team) return;
+      amount = amount * 10 / (10 + npc.armorPoints());
+    }
     npc.hp = Math.max(0, npc.hp - amount);
     this.broadcast({ type: S2C.DAMAGE, id: npc.id, attackerId: attacker?.id ?? null, hp: npc.hp });
     if (npc.hp > 0) return;
     npc.dead = true;
+    if (npc instanceof WorkMonkey) this.monkeys.died(npc);
     this.npcs.delete(npc.id);
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: npc.id });
     console.log(`${attacker?.name ?? 'Something'} killed the ${npc.name}`);

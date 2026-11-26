@@ -25,7 +25,7 @@ export const NPC_KIND = {
 
 export const NPC_DEFS = {
   [NPC_KIND.WORK_MONKEY]: {
-    model: 'orangutan', box: MONKEY_WORK.box, hp: null,
+    model: 'orangutan', box: MONKEY_WORK.box, hp: MONKEY_WORK.hp,
     behavior: 'worker', voice: 'ancientMonkey', dialogue: null,
   },
   [NPC_KIND.WISE_MONKEY]: {
