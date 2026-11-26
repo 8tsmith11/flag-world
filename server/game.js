@@ -20,7 +20,7 @@ import {
   FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS, DRAGON_LEASH, CRAWLER_DROPS, EEL_BAND, EEL_DROPS,
   EEL_GLIDE_BREAK, CRAWLER_DAMAGE, EEL_DAMAGE,
   DAY_LENGTH, DAY_START, BIOME_SETTINGS,
-  SAPLING_DROP_CHANCE, TREE_SETTINGS, ARROW_DRAG, CREATIVE_SPEED, ELEMENTAL, FARMING,
+  SAPLING_DROP_CHANCE, TREE_SETTINGS, ARROW_DRAG, CREATIVE_SPEED, ELEMENTAL, FARMING, SAVES,
 } from '../shared/config.js';
 import {
   BLOCK, branchBoxes, blocksAttack, isSolid, isWater, isLava, isLiquid, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock, fluidKind,
@@ -60,6 +60,7 @@ import { ItemEntity } from './item.js';
 import { WaterSimulation } from './water.js';
 import { LavaSimulation } from './lava.js';
 import { LeafDecay } from './leafDecay.js';
+import { readSave, writeSave, listSaves } from './save.js';
 import { Farming } from './farming.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
@@ -406,7 +407,8 @@ export class Game {
   broadcastLobby() {
     const players = [...this.members.values()].map(({ id, name, color, team, ready }) => ({ id, name, color, team, ready }));
     for (const m of this.members.values()) {
-      sendTo(m.session.socket, { type: S2C.LOBBY, you: m.id, hostId: this.hostId, worldSize: this.worldSize, players });
+      sendTo(m.session.socket, { type: S2C.LOBBY, you: m.id, hostId: this.hostId, worldSize: this.worldSize, players,
+        ...(m.id === this.hostId ? { saves: listSaves() } : {}) });
     }
   }
 
@@ -416,9 +418,19 @@ export class Game {
       sendTo(member.session.socket, { type: S2C.ERROR, message: 'Not everyone is ready.' });
       return;
     }
-    this.seed = parseSeed(typeof msg.seed === 'string' ? msg.seed.slice(0, MAX_SEED_LENGTH) : '');
-    this.playerCount = this.members.size;
-    const occupiedTeams = [...new Set([...this.members.values()].map((m) => m.team))].sort();
+    // Continuing a saved match: its seed, size and teams regenerate the same
+    // terrain, then the save's changes go on top (server/save.js).
+    const save = msg.save ? readSave(msg.save) : null;
+    if (msg.save && !save) {
+      sendTo(member.session.socket, { type: S2C.ERROR, message: 'That save could not be read.' });
+      return;
+    }
+    this.seed = save ? save.seed : parseSeed(typeof msg.seed === 'string' ? msg.seed.slice(0, MAX_SEED_LENGTH) : '');
+    if (save) this.worldSize = save.worldSize;
+    this.playerCount = save ? save.playerCount : this.members.size;
+    const occupiedTeams = save ? save.occupiedTeams : [...new Set([...this.members.values()].map((m) => m.team))].sort();
+    this.matchId = save?.matchId ?? `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}-seed${this.seed}`;
+    if (save) { this.tick = save.tick; this.nextId = Math.max(this.nextId, save.nextId); }
     this.teamCount = occupiedTeams.length;
     this.occupiedTeams = occupiedTeams;
     const started = performance.now();
@@ -498,9 +510,11 @@ export class Game {
     for (const [key, table] of this.world.lootChests) {
       this.world.tileEntities.set(key, new Chest(table));
     }
+    if (save) this.loadWorldChanges(save);
 
     const teamFlags = new Map();
-    [...this.members.values()].forEach((m) => {
+    if (save) this.loadPlayers(save, occupiedTeams, teamFlags);
+    else [...this.members.values()].forEach((m) => {
       const keep = this.world.keeps[occupiedTeams.indexOf(m.team)];
       const player = new Player(m.id, m.session.socket, m.name, m.color, this.keepSpawn(keep), m.team);
       player.creative = m.session.creative && m.session.localHost;
@@ -523,15 +537,168 @@ export class Game {
     console.log(`Match started: seed ${this.seed}, ${this.playerCount} player(s), `
       + `${WORLD_SIZES[this.worldSize].label} world ${this.world.sizeX}x${this.world.sizeZ}x${this.world.sizeY} `
       + `(generated in ${Math.round(performance.now() - started)} ms)`);
-    this.spawnHerds();
-    this.spawnDragons();
-    this.spawnCrawlers();
+    if (save) this.loadEntities(save);
+    else {
+      this.spawnHerds();
+      this.spawnDragons();
+      this.spawnCrawlers();
+      this.spawnNpcs();
+      this.monkeys.spawn();
+    }
     this.spawnEels();
-    this.spawnNpcs();
-    this.monkeys.spawn();
     this.garrison = new Garrison(this);
+    if (save?.garrison) {
+      this.garrison.totemDestroyed = save.garrison.totemDestroyed;
+      for (const slot of this.garrison.slots.values()) if (slot.unique && save.garrison.lostUnique.includes(slot.role)) slot.ready = null;
+    }
+    if (save?.boss?.status === 'dead' && this.boss) this.boss.status = 'dead';
     this.garrison.update(this.tick);
-    for (const player of this.players.values()) this.sendWelcome(player);
+    for (const player of this.players.values()) if (player.connected) this.sendWelcome(player);
+    for (const session of this.spectators) sendTo(session.socket, this.matchInfo());
+    this.lastAutosave = this.tick;
+  }
+
+  // ---- Loading a save (server/save.js) ----
+
+  // Block edits, containers, pipes, tanks and turrets. Blocks go in with the
+  // change hook off (so nothing drops or breaks while they're replayed), then
+  // the systems that track blocks are told about each one.
+  loadWorldChanges(save) {
+    const w = this.world, hook = w.onBlockChanged;
+    w.onBlockChanged = null;
+    for (const [x, y, z, id] of save.blocks) { w.setBlock(x, y, z, id); this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id }); }
+    w.onBlockChanged = hook;
+    for (const [key, team] of save.doorTeams) w.doorTeams.set(key, team);
+    // Containers: generated loot chests are replaced by their saved state;
+    // ones whose block is gone are dropped.
+    for (const key of [...w.tileEntities.keys()]) {
+      const [x, y, z] = key.split(',').map(Number);
+      if (!getBlockDef(w.getBlock(x, y, z)).tileEntity) w.tileEntities.delete(key);
+    }
+    for (const [key, data] of save.containers) {
+      const [x, y, z] = key.split(',').map(Number);
+      const container = data.kind === 'chest' ? new Chest() : createContainer(data.kind);
+      if (!container) continue;
+      Object.assign(container, data);
+      container.dirty = true;
+      w.tileEntities.set(key, container);
+    }
+    for (const [x, y, z, id] of save.blocks) {
+      if (isCrop(id)) this.farming.changed(x, y, z, id);
+      if (id === BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
+      if (id === BLOCK.QUARRY_STONE) this.quarry.changed(x, y, z, id);
+      if (fluidKind(id)) this.fluids.changed(x, y, z, id, BLOCK.AIR);
+      this.leafDecay.placed(x, y, z, id);
+    }
+    for (const [key, container] of w.tileEntities) {
+      const [x, y, z] = key.split(',').map(Number);
+      if (fluidKind(w.getBlock(x, y, z))) this.fluids.attach(x, y, z, container);
+    }
+    for (const [key, faces] of save.pipes) { const node = this.fluids.nodes.get(key); if (node) node.faces = faces; }
+    this.fluids.rebuild();
+    for (const t of save.tanks) {
+      const node = this.fluids.nodes.get(t.members[0]);
+      if (node?.tank) { node.tank.fluid = t.fluid; node.tank.amount = Math.min(t.amount, node.tank.capacity); }
+    }
+    for (const [x, y, z, id, team] of save.turrets) if (w.getBlock(x, y, z) === id) this.turretController.place(x, y, z, id, team);
+  }
+
+  // Saved players come back disconnected, to be reclaimed by name. Lobby
+  // members with a saved name take theirs over now; others join their chosen
+  // team if it's in this match, else watch the match-in-progress screen.
+  loadPlayers(save, occupiedTeams, teamFlags) {
+    const restore = (stack) => stack ? { item: stack.item, count: stack.count, ...(stack.mods ? { mods: stack.mods } : {}) } : null;
+    const byTeam = new Map();
+    for (const data of save.players) {
+      const keep = this.world.keeps[occupiedTeams.indexOf(data.team)];
+      const player = new Player(this.nextId++, null, data.name, data.color, this.keepSpawn(keep), data.team);
+      player.keep = keep;
+      player.eliminated = data.eliminated;
+      if (!data.dead && !data.eliminated) {
+        Object.assign(player.state, { x: data.x, y: data.y, z: data.z, yaw: data.yaw, pitch: data.pitch });
+        player.hp = data.hp;
+      }
+      if (data.eliminated) player.dead = true;
+      player.inventory.slots = data.inventory.slots.map(restore);
+      player.inventory.armor = restore(data.inventory.armor);
+      player.inventory.accessory = restore(data.inventory.accessory);
+      player.inventory.cursor = null;
+      if (data.inventory.cursor) player.inventory.addStack(restore(data.inventory.cursor));
+      this.players.set(player.id, player);
+      if (!byTeam.has(data.team)) byTeam.set(data.team, player);
+    }
+    for (const data of save.flags) {
+      const owner = byTeam.get(data.team);
+      if (!owner) continue;
+      const flag = new Flag(owner.id, owner.color, flagHome(owner.keep), data.team);
+      if (data.state === FLAG_STATE.CAPTURED) flag.state = FLAG_STATE.CAPTURED;
+      else if (data.state === FLAG_STATE.DROPPED) {
+        flag.state = FLAG_STATE.DROPPED; flag.droppedTick = data.droppedTick;
+        Object.assign(flag.body, { x: data.x, y: data.y, z: data.z });
+      }
+      // A carried flag is dropped where its carrier was saved.
+      else if (data.state === FLAG_STATE.CARRIED) {
+        const carrier = save.players.find(p => p.carrying === data.team);
+        flag.state = FLAG_STATE.DROPPED; flag.droppedTick = this.tick;
+        if (carrier) Object.assign(flag.body, { x: carrier.x, y: carrier.y, z: carrier.z });
+      }
+      teamFlags.set(data.team, flag);
+      this.flags.set(flag.id, flag);
+    }
+    for (const player of this.players.values()) player.flag = teamFlags.get(player.team);
+    for (const m of [...this.members.values()]) {
+      let player = [...this.players.values()].find(p => !p.connected && sameName(p.name, m.name));
+      if (!player && occupiedTeams.includes(m.team) && teamFlags.has(m.team)) {
+        const keep = this.world.keeps[occupiedTeams.indexOf(m.team)];
+        player = new Player(this.nextId++, null, m.name, m.color, this.keepSpawn(keep), m.team);
+        player.keep = keep; player.flag = teamFlags.get(m.team);
+        this.players.set(player.id, player);
+      }
+      m.session.member = null;
+      if (!player) { this.spectate(m.session); continue; }
+      player.attach(m.session.socket);
+      player.creative = m.session.creative && m.session.localHost;
+      player.state.creative = player.creative;
+      m.session.player = player;
+    }
+  }
+
+  loadEntities(save) {
+    const restore = (stack) => stack ? { item: stack.item, count: stack.count, ...(stack.mods ? { mods: stack.mods } : {}) } : null;
+    const herds = new Map();
+    for (const c of save.cows) {
+      if (!herds.has(c.herd)) herds.set(c.herd, new Herd(this.nextId++));
+      const cow = new Cow(this.nextId++, herds.get(c.herd), c.x, c.y, c.z);
+      cow.hp = c.hp; this.cows.set(cow.id, cow);
+    }
+    for (const d of save.dragons) {
+      const dragon = new Dragon(this.nextId++, d.home.x, d.home.y, d.home.z, d.homeIsland, d.leashRadius - d.homeIsland.radius);
+      Object.assign(dragon.state, { x: d.x, y: d.y, z: d.z }); dragon.hp = d.hp;
+      this.dragons.set(dragon.id, dragon);
+    }
+    for (const c of save.crawlers) {
+      const crawler = new Crawler(this.nextId++, c.home.x, c.home.y, c.home.z);
+      Object.assign(crawler.state, { x: c.x, y: c.y, z: c.z }); crawler.hp = c.hp;
+      this.mobs.set(crawler.id, crawler);
+    }
+    // NPCs at their saved places; ones that died stay dead.
+    this.spawnNpcs();
+    for (const npc of [...this.npcs.values()]) {
+      const data = save.npcs.find(n => n.npc === npc.npc && n.team === npc.team);
+      if (!data) { this.npcs.delete(npc.id); continue; }
+      Object.assign(npc.state, { x: data.x, y: data.y, z: data.z });
+      npc.home = data.home; if (npc.hp !== null) npc.hp = data.hp;
+    }
+    for (const data of save.monkeys) {
+      const m = new WorkMonkey(this.nextId++, this.monkeys, { x: data.x, y: data.y, z: data.z });
+      m.name = data.name; m.team = data.team; m.hp = data.hp ?? m.hp;
+      const config = this.monkeys.parseConfig(data.config);
+      if (config) { m.config = config; m.revision = data.revision; }
+      m.inventory.slots = data.slots.map(restore); m.gear = data.gear.map(restore);
+      m.status = m.team === null ? 'Wild' : 'Ready';
+      this.npcs.set(m.id, m);
+    }
+    for (const e of save.items) this.spawnItem(e.item, e.count, e.x, e.y, e.z, 0, 0, 0, 0, e.mods);
   }
 
   // ---- Joining a match in progress ----
@@ -2210,6 +2377,13 @@ export class Game {
     for(const mob of livingMobs)hazard(mob);
   }
 
+  // Writes the match's save file (server/save.js); a failure is logged, never fatal.
+  save() {
+    this.lastAutosave = this.tick;
+    if (this.phase !== PHASE.PLAYING) return null;
+    try { return writeSave(this); } catch (error) { console.error('Saving failed:', error); return null; }
+  }
+
   // Time of day, 0..1 (0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight),
   // from the match clock. Clients keep it from `welcome` and the ticks in `state`.
   dayTime() {
@@ -2225,6 +2399,7 @@ export class Game {
   update() {
     if (this.phase !== PHASE.PLAYING) return;
     this.tick++;
+    if (this.tick - (this.lastAutosave ?? 0) >= SAVES.autosaveMinutes * 60 * TICK_RATE) this.save();
     this.chunkLoading.update(this.players.values());
     this.water.tick(this.tick);
     this.lava.tick(this.tick);

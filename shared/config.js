@@ -20,6 +20,11 @@ export const CHUNK_SIZE = 16;
 export const VIEW_DISTANCE = 200;
 export const VIEW_DISTANCE_MIN = 200;
 export const VIEW_DISTANCE_MAX = 320;
+// Match saves (server/save.js): written every autosaveMinutes and when the
+// server stops; the lobby lists the newest `listed`.
+export const SAVES = { autosaveMinutes: 3, listed: 12 };
+// Player nametags: text height and its base above the feet (blocks).
+export const NAMETAG = { height: 0.28, above: 2.15 };
 // Full-height simulation columns near players; all team islands stay active.
 export const CHUNK_LOADING = { simulationDistance: 8, teamMargin: 16 };
 
@@ -81,7 +86,7 @@ export const TOWER_MIN_HEIGHT = 0.5;
 export const CLIMB_SPEED = 3;
 
 // Server drops queued inputs beyond this so a stalled client can't burst-move.
-export const MAX_QUEUED_INPUTS = 10;
+export const MAX_QUEUED_INPUTS = 20;
 
 // Block interaction. Reach is measured from the eyes.
 export const REACH_DISTANCE = 5;

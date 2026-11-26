@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "online": "node server.js --online",
     "check": "node scripts/check.js"
   },
   "license": "MIT",

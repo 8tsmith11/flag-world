@@ -25,6 +25,25 @@ The host opens the Local address. Everyone else on the same network opens the
 LAN address. If others can't connect, allow inbound TCP port 3000 through the
 host's firewall.
 
+## Playing online
+
+`npm run online` starts the server for players over the internet. With
+[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+installed it prints an **Online** link (a free Cloudflare quick tunnel, https,
+no router setup) that changes each time the server starts. Without it,
+forward TCP port 3000 on your router and share `http://<your public IP>:3000`
+plus the key. Every printed link includes an access key (`?key=...`, random
+each start, or set `ACCESS_KEY`); connections without it are refused, so
+only people you send the link to can join. Through a tunnel, creative mode
+stays limited to the host's own machine.
+
+## Saves
+
+The match autosaves every 3 minutes and when you stop the server (Ctrl+C),
+to `saves/`. In the lobby the host picks a save under **Continue** to pick
+the match back up; everyone rejoins as their old player by using the same
+name.
+
 ## Lobby
 
 Everyone lands in a lobby first: pick a name and team, then click Ready. The

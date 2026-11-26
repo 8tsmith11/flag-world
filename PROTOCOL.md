@@ -325,6 +325,25 @@ occupied team is required.
 | Field  | Type   | Notes |
 |--------|--------|-------|
 | `seed` | string | Up to 64 chars. Blank = random, a whole number = that seed (mod 2³²), other text is hashed (`parseSeed`) |
+| `save` | string? | A save file name from `lobby.saves`: continue that match instead (its seed, size and teams; `seed` and the world size are ignored). `error` if it can't be read |
+
+### Saves
+
+The server autosaves the match every 3 minutes (`SAVES` in
+`shared/config.js`) and when it stops (Ctrl+C), to `saves/<match>.json`
+next to `server.js` (one file per match, overwritten; `server/save.js`).
+A save holds the seed, size and teams, block edits, containers, pipes,
+tanks, turrets, players (position, HP, inventory, elimination), flags,
+working monkeys (config, inventory, gear), NPCs, cows, dragons, Crawlers,
+dropped items, the clock and the goblins' lost King/Totem. Void Eels respawn
+fresh, goblins refill their slots and construction resumes from the blocks in
+place; a carried flag is dropped where its carrier was.
+
+Loading: saved players start disconnected and are reclaimed by name (the
+usual match-in-progress flow). Lobby members whose name matches a saved
+player take it over at once; others join their lobby team if it's in the
+match, else get the match-in-progress screen. Dead players come back alive at
+their keep; eliminated players stay eliminated.
 
 ### `respawn`
 
@@ -775,6 +794,7 @@ Sent to every lobby member whenever the lobby changes.
 | `hostId`  | int           | Host's member id |
 | `worldSize` | string      | World size the host has picked (default `"medium"`) |
 | `players` | LobbyMember[] | In join order |
+| `saves`   | `{file,label}[]`? | Host only: saved matches to continue, newest first (up to 12) |
 
 ### `matchInProgress`
 

@@ -12,7 +12,7 @@ import { GOBLIN_STATE } from '/shared/protocol.js';
 import * as THREE from 'three';
 import { updateEntityLight, lightModel, lightUniform } from './entityLighting.js';
 import { sampleSnapshots, resetSnapshots } from './snapshotInterpolation.js';
-import { ITEM_SIZE, COW_WIDTH, COW_HEIGHT, CRAWLER_WIDTH, CRAWLER_HEIGHT, LIGHTING as C } from '/shared/config.js';
+import { ITEM_SIZE, COW_WIDTH, COW_HEIGHT, CRAWLER_WIDTH, CRAWLER_HEIGHT, LIGHTING as C, NAMETAG } from '/shared/config.js';
 import { ENTITY_TYPE } from '/shared/protocol.js';
 import {
   createPlayerModel, createItemModel, createArrowModel, createCowModel, createDragonModel,
@@ -64,6 +64,31 @@ export function createSpriteModel(texture, width, height) {
   return sprite;
 }
 
+// A name floating above a player's head. A world-space sprite: it is hidden
+// by walls (depth tested), shrinks with distance, takes fog, and is lit by
+// the same entity light as the body (lightModel patches it), so it is never
+// easier to see than the player. Hidden while they sneak.
+function createNametag(name) {
+  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+  const font = 'bold 40px sans-serif';
+  ctx.font = font;
+  const width = Math.ceil(ctx.measureText(name).width) + 24;
+  canvas.width = width; canvas.height = 56;
+  ctx.font = font;
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, width, 56);
+  ctx.fillStyle = '#ffffff'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  ctx.fillText(name, width / 2, 30);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
+  const height = NAMETAG.height;
+  sprite.scale.set(height * width / 56, height, 1);
+  sprite.center.set(0.5, 0);
+  sprite.position.y = NAMETAG.above;
+  sprite.userData.nametag = name;
+  return sprite;
+}
+
 const MODEL_FACTORIES = {
   ...Object.fromEntries(['worker','soldier','archer','brute','king'].map(role => [`goblin${role[0].toUpperCase()}${role.slice(1)}`, createGoblinModel])),
   goblinTotem: createTotemModel,
@@ -112,6 +137,10 @@ export class EntityRenderer {
     const factory = MODEL_FACTORIES[info.type];
     if (!factory) return;
     const object = factory(info);
+    if (info.type === ENTITY_TYPE.PLAYER && info.name) {
+      object.userData.nametag = createNametag(info.name);
+      object.add(object.userData.nametag);
+    }
     this.scene.add(object);
     this.entities.set(id, { object, info, snapshots: [], unloaded: info.loaded === false, flashUntil: 0, flashing: false });
     if (object.userData.goblin) this.goblinInstances.add(this.entities.get(id));
@@ -298,6 +327,7 @@ export class EntityRenderer {
       }
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch);
+      if (object.userData.nametag) object.userData.nametag.visible = !b.crouching && !b.dead;
       if (object.userData.player) {
         animatePlayer(object, {
           dt, speed, pitch: a.pitch + (b.pitch - a.pitch) * t, held: b.held, armor: b.armor,

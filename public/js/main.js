@@ -123,7 +123,9 @@ const flags = new FlagRenderer(scene, entities);
 const highlight = new BlockHighlight(scene);
 const selectionOutlines = new SelectionOutlines(scene);
 const freeCamera = new FreeCamera();
-const conn = new Connection(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
+// The access key from the shared link (online play) goes with the connection.
+const accessKey = new URLSearchParams(location.search).get('key');
+const conn = new Connection(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/${accessKey ? `?key=${encodeURIComponent(accessKey)}` : ''}`);
 const lobby = new LobbyScreen(conn);
 let loading = null, loadingController = null;
 const loadingBar = document.getElementById('world-loading-progress');
@@ -749,10 +751,11 @@ conn.on(S2C.STATE, (msg) => {
   }
 });
 
-conn.onClose(() => {
+conn.onClose((event) => {
   loadingController?.abort();
   stopLoading();
-  status.textContent = 'Disconnected from server. Refresh to reconnect.';
+  status.textContent = event?.code === 4001 ? 'This server needs the full link with its access key (ask the host).'
+    : 'Disconnected from server. Refresh to reconnect.';
   connected = false;
   monkeyScreen.close(false, false);
   fullscreen.stop();music.fadeOut();battleMusic.stop();audioMixer.stop();dialogue.stop();chunks?.dispose();fluidRenderer?.dispose();

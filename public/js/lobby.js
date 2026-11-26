@@ -61,6 +61,11 @@ export class LobbyScreen {
     this.startButton = this.el('lobby-start');
     this.seedInput = this.el('lobby-seed');
     this.sizeSelect = this.el('lobby-size');
+    this.saveSelect = this.el('lobby-save');
+    this.saveSelect.addEventListener('change', () => {
+      const loading = !!this.saveSelect.value;
+      this.seedInput.disabled = this.sizeSelect.disabled = loading;
+    });
     for (const [key, { label }] of Object.entries(WORLD_SIZES)) this.sizeSelect.add(new Option(label, key));
     this.error = this.el('lobby-error');
     this.me = null;
@@ -87,7 +92,7 @@ export class LobbyScreen {
       if(!await enterFullscreen()){this.showError('Click Play to enter fullscreen.');return;}
       this.startButton.disabled = true;
       this.onStart?.();
-      this.conn.send({ type: C2S.START_MATCH, seed: this.seedInput.value });
+      this.conn.send({ type: C2S.START_MATCH, seed: this.seedInput.value, ...(this.saveSelect.value ? { save: this.saveSelect.value } : {}) });
     });
   }
 
@@ -112,6 +117,13 @@ export class LobbyScreen {
     this.el('lobby-world').textContent = `World size: ${WORLD_SIZES[msg.worldSize]?.label ?? msg.worldSize}`;
     if (document.activeElement !== this.sizeSelect) this.sizeSelect.value = msg.worldSize;
     this.el('lobby-host').hidden = !isHost;
+    // Saved matches the host can continue (newest first).
+    if (isHost && msg.saves && document.activeElement !== this.saveSelect) {
+      const chosen = this.saveSelect.value;
+      this.saveSelect.replaceChildren(new Option('New world', ''), ...msg.saves.map(s => new Option(s.label, s.file)));
+      this.saveSelect.value = msg.saves.some(s => s.file === chosen) ? chosen : '';
+      this.seedInput.disabled = this.sizeSelect.disabled = !!this.saveSelect.value;
+    }
     this.el('lobby-waiting').hidden = isHost;
     this.startButton.disabled = !msg.players.every((p) => p.ready);
   }
