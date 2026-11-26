@@ -67,17 +67,19 @@ export function litMaterial(material, daylight) {
   material.onBeforeCompile=shader=>{
     shader.uniforms.voxelDaylight=daylight;
     shader.uniforms.voxelSkyTint=daylight.tint;
+    shader.uniforms.voxelNightOpen={get value(){return C.nightOpenSky*(1-Math.min(1,Math.max(0,(daylight.value-C.nightSky)/(C.daySky-C.nightSky))));}};
     shader.uniforms.voxelVoidStrength={get value(){return C.voidNight+(C.voidDay-C.voidNight)
       *Math.min(1,Math.max(0,(daylight.value-C.nightSky)/(C.daySky-C.nightSky)));}};
     shader.vertexShader=shader.vertexShader.replace('#include <common>',
       '#include <common>\nattribute vec3 voxelLight; varying vec3 vVoxelLight;')
       .replace('#include <color_vertex>','#include <color_vertex>\nvVoxelLight = voxelLight;');
     shader.fragmentShader=shader.fragmentShader.replace('#include <common>',
-      '#include <common>\nuniform float voxelDaylight; uniform vec3 voxelSkyTint; uniform float voxelVoidStrength; varying vec3 vVoxelLight;')
+      '#include <common>\nuniform float voxelDaylight; uniform vec3 voxelSkyTint; uniform float voxelVoidStrength; uniform float voxelNightOpen; varying vec3 vVoxelLight;')
       .replace('#include <alphatest_fragment>',`#include <alphatest_fragment>
         diffuseColor.rgb *= vec3(${C.ambientFloor}) + vVoxelLight.x * vec3(${C.blockTint.join(',')}) * ${C.blockStrength}
           + voxelSkyTint * vVoxelLight.y * voxelDaylight
+          + voxelSkyTint * pow(vVoxelLight.y, 4.0) * voxelNightOpen
           + vec3(${C.voidTint.join(',')}) * vVoxelLight.z * (1.0 - vVoxelLight.y) * voxelVoidStrength;`);
   };
-  material.customProgramCacheKey=()=> 'voxel-light-v4';return material;
+  material.customProgramCacheKey=()=> 'voxel-light-v5';return material;
 }

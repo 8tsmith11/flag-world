@@ -1514,7 +1514,8 @@ enemy is inside an area, its buildings release no one; ready goblins spawn
 from the nearest safe area instead, posts and archers first, then patrols,
 Brutes and workers. Destroying the Totem stops all respawns. The creative
 host's invisibility (the existing `creative` toggle) hides them from goblins
-like every other mob, turret and trap. Existing `input.spawnEgg` hatches all six goblin egg items only for a
+like every other mob, turret and trap. Arrow turrets shoot goblins (and their
+arrows hit them) like enemy players and hostile mobs. Existing `input.spawnEgg` hatches all six goblin egg items only for a
 creative player (creative is granted only to the local host); no new message
 is introduced. Historical item ids are unchanged.
 

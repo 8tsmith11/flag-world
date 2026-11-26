@@ -53,7 +53,8 @@ export class TurretController {
     for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
       for (const target of this.grid.get(`${cx + dx},${cz + dz}`) ?? []) {
         if (!huntable(target)) continue;
-        if (target.team === turret.team || (target.type !== 'crawler'
+        // Enemy players, hostile mobs and goblins (which have no team).
+        if (target.team === turret.team || (!target.goblin && target.type !== 'crawler'
           && target.type !== 'voidEel' && target.type !== 'dragon' && target.team === undefined)) continue;
         const s = target.state;
         const distance = Math.hypot(s.x - turret.x - 0.5, s.y - turret.y - 1.5, s.z - turret.z - 0.5);

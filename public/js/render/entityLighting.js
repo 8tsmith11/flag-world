@@ -12,7 +12,8 @@ function gridLight(world,x,y,z,daylight,out) {
   if(!data){world.requestLight?.(x,y,z);return null;}
   const i=Chunk.index(local(x),local(y),local(z)),def=getBlockDef(world.getBlock(x,y,z));
   const block=Math.min(C.maxLevel,Math.max(def.emission,data?.light[i]??0))/C.maxLevel;
-  const sky=(data?.sky[i]??0)/255*daylight.value;
+  const skyLevel=(data?.sky[i]??0)/255,day=Math.min(1,Math.max(0,(daylight.value-C.nightSky)/(C.daySky-C.nightSky)));
+  const sky=skyLevel*daylight.value+skyLevel**4*C.nightOpenSky*(1-day);
   const voidLight=(data?.void[i]??0)/255*(1-data.sky[i]/255)
     *(C.voidNight+(C.voidDay-C.voidNight)*Math.min(1,Math.max(0,(daylight.value-C.nightSky)/(C.daySky-C.nightSky))));
   const tint=daylight.tint.value;

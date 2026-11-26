@@ -555,6 +555,9 @@ export const BLOCK_TEXTURE = { tileSize: 64, tileStride: 128, atlasColumns: 4 };
 export const LIGHTING = {
   maxLevel: ELEMENTAL.lavaEmission, torchEmission: 12, openAirLoss: 3, voidLevel: 5,
   voidTint: [0.65, 0.77, 1], voidDay: 0.3, voidNight: 0.045, ambientFloor: 0.008, nightSky: 0.035, daySky: 1,
+  // Extra night light under fully open sky only: scaled by skylight^4, so
+  // forest shade and caves stay as dark as before.
+  nightOpenSky: 0.03,
   faceShades: [0.8, 0.8, 0.55, 1, 0.7, 0.7],
   blockStrength: 1.25, blockTint: [1, 0.72, 0.4], aoStrength: 0.18,
   buildsPerFrame: 2, buildBudgetMs: 4, unloadMargin: 32, workerBatch: 4, meshWorkerBatch: 2,

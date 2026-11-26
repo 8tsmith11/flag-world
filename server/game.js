@@ -1422,7 +1422,7 @@ export class Game {
           ? [...players, ...dragons, ...mobs.filter(m => !isGoblin(m) && (m instanceof Crawler || m instanceof VoidEel))]
           : arrow.shooter.turret
           ? [...players.filter((p) => p.team !== arrow.shooter.team),
-            ...dragons, ...mobs.filter((m) => m instanceof Crawler || m instanceof VoidEel)]
+            ...dragons, ...mobs.filter((m) => m instanceof Crawler || m instanceof VoidEel || isGoblin(m))]
           : [...players.filter((p) => p.team !== arrow.shooter.team), ...cows, ...dragons, ...mobs, ...npcs,
             ...(this.boss?.status === 'active' ? [this.boss] : [])];
       const result = arrow.step(this.world, targets);
