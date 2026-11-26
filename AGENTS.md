@@ -762,7 +762,12 @@ PROTOCOL.md                  WebSocket message reference
   spots). Every `backlogRetrySeconds` all parked cells are retried once.
   Construction completes when the Castle is done and the backlogs are quiet
   (drained, with a full retry since the last placed block); anything still
-  parked is left to repairs. An area stays `unfinished` (plain-graph routing)
+  parked is left to repairs. Placement goes up in layers: `feed` starts no
+  placement job above the lowest placement still open in its entry, and a
+  placement cluster never leaves its layer (cutting and clearing aren't
+  layered). Population grows slowly: one new worker per
+  `LIFE.birthSeconds.worker` and one fighter per `birthSeconds.fighter`
+  village-wide (King/Totem exempt). An area stays `unfinished` (plain-graph routing)
   until its entries are done and its backlog is empty (`settleAreas`).
 - Planned areas are reached through a `Site`: their walkable graph as the
   world stands (no walls), entries where it touches reachable nodes of an
@@ -804,31 +809,35 @@ PROTOCOL.md                  WebSocket message reference
   invalidate the edited column in `Game`'s block-change callback. Hidden dragon
   rigs leave scene traversal; static dragon parts merge by material without
   changing geometry, joints or fire. Visible dragons use ten body draw calls.
-- `shared/monkeys.js` defines roles, names and filters; `MONKEY_WORK` tunes
-  spawning, ranges, budgets and minigames. `server/monkeyTaming.js` owns Simon,
-  memory and cup-shuffle answers/timers. `server/monkeyWorkers.js` owns team
-  taming, settings revisions, cargo, seed reserves and work. Wild monkeys are
-  brown, tamed monkeys use team colors, and names never change. Any teammate
-  can configure them through `public/js/monkeyScreen.js`; protocol views stay
-  private. Sounds reuse the existing monkey audio.
-- Courier routes persist across trips. Only changed endpoints/work bounds,
-  edits intersecting a route, a displaced start or stuck recovery invalidate
-  them. Failed routes watch their bounded work volume. Furnace extraction uses
-  output only; insertion prefers fuel then input. Preserve stack modifiers.
-- Lumberjacks use only explicitly marked base columns; never add a grown-tree
-  registry for this role. A leaf crown identifies a grown column. The marked
-  column authorizes wood/branches above it up to the configured height, leaving
-  horizontal branches to ordinary decay. Require a sapling reserve before
-  chopping; supply it manually or from the delivery target. Replant at the
-  same spot and retain one sapling from the harvest for the next cycle.
-  Gather fallen saplings near marked bases, reserve one when needed and
-  deliver filtered extras; never loop on the delivery pile.
+- `shared/monkeys.js` defines roles (with hover descriptions), the block
+  selections each role needs (`monkeyFields`, `MONKEY_FIELDS` with outline
+  colors), quarry options, `quarryCells` and `farmBox`. `MONKEY_WORK` tunes
+  spawning, reach, climbing, scans and minigames. `server/monkeyTaming.js` owns
+  Simon, memory and cup-shuffle answers/timers. `server/monkeyWorkers.js` owns
+  taming, settings revisions, gear (tool/armor slots) and work: one task at a
+  time (walk within reach, then act), picked deliver-or-work-or-wait, with
+  availability checked from afar so idle monkeys never pace. Breaking uses the
+  tool slot's `breakingStats` like a player. Paths use `findPath`'s `climb`
+  edges (straight up/down open columns beside a wall), stepped kinematically
+  in `climbStep`. Quarries skip anything whose removal would open the void
+  and recheck small regions every think. Lumberjacks fell connected trees
+  (leaves decay normally). Farmers replant the crop they last saw per plot.
+- `public/js/monkeyScreen.js`: compact panel; every explanation is a
+  `data-tip` hover. Block selection happens in the world (left click select,
+  right click remove, Esc back; auto-advance to the next empty field) with
+  `render/selectionOutlines.js`. A screen closed by the player ignores
+  updates for that monkey until they talk to it again.
+- Courier furnace extraction uses output only; insertion prefers fuel then
+  input. Preserve stack modifiers everywhere stacks move.
 - Glass is block 121, Charcoal item 305. Sand smelts into Glass, logs into
   Charcoal; Charcoal smelts eight items. `ORE_SETTINGS.ironDensity` keeps half
   the original seeded iron candidates without changing generation RNG order.
   `shared/mobEggs.js` supplies every creature/NPC kind, including Totem and all
   monkeys, and automatically enters creative recipes. New eggs use 306–310;
   all historical/reserved ids remain intact.
+- Saves: `server/save.js` (format and what's kept are in PROTOCOL.md, Saves).
+  Anything new that matters across a restart must be added to
+  `serializeGame` and the `Game.load*` methods.
 - Run `npm run check`, `node scripts/monkey-check.js`,
   `node scripts/chunk-loading-check.js`, and the existing movement/lighting/tree
   checks. `scripts/runtime-performance-check.js medium large` measures real

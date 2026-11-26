@@ -495,6 +495,13 @@ export class Construction {
     const sides = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
     // A block no worker can reach yet goes to the area's backlog.
     const backlog = this.backlogOf(e.area), defer = b => backlog.cells.add(b.key);
+    // Building goes up in layers: placement jobs for a layer start only once
+    // no lower placement is still open in this entry, and each placement job
+    // stays within one layer (so walls rise evenly instead of in scattered
+    // columns). Cutting and clearing aren't layered.
+    const placing = b => b.want !== BLOCK.AIR && b.want !== CLEAR;
+    let lowest = Infinity;
+    for (const job of e.jobs) for (const b of job.blocks) if (placing(b) && work.need(b) && b.y < lowest) lowest = b.y;
     // Each seed costs a standing-spot search: a bounded number per tick.
     let attempts = C.feedAttempts;
     while (e.jobs.size < C.openJobs && attempts-- > 0) {
@@ -503,8 +510,12 @@ export class Construction {
       const seed = e.queue[e.pos]; e.queued.delete(seed);
       const first = work.claimed.has(seed) ? null : work.difference(seed, true);
       if (!first) continue;
+      const layered = placing(first);
+      if (layered && first.y > lowest) { e.queued.add(seed); break; }
+      if (layered) lowest = Math.min(lowest, first.y);
       const cluster = [first];
       for (let i = 0; i < cluster.length && cluster.length < C.maxJobBlocks * 4; i++) for (const [dx, dy, dz] of sides) {
+        if (layered && dy) continue;
         const k = work.key(cluster[i].x + dx, cluster[i].y + dy, cluster[i].z + dz);
         if (!e.queued.has(k)) continue;
         e.queued.delete(k);
