@@ -1231,4 +1231,158 @@ body.loading-world #status { font-size: 1.65em; }
 
 /* Sort buttons beside the inventory and chest headings. */
 .grid-heading { display: flex; align-items: center; gap: 10px; }
-.sort-button { font-size: 0.65em; padding: 3px 10px; cursor: pointer; }
+.card .sort-button { font-size: 0.65em; padding: 3px 10px; cursor: pointer; }
+.monkey-baby { background:#0003; border-radius:6px; padding:8px 10px; margin-bottom:10px; }
+.monkey-baby p { margin:4px 0 8px; }
+.monkey-baby-bar { height:10px; background:#0006; border-radius:5px; overflow:hidden; }
+.monkey-baby-bar .fill { height:100%; background:linear-gradient(90deg,#8fd18a,#ffd884); width:0; }
+.monkey-baby-time { display:block; margin-top:4px; color:#ffd884; font-size:13px; }
+.monkey-recipe, .monkey-collect, .monkey-slot-row { display:flex; align-items:center; gap:8px; padding:4px 6px; background:#0003; border-radius:4px; }
+.monkey-recipe select { flex:1; min-width:0; }
+.monkey-slot-row { padding-left:24px; font-size:13px; }
+.monkey-slot-row span { flex:1; color:#cfd6dc; }
+
+/* Machine screens (machinePanels.js): one layout for every machine. */
+.inv-machine { width: calc(var(--slot) * 8); display: flex; flex-direction: column; gap: 6px; font-size: 0.92em; }
+.inv-machine[hidden] { display: none; }
+.inv-machine h2 { margin: 0; }
+.inv-machine h3 { margin: 6px 0 2px; font-size: 1em; color: #ffd884; }
+.machine-head { display: flex; align-items: center; gap: 10px; }
+.machine-icon { width: calc(var(--slot) * 0.9); height: calc(var(--slot) * 0.9); display: flex; }
+.machine-icon .icon { width: 100%; height: 100%; }
+.machine-about { margin: 0; color: #cfd6dc; line-height: 1.35; }
+.machine-row { display: flex; align-items: center; gap: calc(var(--slot) * 0.3); padding: 8px; background: #0003; border-radius: 6px; flex-wrap: wrap; }
+.machine-inputs { display: flex; gap: 6px; }
+.machine-fuel { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.machine-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.machine-slot-label { font-size: 0.78em; color: #aeb8c0; white-space: nowrap; }
+.inv .slot.output { border-color: rgba(255, 216, 132, 0.55); }
+.inv .slot .icon.ghost { opacity: 0.22; filter: grayscale(0.6); pointer-events: none; }
+.machine-flame { width: 14px; height: calc(var(--slot) * 0.7); background: #0006; border-radius: 3px; position: relative; overflow: hidden; }
+.machine-flame .fill { position: absolute; bottom: 0; left: 0; right: 0; height: 0; background: linear-gradient(0deg, #e14b1e, #ffc23a); }
+.machine-progress { width: calc(var(--slot) * 1.2); height: 14px; background: #0006; border-radius: 3px; overflow: hidden;
+  clip-path: polygon(0 25%, 75% 25%, 75% 0, 100% 50%, 75% 100%, 75% 75%, 0 75%); }
+.machine-progress .fill { height: 100%; width: 0; background: #f0f0f0; }
+.machine-gauges { display: flex; flex-direction: column; gap: 4px; }
+.machine-gauges:empty, .machine-extra:empty, .machine-status:empty { display: none; }
+.machine-gauge { display: flex; flex-direction: column; gap: 2px; font-size: 0.85em; }
+.machine-gauge-bar { height: 10px; background: #0006; border-radius: 5px; overflow: hidden; }
+.machine-gauge-bar .fill { height: 100%; }
+.machine-extra { margin: 0; color: #cfd6dc; }
+.machine-status { margin: 0; padding: 5px 8px; border-radius: 4px; font-weight: bold; }
+.machine-status.ok { background: #2c5a2e; color: #c9f5c4; }
+.machine-status.warn { background: #6b4a16; color: #ffe0a8; }
+.machine-status.bad { background: #6b2020; color: #ffc4c4; }
+.machine-status.idle { background: #3a3f45; color: #d8dde2; }
+.machine-recipes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 9.5em; overflow: auto; }
+.machine-recipe { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.machine-recipe-part { display: flex; align-items: center; gap: 3px; }
+.machine-chip { display: inline-flex; align-items: center; gap: 2px; }
+.machine-chip .icon { width: 18px; height: 18px; }
+.machine-chip-count { font-size: 0.8em; color: #ffd884; min-width: 0.6em; }
+.machine-plus, .machine-arrow { color: #aeb8c0; }
+.machine-arrow.big { font-size: 1.6em; }
+.machine-note { font-size: 0.8em; color: #aeb8c0; }
+.machine-needs { margin: 0; color: #aeb8c0; font-size: 0.88em; line-height: 1.35; }
+.depot-presence { margin: 0; color: #ffb070; font-weight: bold; }
+.depot-presence.present { color: #8fd18a; }
+.depot-row { display: flex; align-items: center; gap: 10px; padding: 8px; background: #0003; border-radius: 6px; }
+.depot-col { display: flex; flex-direction: column; gap: 3px; }
+.depot-grid { display: grid; grid-template-columns: repeat(3, var(--slot)); gap: 4px; }
+.depot-prices .requested { color: #ffd884; font-weight: bold; }
+
+/* Sky Merchant trade screen (merchantScreen.js). */
+.merchant-panel { width: min(980px, 96vw); max-height: 92vh; overflow: auto; text-align: left; }
+.merchant-head { display: flex; align-items: center; gap: 16px; justify-content: space-between; }
+.merchant-head h1 { margin: 0; color: #d7b5ff; }
+.merchant-head .hint { margin: 2px 0 0; }
+.merchant-purse { display: flex; align-items: center; gap: 6px; font-size: 1.2em; color: #ffd884; font-weight: bold; }
+.merchant-coin { width: 20px; height: 20px; display: inline-flex; }
+.merchant-message { color: #e7d4ff; font-style: italic; min-height: 1.2em; }
+.merchant-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .merchant-columns { grid-template-columns: 1fr; } }
+.merchant-col h2 { margin: 4px 0 8px; font-size: 1.1em; }
+.merchant-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; background: #0003; border-radius: 5px; margin-bottom: 4px; }
+.merchant-row.requested { outline: 1px solid #ffd884; background: #4a3a1066; }
+.merchant-row.baby { outline: 1px solid #b67ad6; background: #3b2f5a66; margin-top: 8px; }
+.merchant-row.sold-out { opacity: 0.55; }
+.merchant-icon { width: 30px; height: 30px; display: flex; flex: none; }
+.merchant-icon .icon { width: 100%; height: 100%; }
+.merchant-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.merchant-note { font-size: 0.8em; color: #aeb8c0; }
+.merchant-row.requested .merchant-note { color: #ffd884; }
+.merchant-price { display: flex; align-items: center; gap: 3px; color: #ffd884; font-weight: bold; min-width: 3em; justify-content: flex-end; }
+.merchant-panel .merchant-row button { padding: 3px 9px; }
+
+/* The Wise Monkey's quest book (questScreen.js). */
+.quest-panel { width: min(1280px, 97vw); height: min(820px, 94vh); display: flex; flex-direction: column; text-align: left; padding: 14px; box-sizing: border-box; }
+.quest-head { display: flex; align-items: center; gap: 14px; }
+.quest-head h1 { margin: 0; flex: none; font-size: 1.5em; }
+.quest-depot { flex: 1; display: flex; align-items: center; gap: 10px; justify-content: center; }
+.quest-panel .quest-depot button { padding: 6px 12px; background: #5b3a78; border-color: #b67ad6; }
+.quest-depot-status { color: #cfd6dc; font-size: 0.9em; }
+.quest-message { min-height: 1.2em; margin: 6px 0; color: #ffd884; }
+.quest-body { flex: 1; display: flex; gap: 10px; min-height: 0; }
+.quest-chapters { width: 190px; flex: none; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
+.quest-panel .quest-chapter { display: flex; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; position: relative; }
+.quest-chapter.selected { background: #3d5a7a; outline: 2px solid #8fb8e8; }
+.quest-chapter-icon { width: 22px; height: 22px; display: flex; flex: none; }
+.quest-chapter-icon .icon { width: 100%; height: 100%; }
+.quest-chapter-name { flex: 1; }
+.quest-chapter-count { font-size: 0.8em; color: #aeb8c0; }
+.quest-dot { width: 9px; height: 9px; border-radius: 50%; background: #ffd23a; box-shadow: 0 0 6px #ffd23a; }
+.quest-graph { flex: 1; position: relative; overflow: hidden; background: radial-gradient(circle at 50% 40%, #2a3340, #151a21); border-radius: 8px; cursor: grab; }
+.quest-graph:active { cursor: grabbing; }
+.quest-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.quest-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.quest-edges line { stroke: #56606b; stroke-width: 4; }
+.quest-edges line.done { stroke: #6fbf6a; }
+.quest-graph-hint { position: absolute; bottom: 6px; right: 10px; font-size: 0.75em; color: #8a949e; pointer-events: none; }
+.quest-panel .quest-node { position: absolute; width: 56px; height: 56px; padding: 6px; border-radius: 10px; background: #2b323b; border: 3px solid #5a646f; display: flex; align-items: center; justify-content: center; }
+.quest-node .icon { width: 100%; height: 100%; }
+.quest-node.done { border-color: #6fbf6a; background: #26392a; }
+.quest-node.reward { border-color: #ffd23a; background: #4a3d16; box-shadow: 0 0 12px #ffd23a88; }
+.quest-node.hidden { border-style: dashed; opacity: 0.7; }
+.quest-node.selected { outline: 3px solid #fff; }
+.quest-unknown { font-size: 26px; color: #aeb8c0; font-weight: bold; }
+.quest-node-label { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 12px; color: #dfe5ea; text-shadow: 0 1px 2px #000; pointer-events: none; }
+.quest-details { width: 330px; flex: none; overflow: auto; background: #0003; border-radius: 8px; padding: 10px 12px; }
+.quest-details h2 { margin: 0; }
+.quest-details-head { display: flex; align-items: center; gap: 10px; }
+.quest-details-icon { width: 36px; height: 36px; display: flex; flex: none; }
+.quest-details-icon .icon { width: 100%; height: 100%; }
+.quest-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; }
+.quest-badge.done { background: #2c5a2e; color: #c9f5c4; }
+.quest-badge.reward { background: #6b5516; color: #ffe9a8; }
+.quest-badge.todo { background: #3a3f45; color: #d8dde2; }
+.quest-goal { background: #ffffff10; padding: 6px 8px; border-radius: 4px; }
+.quest-reward { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.quest-reward-item { display: inline-flex; align-items: center; gap: 4px; }
+.quest-reward-item .icon { width: 20px; height: 20px; }
+.quest-panel .quest-reward button { padding: 4px 12px; background: #6b5516; border-color: #ffd23a; }
+.quest-text { line-height: 1.45; color: #dfe5ea; }
+@media (max-width: 900px) { .quest-details { width: 240px; } .quest-chapters { width: 150px; } }
+
+/* Spyglass view: a round lens with dark edges (less peripheral vision), a
+   fine reticle and the observed player's name. */
+#spyglass { position: fixed; inset: 0; pointer-events: none; z-index: 5;
+  background: radial-gradient(circle at 50% 50%, transparent 0, transparent 34vmin, rgba(0,0,0,0.55) 36vmin, #000 40vmin); }
+#spyglass[hidden] { display: none; }
+#spyglass::before, #spyglass::after { content: ''; position: absolute; left: 50%; top: 50%; background: rgba(20, 16, 10, 0.75); }
+#spyglass::before { width: 60vmin; height: 1px; transform: translate(-50%, -50%); }
+#spyglass::after { width: 1px; height: 60vmin; transform: translate(-50%, -50%); }
+.spyglass-name { position: absolute; left: 50%; top: calc(50% + 6vmin); transform: translateX(-50%); padding: 4px 12px;
+  background: rgba(0, 0, 0, 0.6); border-radius: 4px; font-weight: bold; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+.spyglass-name[hidden] { display: none; }
+body.scoped #hotbar, body.scoped #health { opacity: 0.35; }
+/* These panels read left to right (".screen .panel" centers text). */
+.screen .panel.merchant-panel, .screen .panel.quest-panel, .screen .panel .inv-machine { text-align: left; }
+.screen .merchant-head h1 { font-size: 2em; }
+.screen .quest-head h1 { font-size: 1.5em; margin: 0; }
+.inv-machine { width: calc(var(--slot) * 9); }
+.machine-row { flex-wrap: nowrap; }
+.machine-slot-label { font-size: 0.7em; }
+.depot-prices .machine-note { color: #dfe5ea; }
+.depot-prices .requested .machine-note { color: #ffd884; }
+.quest-panel .quest-chapter { background: #2b323b; color: #dfe5ea; border: 1px solid #444c55; border-radius: 5px; }
+.quest-panel .quest-chapter:hover { background: #36404b; }

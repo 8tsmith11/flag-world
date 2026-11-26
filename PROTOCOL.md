@@ -516,8 +516,17 @@ consume that stack. Closing configuration stows the player's cursor as for
 other inventory screens.
 
 `config` is `{role, sources, dests, sites, blocks, cornerA, cornerB, home,
-quarry, radius, filter}` (`defaultMonkeyConfig` in `shared/monkeys.js`).
-Roles: `idle`, `courier`, `collector`, `lumberjack`, `quarry`, `farmer`.
+quarry, radius, filter, waypoints, post, workbench, recipe, collect, destSlots}`
+(`defaultMonkeyConfig` in `shared/monkeys.js`; fields added later default when
+a saved configuration lacks them).
+Roles: `idle`, `courier`, `collector`, `lumberjack`, `quarry`, `farmer`,
+`craftsman`, `guard`, `lookout`. `waypoints` is a BlockPos list (up to 8, a
+guard's patrol points); `post` (lookout) and `workbench` (craftsman) are
+BlockPos or null; `recipe` is a non-creative recipe id or null (craftsman);
+`collect` (default true) is whether a lumberjack, quarry or farmer keeps what
+it gathers; `destSlots` maps a destination's `"x,y,z"` to `"input"` or
+`"fuel"` for furnaces and alloy furnaces (anything else, or `"auto"`, is
+dropped). Baby monkeys refuse `configure`.
 Lists are BlockPos arrays: `sources` and `dests` up to 8, `sites` up to 16
 (a grass/dirt selection becomes the cell above it), `blocks` up to 64.
 `cornerA`, `cornerB` and `home` are BlockPos or null. `quarry` is
@@ -561,9 +570,70 @@ drops go into its inventory.
   harvests ripe crops on farmland and replants the crop kind it last saw on
   each plot, keeping 16 seeds per crop back from deliveries. It never tills.
 
-Tamed or wild working monkeys have 20 HP. Their own team's players can't
-hurt them; armor in the armor slot reduces damage as for players. A dead
-monkey drops its inventory and gear.
+- Craftsman: from its `sources` it takes exactly the ingredients of `recipe`
+  for as many crafts as it can finish and keep (simulated on its 9 slots with
+  what it already carries: stack sizes, multi-item and unstackable outputs and
+  the room freed as ingredients are used), crafts one per 0.5 s at its
+  `workbench` through the normal recipe check, and delivers everything but
+  ingredients. With a full destination it waits (status says so).
+- Guard (`server/monkeyGuard.js`): walks `waypoints` in order, looping (one
+  point: stays there). Fights whatever `server/hostility.js` calls hostile to
+  its team (enemy players and tamed monkeys, goblins, Crawlers, Void Eels,
+  dragons) that it can see within 14 blocks, no farther than 18 blocks from
+  its route (it also turns on whoever hurts it). A bow or crossbow in its tool
+  slot shoots arrows (draw time, cooldown, 22-block range, a clear arc, the
+  normal arrow entity; arrows are unlimited, as for players); anything else
+  fights in melee with the item's weapon stats. It gives up when the target
+  leaves that band, dies or is out of sight for 3 s, and returns.
+- Lookout: stands on `post` and reports enemy players and goblins in sight
+  within 40 blocks (80 with a spyglass in its tool slot) to its team as
+  `notice` (`"[name] spotted an enemy!"`; with a spyglass `"[name] spotted
+  [player]!"` or `"[name] spotted a goblin!"`), each target at most every 30 s.
+- With `collect:false` a gatherer leaves its drops on the ground where it
+  broke or harvested them (keeping saplings or seeds it replants with) and
+  needs no destination.
+- Destination slots: a furnace or alloy furnace destination with `destSlots`
+  `"fuel"` only fills the fuel slot, `"input"` only the ingredient slots.
+
+Tamed or wild working monkeys have 20 HP. Their own team's players and
+monkeys can't hurt them; armor in the armor slot reduces damage as for
+players. A dead monkey drops its inventory and gear. Wild monkeys also live
+in a few of the central island's tallest trees (0–3 per world).
+
+### `inventorySort`
+
+Match players only, `{container}`. `container: false` sorts the main grid of
+your inventory (slots 9–35; the hotbar, armor and accessory stay as they
+are); `container: true` sorts the chest you have open (other containers are
+ignored). Partial stacks of the same plain item merge up to the max stack,
+identical items end up together, and the order is fixed (gear, then blocks,
+then other items, each by id). Stacks with modifiers stay whole. Totals never
+change.
+
+### `merchantAction`
+
+Match players only, `{action, offer?, item?, times?, all?}`, while their own
+team's Sky Merchant trade screen is open (`merchant` with `open: true`) and
+they are within 9 blocks of him while he is docked.
+
+| Action | Fields | Behavior |
+|--------|--------|----------|
+| `buy` | `offer` (an id from `sells`), `times` 1–64 | Pays `coins × times` and gives `count × times` of the item, only if the coins are there, the items fit and the daily stock lasts |
+| `sell` | `item`, `times` 1–64 or `all: true` | Takes whole batches (`count` each) of the item and pays their coins, only if the coins fit |
+| `baby` | — | Pays the current baby monkey price and spawns a baby monkey for the team next to the merchant |
+| `close` | — | Closes the screen |
+
+Every reply is a fresh `merchant` view (with `message` when refused).
+
+### `questAction`
+
+Match players only, `{action, quest?}`.
+
+| Action | Fields | Behavior |
+|--------|--------|----------|
+| `claim` | `quest` | Claims a completed quest's reward for the team (once per team), if it fits in your inventory; within 12 blocks of your Wise Monkey |
+| `requestDepot` | — | Gives you a Merchant Depot if your team has none placed and none exists anywhere (carried, stored, on the ground); within 12 blocks of your Wise Monkey |
+| `close` | — | Closes the book |
 
 ### `reclaim`
 
@@ -791,6 +861,9 @@ simulated.
 The server ignores inputs whose `seq` is not greater than the last simulated one,
 and drops inputs past a queue of `MAX_QUEUED_INPUTS`.
 
+`scope` (bool): looking through a spyglass (held, right click). The server
+ignores attacking, breaking, placing, using and spawn eggs on such ticks.
+
 ## Server → client
 
 ### `lobby`
@@ -869,7 +942,8 @@ reclaim.
 | `winnerId`| int \| null   | Set if the match is already over |
 | `winnerTeam` | int \| null | Winning team index, if over |
 | `winnerMembers` | string[] | Names on the winning team, if over |
-| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot)[] | Dropped items, projectiles and mobs currently in the world. Mob entries include `loaded: false` when their simulation column is asleep |
+| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| AirshipSnapshot)[] | Dropped items, projectiles, mobs and airships currently in the world. Mob entries include `loaded: false` when their simulation column is asleep |
+| `merchants` | MerchantInfo[] | Each team's depot and merchant; see `merchants` |
 | `inventory` | InventoryState | Your inventory |
 
 ### `state`
@@ -1045,7 +1119,7 @@ Private reply/view for a working monkey. Common fields: `{id,name,team}`;
 | Mode | Additional fields |
 |------|-------------------|
 | `tame` | `session`, `game:"simon"|"memory"|"cups"`, `waitMs`, `stepMs`, `progress`; Simon includes `length` and keeps movement controls active; memory includes `cards` (hidden entries null), `matched` indices and `hideMs`; cups include initial `ball` and ordered `swaps` of positions |
-| `configure` | `editable`, `config`, `revision`, `slots` (nine `Stack|null` entries), `gear` (`[tool, armor]`, `Stack|null`), `hp`, `maxHp`, `status`, optional `message` |
+| `configure` | `editable`, `config`, `revision`, `slots` (nine `Stack|null` entries), `gear` (`[tool, armor]`, `Stack|null`), `hp`, `maxHp`, `status`, optional `message`, and for a baby `baby: {progress 0..1, secondsLeft}` |
 | `result` | `won:false`, `message` (retry allowed) |
 
 The final cup answer and unrevealed card faces remain server-only. Winning
@@ -1053,12 +1127,66 @@ assigns team ownership and opens configuration for all viewers; other teams
 receive a read-only view. `state` NPC snapshots additionally carry `role`,
 `tamed`, `tool` (the tool slot's item id or null, drawn in its hand) and
 `armor` (the armor slot's item id or null, drawn as a chest plate and
-shoulder guards in its color) for
+shoulder guards in its color), `baby: true` while a baby (drawn smaller) and
+`draw: 1` while a guard draws its bow, for
 working monkeys; `team` changes after taming. Their `pose` can also be
 `climb` or `work`.
 
-Alloy furnace inputs accept copper/tin in either slot, filling a matching
-stack or empty slot. Crushers accept stone and ores in their input slot.
+Alloy furnace inputs accept copper or tin as ore, dust or ingot in any of its
+three ingredient slots, filling a matching stack or empty slot. Crushers
+accept stone and ores in their input slot. Merchant depots accept only what
+the merchant buys in their selling slots.
+
+### `notice`
+
+`{text, kind}`: a message for you (or your whole team) in the middle of the
+screen and the event feed. `kind`: `"lookout"` (a lookout's report),
+`"merchant"`, `"monkey"`, `"quest"`, `"danger"` (a refused depot placement,
+your merchant killed or unable to dock) or `"info"`.
+
+### `merchant`
+
+The Sky Merchant trade screen (yours only). `{open: false, message?}` closes
+it (he left, or you walked away). Otherwise:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `open` | `true` | |
+| `id`, `name`, `team` | int \| null, string, int | The merchant NPC and his team |
+| `present` | bool | Docked and trading |
+| `sells` | `{id, item, count, coins, stock?, left}[]` | What he sells; `left` is today's remaining stock (null: unlimited) |
+| `buys` | `{item, count, coins, request?}[]` | What he buys (`count` items for `coins`); `request: true` marks the seed's requested goods |
+| `babyPrice`, `babies` | int, int | The next baby monkey's price and how many the team has bought |
+| `message` | string? | Why the last action was refused |
+
+### `merchants`
+
+`{merchants: MerchantInfo[]}`, broadcast when any depot or merchant changes.
+**MerchantInfo** is `{team, depot: {x,y,z,facing} | null, present, name, phase}`
+with `phase` one of `"away"`, `"arriving"`, `"docked"`, `"boarding"`,
+`"departing"`. Clients draw a lantern sign over each depot, lit while its
+merchant is docked.
+
+**AirshipSnapshot** (entity type `"airship"`): `{id, type, team, appearance,
+x, y, z, yaw, pilot, thrust}`. Spawned and despawned with
+`entitySpawn`/`entityDespawn`; in `state` on every tick it moves, for every
+player regardless of distance. `y` is the deck; the bow points along -Z at
+yaw 0. `pilot`: the merchant is aboard; `thrust` 0..1 spins the propellers.
+The merchant himself is an NPC (`npc: "skyMerchant"`, with `appearance`, the
+number his name and look come from; see `merchantLook` in
+`shared/merchant.js`).
+
+### `quests`
+
+Your team's quest book (`shared/quests.js` holds the chapters and quests).
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `open` | bool | Open the book (right clicking your Wise Monkey) |
+| `completed`, `claimed`, `revealed` | string[] | Quest ids done, rewards claimed and quests shown (others are "???") |
+| `counts` | `{[id]: [have, need]}` | Progress on counted goals |
+| `depot` | `{placed, x?, y?, z?, present?}` | Your team's Merchant Depot |
+| `message` | string? | Reply to the last `questAction` |
 
 ### `damage`
 
@@ -1162,13 +1290,20 @@ smelt, the half-done item starts over.
 | Field       | Type   | Notes |
 |-------------|--------|-------|
 | `x`,`y`,`z` | int    | The block |
-| `kind`      | string | `"chest"`, `"furnace"`, `"alloyFurnace"`, `"tank"`, `"boiler"`, `"crusher"` or `"anvil"` |
-| `slots`     | (ItemStack \| null)[] | Chest: 27. Furnace: input, fuel, output. Alloy furnace: two inputs, fuel, output. Boiler: fuel. Crusher: input, output. Tank: none. Anvil: one |
+| `kind`      | string | `"chest"`, `"furnace"`, `"alloyFurnace"`, `"tank"`, `"boiler"`, `"crusher"`, `"anvil"` or `"depot"` |
+| `slots`     | (ItemStack \| null)[] | Chest: 27. Furnace: input, fuel, output. Alloy furnace: three ingredients, fuel, output. Boiler: fuel. Crusher: input, output. Tank: none. Anvil: one. Depot: 9 selling slots then 9 coin slots (take only) |
+| `status`    | string | Machines and depots: what it is doing or why it isn't, e.g. `"Operating"`, `"Missing fuel: ..."`, `"Missing materials: needs 1 more tin"`, `"Insufficient steam: ..."`, `"Output full: ..."`, `"Invalid recipe: ..."`, `"Idle: ..."` |
+| `copper`,`tin` | int | Alloy furnace: units of copper and tin in its ingredient slots (ore, dust and ingots each count one) |
+| `steamNeeded` | number | Crusher: steam per second for full speed |
+| `present`,`sold` | bool, int | Depot: whether the team's merchant is docked; coins earned there |
 | `burn`      | number | Furnace, alloy furnace or boiler: fuel left in the current fuel item, 0..1 |
 | `progress`  | number | Furnace, alloy furnace or crusher: progress on the current batch/item, 0..1 |
 | `fluid`,`amount`,`capacity` | string \| null, number, number | Tank group contents and capacity |
 | `water`,`steam`,`waterCapacity`,`steamCapacity` | number | Boiler's internal buffers and limits |
 | `steamReceived` | number | Crusher's steam received in the last tick, units/s |
+
+Alloy furnaces from older saves (`[a, b, fuel, output]`) are moved to the
+five-slot layout when loaded.
 
 ### `containerClose`
 
@@ -1644,3 +1779,52 @@ the server and browser worker use the same `generateWorldWithNoise` helper to tr
 deterministic derived seeds up to `WORLDGEN_RETRY.attempts`.
 The requested seed remains in `welcome.seed`; both server and client resolve it
 to the same successful world and record the resolved seed as `world.seed`.
+
+
+## Commerce, automation and defense
+
+- **Hostility** (`server/hostility.js`): arrow turrets, guard monkeys, lookouts
+  and monkey arrows share one rule. Hostile to a team: other teams' players and
+  tamed monkeys, goblins, Crawlers, Void Eels and dragons. Never: its own
+  players and monkeys, wild and baby monkeys, cows, Wise and Ancient Monkeys,
+  Sky Merchants. Turrets switch target when one dies or leaves range.
+- **Reinforced walls** (block 160): 1 iron ingot + 10 stone bricks → 10 at a
+  workbench; hardness 5 (iron hammer), 6 s break time (4× stone bricks),
+  `blastResistance` 6 (stone bricks 3, stone 1) for explosions that break
+  blocks (none do yet).
+- **Spyglass** (item 331): 2 bronze + 1 glass. Held with right click: zoom,
+  1.6× fog and far plane (chunks mesh that far for 20 s after), a lens
+  vignette, and the name of the player nearest the crosshair within 260
+  blocks. No attacking while looking (`input.scope`). In a Lookout's tool
+  slot it doubles its range and names targets.
+- **Gold coins** (item 330), stack to 64; move like any item.
+- **Merchant Depot** (block 161, container `depot`): one placed per team.
+  Placing it needs the team's own island, a dock direction facing away from
+  the center island (within ~70°), and the airship's dock (15 long, 7 wide,
+  4 below to 12 above the depot) plus a 48-block corridor straight out to be
+  free of solid blocks and liquids (`checkDepotSite` in `shared/merchant.js`;
+  clients outline it while you hold a depot). A refused placement sends a
+  `notice` with the reason and keeps the item.
+- **Sky Merchant cycle** (`server/merchants.js`): during the day (time of day
+  0.02–0.46) with a depot and a clear dock, the team's airship flies 140
+  blocks in from the dock direction over 30 s, docks, and the merchant steps
+  off beside the depot. At 0.46 he walks back aboard and the ship leaves the
+  way it came. Killed (enemies only), he drops nothing; the ship leaves and a
+  new merchant (new name and look) arrives the next morning. Stock refills
+  each morning. Day numbers keep counting up (creative Set day/night moves
+  forward to the next noon or midnight).
+- **Economy** (`shared/merchant.js`): fixed buy and sell lists; requested
+  goods chosen from the seed pay more than their materials but less than
+  buying the materials back. `node scripts/commerce-check.js` proves that no
+  chain of buying, crafting, smelting, crushing and alloying sells for more
+  than it costs.
+- **Depot selling**: while docked, every 5 ticks one full batch of the first
+  sellable stack is sold if its coins fit the coin slots.
+- **Baby monkeys**: 48 coins for a team's first, ×1.5 (rounded) for each one
+  after, all match (merchant deaths don't reset it). They grow up after 20
+  minutes; until then they take no role and nothing targets them.
+- **Quests** (`shared/quests.js`, `server/quests.js`): completion comes from
+  team progress (items obtained, crafted, placed) and milestones counted by
+  `TeamProgress.event` (taming, roles, trades, depot sales, kills...). Rewards
+  are claimed once per team. Saves keep completions, claims, team progress,
+  depots, baby purchases and stock.

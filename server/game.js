@@ -856,6 +856,7 @@ export class Game {
       fire: !!msg.fire,
       hook: !!msg.hook,
       flyToggle: !!msg.flyToggle,
+      scope: !!msg.scope,
     });
   }
 
@@ -2508,6 +2509,10 @@ export class Game {
         if (input.hook && held !== ITEM.GRAPPLING_HOOK) input.hook = false;
         if (input.eat && !getItemDef(player.held()).food) input.eat = false;
         if (input.glide && player.held() !== ITEM.GLIDER) input.glide = false;
+        // Looking through a spyglass: no attacking, breaking, placing or using.
+        if (input.scope && held === ITEM.SPYGLASS) {
+          input.attack = false; input.breaking = null; input.place = null; input.use = null; input.spawnEgg = null;
+        }
         const prevY = player.state.y;
         const wasGrounded = player.state.onGround;
         stepPlayer(player.state, input, this.world);

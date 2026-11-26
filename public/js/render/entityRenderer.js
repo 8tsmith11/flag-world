@@ -21,6 +21,8 @@ import {
 import { GrappleLine } from './grappleLine.js';
 import { createNpcModel, animateMonkey, updateMonkeyTeam, setMonkeyHeld, setMonkeyArmor } from './monkeyModels.js';
 import { getItemDef } from '/shared/items.js';
+import { createMerchantModel, animateMerchant, createAirshipModel, animateAirship } from './merchantModels.js';
+import { MONKEY_DUTY } from '/shared/config.js';
 import { NPC_DEFS } from '/shared/npcs.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
@@ -117,7 +119,8 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.DRAGON]: createDragonModel,
   [ENTITY_TYPE.CRAWLER]: createCrawlerModel,
   [ENTITY_TYPE.VOID_EEL]: createEelModel,
-  [ENTITY_TYPE.NPC]: createNpcModel,
+  [ENTITY_TYPE.NPC]: (info) => info.npc === 'skyMerchant' ? createMerchantModel(info) : createNpcModel(info),
+  [ENTITY_TYPE.AIRSHIP]: createAirshipModel,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
     const arrow = createArrowModel();
@@ -202,6 +205,7 @@ export class EntityRenderer {
       onGround: !!snap.onGround,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
       pose: snap.pose ?? null, look: snap.look ?? 0,
+      thrust: snap.thrust ?? 0, pilot: !!snap.pilot, baby: !!snap.baby,
       team: snap.team ?? null, name: snap.name ?? entity.info.name,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
@@ -295,7 +299,7 @@ export class EntityRenderer {
       }
       const latest = snapshots.at(-1);
       if (camera && (latest.x-camera.position.x)**2 + (latest.y-camera.position.y)**2
-        + (latest.z-camera.position.z)**2 > (camera.far + (object.userData.dragon ? 16 : 0))**2) {
+        + (latest.z-camera.position.z)**2 > (camera.far + (object.userData.dragon ? 16 : object.userData.airship ? 24 : 0))**2) {
         object.visible = false;
         if (object.userData.dragon) this.scene.remove(object);
         continue;
@@ -318,6 +322,9 @@ export class EntityRenderer {
       if (entity.info.npc === 'workMonkey') {
         entity.info.team = latest.team; entity.info.name = latest.name;
         updateMonkeyTeam(object, latest.team);
+        // Baby monkeys are drawn smaller until they grow up.
+        const scale = (latest.baby ? MONKEY_DUTY.baby.scale : 1) * (object.userData.baseScale ??= object.scale.x);
+        if (Math.abs(object.scale.x - scale) > 1e-3) object.scale.setScalar(scale);
       }
       if(camera&&object.userData.goblin) {
         const height=boxOf(entity.info).height;
@@ -330,7 +337,7 @@ export class EntityRenderer {
       // Three culls the meshes itself; this saves the per-frame JS.
       if (camera && !object.userData.dragon && !object.userData.goblin && !entity.grappleLine) {
         this.goblinBounds.center.copy(object.position);
-        const height = boxOf(entity.info)?.height ?? 2;
+        const height = object.userData.airship ? 16 : boxOf(entity.info)?.height ?? 2;
         this.goblinBounds.center.y += height / 2;
         this.goblinBounds.radius = height + 1;
         if (!this.frustum.intersectsSphere(this.goblinBounds)) continue;
@@ -363,6 +370,9 @@ export class EntityRenderer {
         animateMonkey(object, dt, { pose: b.pose ?? 'sit', look: b.look, speed,
           talking: now < (entity.talkUntil ?? 0) });
       }
+      if (object.userData.merchant) animateMerchant(object, dt, { speed, look: b.look, pose: b.pose,
+        talking: now < (entity.talkUntil ?? 0) });
+      if (object.userData.airship) animateAirship(object, dt, { thrust: b.thrust, pilot: b.pilot });
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch);
       // A renamed player gets a new tag (relit with the body below).

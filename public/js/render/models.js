@@ -812,6 +812,18 @@ export function createItemModel(item, blockSize = 0.25) {
     const head=new THREE.Mesh(new THREE.BoxGeometry(t.width*2,t.headHeight*2,t.width*2),new THREE.MeshBasicMaterial({color:0xffdfa0}));head.position.y=t.height;
     group.add(handle,head);return group;
   }
+  if (def.tool === 'spyglass') {
+    // A brass telescope: three tubes along +Y, the eyepiece at the bottom.
+    const group = new THREE.Group(), brass = lambert(0xd8a24a), dark = lambert(0x6a4521);
+    [[0.11, 0.3, 0.15, dark], [0.14, 0.3, 0.42, brass], [0.17, 0.32, 0.72, brass]].forEach(([r, h, y, m]) => {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(r * blockSize * 2, r * blockSize * 2, h * blockSize * 2.4, 10), m);
+      tube.position.y = y * blockSize * 2.4; group.add(tube);
+    });
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.15 * blockSize * 2, 0.15 * blockSize * 2, 0.02, 10),
+      new THREE.MeshLambertMaterial({ color: 0xbfe8f4, emissive: 0x1a3a44 }));
+    lens.position.y = 0.88 * blockSize * 2.4; group.add(lens);
+    return group;
+  }
   if (def.tool === 'hammer') return createHammer(def.color);
   if (def.tool === 'hoe') return createHoe(def.color);
   // Plain items drawn from an SVG icon (seeds, wheat, bread): a flat picture.

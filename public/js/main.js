@@ -26,6 +26,11 @@ import { HealthBar, EventFeed, ProgressBar, Toast, Label } from './hud.js';
 import { FreeCamera } from './spectator.js';
 import { InventoryScreen, CONTAINERS } from './inventoryScreen.js';
 import { MonkeyScreen } from './monkeyScreen.js';
+import { MerchantScreen } from './merchantScreen.js';
+import { QuestScreen } from './questScreen.js';
+import { DepotRenderer } from './render/depotRenderer.js';
+import { checkDepotSite, DOCK, DOCK_DIRS } from '/shared/merchant.js';
+import { SPYGLASS, VIEW_DISTANCE_MAX as SPY_MAX } from '/shared/config.js';
 import { createScene, setViewDistance } from './render/scene.js';
 import { Clouds } from './render/clouds.js';
 import { Sky } from './render/sky.js';
@@ -147,7 +152,19 @@ lobby.onStart=()=>beginLoading();
 const matchScreen = new MatchScreen(conn);
 const inventoryScreen = new InventoryScreen(conn);
 const monkeyScreen = new MonkeyScreen(conn);
+monkeyScreen.blockAt = (p) => world?.getBlock(p.x, p.y, p.z) ?? 0;
+const merchantScreen = new MerchantScreen(conn);
+const questScreen = new QuestScreen(conn);
+const depotRenderer = new DepotRenderer(scene);
+// Outlines for the airship's dock while holding a Merchant Depot.
+const depotPreview = new SelectionOutlines(scene);
 const pickHint = document.getElementById('pick-hint');
+for (const menu of [merchantScreen, questScreen]) {
+  menu.onOpen = () => { pickHint.hidden = true; closeInventory(false); if (monkeyScreen.open) monkeyScreen.close(false);
+    showScreen(menu === merchantScreen ? 'merchant' : 'quests'); document.exitPointerLock(); input.release(); };
+  menu.onClose = () => { showScreen(null); };
+}
+merchantScreen.onToast = (text) => toast.show(text);
 monkeyScreen.onOpen = () => { pickHint.hidden = true; closeInventory(false); showScreen('monkey'); document.exitPointerLock(); input.release(); };
 monkeyScreen.onClose = relock => { pickHint.hidden = true; showScreen(null); if (relock && lockable()) input.requestLock(); };
 // Selecting blocks for a monkey: a prompt over the crosshair, outlines on
@@ -266,7 +283,7 @@ function showScreen(id) {
 // flag left set behind another screen (a server update reopening a closed
 // menu, a death) must never make "click to resume" ignore clicks.
 function menuShowing() {
-  return currentScreen === 'inventory' || currentScreen === 'monkey';
+  return currentScreen === 'inventory' || currentScreen === 'monkey' || currentScreen === 'merchant' || currentScreen === 'quests';
 }
 function lockable() {
   return player && connected && !menuShowing() && (mode === MODE.PLAY || mode === MODE.SPECTATE);
@@ -276,6 +293,7 @@ function resume() {
   if (!lockable() || loading || fullscreen.paused) return;
   if (inventoryScreen.open) { inventoryScreen.hide(true); }
   if (monkeyScreen.open || monkeyScreen.worldGame) monkeyScreen.close(false);
+  merchantScreen.close(); questScreen.close();
   showScreen(null);
   // Back into fullscreen if it was left (this click is the gesture it needs).
   if (fullscreen.wanted) enterFullscreen().finally(() => { if (lockable()) input.requestLock(); });
@@ -346,6 +364,7 @@ window.addEventListener('keydown', (e) => {
 // screen: 'inventory', 'workbench', 'furnace' or 'chest'; at: that block.
 function openInventory(screen, at) {
   if (monkeyScreen.open || monkeyScreen.picking || monkeyScreen.worldGame) monkeyScreen.close(false);
+  merchantScreen.close(); questScreen.close();
   // Visible first: the preview sizes itself from its canvas.
   showScreen('inventory');
   inventoryScreen.show(player.color, screen, at);
@@ -359,6 +378,7 @@ function stationKind(id) {
   if (isChest(id)) return 'chest';
   if (isAnvil(id)) return 'anvil';
   if (['tank','boiler','crusher'].includes(fluidKind(id))) return fluidKind(id);
+  if (id === BLOCK.MERCHANT_DEPOT) return 'depot';
   return null;
 }
 
@@ -386,6 +406,7 @@ function setInventory(inv) {
   hotbar.setInventory(inv.slots);
   inventoryScreen.update(inv);
   monkeyScreen.setInventory(inv);
+  merchantScreen.setInventory(inv);
 }
 
 // Item id in hand (the selected hotbar slot), or null.
@@ -442,6 +463,7 @@ function enterDeath(msg, isEliminated) {
   // The server has already dropped everything, cursor stack included.
   closeInventory(false, false);
   monkeyScreen.close(false);
+  merchantScreen.close(false); questScreen.close(false);
   mode = MODE.DEAD;
   drawTicks = 0;
   stepCrossbow(false, false, false);
@@ -486,6 +508,7 @@ function startSpectating() {
 function endMatch(winnerId, winnerTeam, members = []) {
   closeInventory(false);
   monkeyScreen.close(false);
+  merchantScreen.close(false); questScreen.close(false);
   mode = MODE.ENDED;
   fullscreen.stop();
   document.body.classList.remove('dead');
@@ -590,6 +613,8 @@ function startGame(msg, generated) {
     entities.add(e.id, e);
   }
   setInventory(msg.inventory);
+  inventoryScreen.setSeed(msg.seed);
+  depotRenderer.set(msg.merchants);
   viewModel = new ViewModel(player.color);
   status.textContent = 'Click to play';
   document.body.classList.add('in-game');
@@ -709,6 +734,15 @@ conn.on(S2C.CONTAINER_CLOSE, () => {
   if (inventoryScreen.open && CONTAINERS.includes(inventoryScreen.mode)) closeInventory(false);
 });
 conn.on(S2C.MONKEY, msg => { if (mode === MODE.PLAY) monkeyScreen.receive(msg); });
+conn.on(S2C.MERCHANT, msg => { if (mode === MODE.PLAY || !msg.open) merchantScreen.receive(msg); });
+conn.on(S2C.QUESTS, msg => { if (mode === MODE.PLAY) questScreen.receive(msg); });
+conn.on(S2C.MERCHANTS, msg => depotRenderer.set(msg.merchants));
+// Private or team-only messages: lookout reports, the merchant, quests.
+conn.on(S2C.NOTICE, (msg) => {
+  toast.show(msg.text);
+  feed.add(msg.text, msg.kind === 'danger' || msg.kind === 'lookout' ? 'elim' : msg.kind === 'quest' || msg.kind === 'merchant' ? 'win' : '');
+  if (msg.kind === 'lookout') sounds.alert?.();
+});
 conn.on(S2C.FURNACE_LIT, (msg) => furnaceEffects?.setLit(msg.x, msg.y, msg.z, msg.lit));
 conn.on(S2C.BOILER_LIT, (msg) => fluidRenderer?.setBoilerLit(msg.x,msg.y,msg.z,msg.lit));
 conn.on(S2C.FLUID_STATE, (msg) => fluidRenderer?.sync(msg.nodes));
@@ -853,6 +887,79 @@ function updateFlagHud() {
   carryLabel.set(`Carrying ${TEAMS[flagTeams.get(self.carrying)]?.name}'s flag — bring it to your pedestal`);
 }
 
+// ---- Spyglass ----
+// While looking through it the fog and far plane reach SPYGLASS.viewScale
+// times farther, the chunk renderer meshes that far too (kept for a while
+// after, so peeking again doesn't reload), a vignette narrows the view and
+// the player nearest the crosshair is named, however far away.
+const spyglassHud = document.createElement('div');
+spyglassHud.id = 'spyglass'; spyglassHud.hidden = true;
+const spyglassName = document.createElement('div'); spyglassName.className = 'spyglass-name';
+spyglassHud.append(spyglassName);
+document.body.append(spyglassHud);
+let spyglassView = false, spyglassChunksUntil = 0;
+const spyglassDistance = () => Math.min(viewDistance * SPYGLASS.viewScale, SPY_MAX * 1.5);
+function updateSpyglass(scoped, now, dir) {
+  spyglassView = scoped;
+  spyglassHud.hidden = !scoped;
+  document.body.classList.toggle('scoped', scoped);
+  if (scoped) spyglassChunksUntil = now + 20000;
+  const far = now < spyglassChunksUntil ? spyglassDistance() : viewDistance;
+  if (chunks && chunks.viewDistance !== far) chunks.setViewDistance(far);
+  if (!scoped) return;
+  let best = null, bestAngle = SPYGLASS.nametagCone;
+  for (const t of entities.playerTargets()) {
+    const s = t.state, dx = s.x - camera.position.x, dy = s.y + 1.6 - camera.position.y, dz = s.z - camera.position.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > SPYGLASS.nametagRange || d < 1) continue;
+    const angle = Math.acos(Math.max(-1, Math.min(1, (dx * dir.x + dy * dir.y + dz * dir.z) / d)));
+    if (angle < bestAngle && !raycastBlock(world, camera.position, { x: dx / d, y: dy / d, z: dz / d }, d - 0.5, isTargetable)) {
+      best = { id: t.id, d }; bestAngle = angle;
+    }
+  }
+  if (!best) { spyglassName.hidden = true; return; }
+  spyglassName.hidden = false;
+  const team = playerTeams.get(best.id);
+  spyglassName.textContent = `${nameOf(best.id)} · ${TEAMS[team]?.name ?? ''} team · ${Math.round(best.d)} blocks`;
+  spyglassName.style.color = `#${(TEAMS[team]?.color ?? 0xffffff).toString(16).padStart(6, '0')}`;
+}
+
+// ---- Merchant Depot placement preview ----
+// Holding a depot and aiming at a block: the airship's dock (and its
+// approach corridor) is outlined where it would go, green when clear, red
+// with the blocking block marked when not, with the reason as a prompt.
+let depotPreviewKey = null, depotPreviewList = null, depotPreviewText = '';
+function updateDepotPreview(playing) {
+  const place = playing && heldItem() === BLOCK.MERCHANT_DEPOT && !monkeyScreen.picking ? placeTarget() : null;
+  if (!place) {
+    if (depotPreviewKey !== null) { depotPreviewKey = null; depotPreview.update(null); pickHint.hidden = true; }
+    return;
+  }
+  const key = `${place.x},${place.y},${place.z}`;
+  if (key !== depotPreviewKey) {
+    depotPreviewKey = key;
+    const check = checkDepotSite(world, place, null);
+    depotPreviewList = [];
+    if (check.facing !== undefined) {
+      const [fx, fz] = DOCK_DIRS[check.facing], px = -fz, pz = fx;
+      const span = (s0, s1) => {
+        const xs = [place.x + fx * s0 + px * -DOCK.halfWidth, place.x + fx * s1 + px * DOCK.halfWidth];
+        const zs = [place.z + fz * s0 + pz * -DOCK.halfWidth, place.z + fz * s1 + pz * DOCK.halfWidth];
+        return { x0: Math.min(...xs), x1: Math.max(...xs), y0: place.y - DOCK.below, y1: place.y + DOCK.above,
+          z0: Math.min(...zs), z1: Math.max(...zs) };
+      };
+      const color = check.ok ? 0x30d158 : 0xff453a;
+      depotPreviewList.push({ box: span(DOCK.gap, DOCK.gap + DOCK.length - 1), color, solid: true });
+      depotPreviewList.push({ box: span(DOCK.gap + DOCK.length, DOCK.gap + DOCK.length + DOCK.corridor - 1), color: 0xffffff });
+      if (check.blocked) depotPreviewList.push({ pos: check.blocked, color: 0xff453a });
+    }
+    depotPreviewList.push({ pos: place, color: check.ok ? 0x30d158 : 0xff453a });
+    depotPreviewText = check.ok ? 'Airship dock clear: right click to place the Merchant Depot here' : check.reason;
+  }
+  depotPreview.update(depotPreviewList);
+  pickHint.textContent = depotPreviewText; pickHint.hidden = false;
+}
+
 function frame(now) {
   const dt = Math.min(0.1, Math.max(0, (now - lastTime) / 1000));
   lastTime = now;
@@ -874,6 +981,9 @@ function frame(now) {
       controls.place = controls.attack = controls.drop = false;
       input.primaryDown = input.secondaryDown = false;
     }
+    // Looking through a spyglass (right click held): no attacking or using.
+    controls.scope = heldItem() === ITEM.SPYGLASS && input.secondaryDown;
+    if (controls.scope) { controls.attack = controls.place = false; input.primaryDown = false; }
     // Right click on an NPC talks to it instead of anything else.
     const targetType = targetPlayer !== null ? entities.entities.get(targetPlayer)?.info.type : null;
     if (controls.place && (targetType === ENTITY_TYPE.NPC || targetType === ENTITY_TYPE.COW && heldItem() === ITEM.WHEAT)) {
@@ -991,12 +1101,19 @@ function frame(now) {
   updateFlagHud();
 
   hotbar.select(input.slot);
-  // Zoom in a little as a bow is drawn or while a crossbow is loaded.
-  const fov = FOV - DRAW_ZOOM * (playing ? drawAmount() : 0);
+  // Zoom in a little as a bow is drawn or while a crossbow is loaded; a
+  // spyglass zooms far in, sees farther and narrows the view.
+  const scoped = playing && heldItem() === ITEM.SPYGLASS && input.secondaryDown;
+  updateSpyglass(scoped, now, dir);
+  const fov = scoped ? SPYGLASS.fov : FOV - DRAW_ZOOM * (playing ? drawAmount() : 0);
   if (Math.abs(camera.fov - fov) > 0.01) {
-    camera.fov += (fov - camera.fov) * Math.min(1, dt * 12);
+    camera.fov += (fov - camera.fov) * Math.min(1, dt * (scoped ? 18 : 12));
     camera.updateProjectionMatrix();
   }
+  input.lookScale = camera.fov / FOV;
+  updateDepotPreview(playing);
+  questScreen.update(dt);
+  depotRenderer.update(dt);
 
   chunks.update(camera.position.x, camera.position.z, camera);
   if(loading) {
@@ -1019,7 +1136,7 @@ function frame(now) {
     battleMusic.setActive(inArena && bossRenderer.state?.status === 'active');
     chunks.daylight.value=LIGHTING.nightSky+(LIGHTING.daySky-LIGHTING.nightSky)*sky.daylight;
     chunks.daylight.tint.value.copy(sky.light.color);
-    setViewDistance(scene, camera, viewDistance, sky.fogScale);
+    setViewDistance(scene, camera, spyglassView ? spyglassDistance() : viewDistance, sky.fogScale);
     clouds?.setTint(sky.tint);
   }
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);

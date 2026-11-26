@@ -9,7 +9,11 @@
 // is still empty, a single field moves to the next empty one or returns.
 import { C2S, TEAMS } from '/shared/protocol.js';
 import { MONKEY_WORK as C, INVENTORY_SIZE, HOTBAR_SIZE } from '/shared/config.js';
-import { MONKEY_ROLES, ROLE_INFO, MONKEY_FIELDS, QUARRY_OPTIONS, monkeyFields, fieldName, quarryCells } from '/shared/monkeys.js';
+import { MONKEY_ROLES, ROLE_INFO, MONKEY_FIELDS, QUARRY_OPTIONS, monkeyFields, fieldName, quarryCells,
+  GATHERING_ROLES, SLOT_OPTIONS, SLOT_MODES } from '/shared/monkeys.js';
+import { RECIPES } from '/shared/recipes.js';
+import { getItemDef } from '/shared/items.js';
+import { getBlockDef } from '/shared/blocks.js';
 import { renderStack } from './itemIcon.js';
 
 const clone=data=>JSON.parse(JSON.stringify(data));
@@ -91,6 +95,11 @@ export class MonkeyScreen {
     if(this.statusEl)this.statusEl.textContent=this.data.status??'';
     if(this.hpEl)this.hpEl.textContent=this.data.hp!==null&&this.data.hp!==undefined?`${Math.ceil(this.data.hp)}/${this.data.maxHp} HP`:'';
     if(this.message)this.message.textContent=this.data.message??'';
+    if(this.babyEl&&this.data.baby) {
+      const left=this.data.baby.secondsLeft;
+      this.babyEl.fill.style.width=`${Math.round(this.data.baby.progress*100)}%`;
+      this.babyEl.text.textContent=`Grows up in ${Math.floor(left/60)}:${String(left%60).padStart(2,'0')} (${Math.round(this.data.baby.progress*100)}%)`;
+    }
     this.updateInventory();
   }
 
@@ -103,18 +112,27 @@ export class MonkeyScreen {
     const live=element('div','monkey-live');
     this.statusEl=element('span','monkey-status');this.hpEl=element('span','monkey-hp');
     live.append(this.statusEl,this.hpEl);this.panel.append(live);
+    // A baby: how long until it grows up, instead of roles.
+    this.babyEl=null;
+    if(this.data.baby) {
+      const box=element('div','monkey-baby');
+      box.append(element('strong','','Baby monkey'),element('p','hint','Too young to work or fight. When it grows up you can give it any role here.'));
+      const bar=element('div','monkey-baby-bar'),fill=element('div','fill');bar.append(fill);
+      this.babyEl={fill,text:element('span','monkey-baby-time')};box.append(bar,this.babyEl.text);
+      this.panel.append(box);
+    }
     // Roles: one button each, the description on hover.
     const roles=element('div','monkey-roles');
     for(const role of MONKEY_ROLES) {
       const b=button(ROLE_INFO[role].name,()=>{this.draft.role=role;this.renderDraft();this.saveDraft();},ROLE_INFO[role].tip);
       b.dataset.role=role;roles.append(b);
     }
-    this.roles=roles;this.panel.append(roles);
-    this.details=element('div','monkey-details');this.panel.append(this.details);
+    this.roles=roles;this.details=element('div','monkey-details');
+    if(!this.data.baby)this.panel.append(roles,this.details);
     // Gear and the two inventories.
     const gear=element('div','monkey-gear');
     this.gearSlots=[];
-    for(const [i,name,tip]of [[0,'Tool','A hammer to break blocks with: its strength and speed are the monkey\'s.'],
+    for(const [i,name,tip]of [[0,'Tool','A hammer to break blocks with (its strength and speed are the monkey\'s), a weapon or bow for a guard, or a spyglass for a lookout.'],
       [1,'Armor','Armor it wears: reduces damage like yours.']]) {
       const wrap=element('label','monkey-gear-slot');wrap.dataset.tip=tip;
       const cell=this.slotButton('gear',i);wrap.append(element('span','',name),cell);gear.append(wrap);this.gearSlots[i]=cell;
@@ -157,8 +175,13 @@ export class MonkeyScreen {
     const d=this.draft;
     if(d.role==='quarry')this.details.append(this.quarryOptions());
     if(d.role==='collector')this.details.append(this.numberOption('Range','Picks up items within this many blocks of the first destination.',d.radius,1,C.maxRadius,v=>d.radius=v));
-    for(const field of [...monkeyFields(d),'home'])this.details.append(this.fieldRow(field));
-    if(d.role!=='idle')this.details.append(this.filterRow());
+    if(d.role==='craftsman')this.details.append(this.recipeRow());
+    if(GATHERING_ROLES.includes(d.role))this.details.append(this.collectRow());
+    for(const field of [...monkeyFields(d),'home']) {
+      this.details.append(this.fieldRow(field));
+      if(field==='dests')for(const row of this.slotRows())this.details.append(row);
+    }
+    if(d.role!=='idle'&&d.role!=='guard'&&d.role!=='lookout'&&d.role!=='craftsman')this.details.append(this.filterRow());
     this.disableForeign();
   }
   fieldRow(field) {
@@ -172,6 +195,49 @@ export class MonkeyScreen {
     row.append(swatch,label,summary,button(count?'Edit':'Select',()=>this.pick(field)));
     if(count)row.append(button('Clear',()=>{d[field]=info.list?[]:null;this.renderDraft();this.saveDraft();}));
     return row;
+  }
+  // Craftsman: which recipe it makes (any non-creative recipe; workbench
+  // recipes need its workbench, which it always uses).
+  recipeRow() {
+    const d=this.draft,label=element('label','monkey-recipe','Recipe');
+    label.dataset.tip='What it crafts. It fetches exactly the ingredients for as many of these as it can finish and carry.';
+    const select=element('select','');
+    const none=element('option','','Choose a recipe…');none.value='';select.append(none);
+    const sorted=[...RECIPES].sort((a,b)=>getItemDef(a.output).name.localeCompare(getItemDef(b.output).name));
+    for(const r of sorted) {
+      const o=element('option','',`${getItemDef(r.output).name}${r.count>1?` ×${r.count}`:''} ← ${r.inputs.map(i=>`${i.count} ${getItemDef(i.item).name}`).join(' + ')}`);
+      o.value=r.id;select.append(o);
+    }
+    select.value=d.recipe??'';
+    select.onchange=()=>{d.recipe=select.value||null;this.saveDraft();};
+    label.append(select);return label;
+  }
+  // Gatherers: keep what they gather, or leave it on the ground.
+  collectRow() {
+    const d=this.draft,label=element('label','monkey-collect');
+    label.dataset.tip='On: it carries what it gathers to its destinations. Off: it leaves everything on the ground and keeps gathering (it still keeps saplings or seeds to replant). A Collector monkey or you can pick the drops up.';
+    const box=element('input','');box.type='checkbox';box.checked=d.collect!==false;
+    box.onchange=()=>{d.collect=box.checked;if(!d.collect)d.dests=d.dests;this.renderDraft();this.saveDraft();};
+    label.append(box,document.createTextNode(' Collect drops'));return label;
+  }
+  // A slot choice for each destination machine that has more than one kind
+  // of input slot (furnace, alloy furnace).
+  slotRows() {
+    const d=this.draft,rows=[];
+    d.destSlots??={};
+    for(const p of d.dests) {
+      const kind=getBlockDef(this.blockAt?.(p)??0).tileEntity,options=SLOT_OPTIONS[kind];
+      if(!options)continue;
+      const key=`${p.x},${p.y},${p.z}`,row=element('label','monkey-slot-row');
+      row.dataset.tip='Which slots it fills in this machine: Automatic puts fuel in the fuel slot and the rest in the input; or choose one.';
+      row.append(element('span','',`↳ ${getBlockDef(this.blockAt(p)).name} at ${p.x}, ${p.y}, ${p.z}`));
+      const select=element('select','');
+      for(const mode of options){const o=element('option','',SLOT_MODES[mode]);o.value=mode;select.append(o);}
+      select.value=d.destSlots[key]??'auto';
+      select.onchange=()=>{if(select.value==='auto')delete d.destSlots[key];else d.destSlots[key]=select.value;this.saveDraft();};
+      row.append(select);rows.push(row);
+    }
+    return rows;
   }
   quarryOptions() {
     const q=this.draft.quarry,box=element('div','monkey-options');
@@ -235,6 +301,11 @@ export class MonkeyScreen {
     for(const field of [...monkeyFields(d),'home']) {
       const info=MONKEY_FIELDS[field],value=d[field];
       for(const pos of info.list?value:value?[value]:[])out.push({pos,color:info.color});
+    }
+    // A guard's patrol route: lines from point to point and back to the first.
+    if(d.role==='guard'&&d.waypoints.length>1) {
+      const top=p=>({x:p.x+0.5,y:p.y+1.05,z:p.z+0.5});
+      d.waypoints.forEach((p,i)=>out.push({line:[top(p),top(d.waypoints[(i+1)%d.waypoints.length])],color:MONKEY_FIELDS.waypoints.color}));
     }
     // The whole area it will dig or farm, as one faint box.
     const cells=d.role==='quarry'&&d.quarry.shape!=='blocks'?quarryCells(d):d.role==='farmer'&&d.cornerA&&d.cornerB?[d.cornerA,d.cornerB]:[];

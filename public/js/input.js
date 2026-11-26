@@ -80,8 +80,9 @@ export class Input {
     document.addEventListener('pointerlockerror', () => this.onLockChange?.(false));
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
-      this.yaw -= e.movementX * MOUSE_SENSITIVITY;
-      this.pitch -= e.movementY * MOUSE_SENSITIVITY;
+      // lookScale slows the mouse while zoomed in (spyglass).
+      this.yaw -= e.movementX * MOUSE_SENSITIVITY * (this.lookScale ?? 1);
+      this.pitch -= e.movementY * MOUSE_SENSITIVITY * (this.lookScale ?? 1);
       this.clampPitch();
     });
   }

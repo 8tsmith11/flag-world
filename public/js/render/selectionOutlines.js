@@ -29,9 +29,19 @@ export class SelectionOutlines {
     const key = list ? JSON.stringify(list) : '';
     if (key === this.key) return;
     this.key = key;
+    for (const child of this.group.children) if (child.geometry !== EDGES) child.geometry.dispose();
     this.group.clear();
-    for (const { pos, box, color } of list ?? []) {
-      const line = new THREE.LineSegments(EDGES, box ? this.boxMaterial : this.material(color));
+    for (const { pos, box, color, line: segment, solid } of list ?? []) {
+      // A route line between two points (a guard's patrol).
+      if (segment) {
+        const geometry = new THREE.BufferGeometry().setFromPoints(segment.map(({ x, y, z }) => new THREE.Vector3(x, y, z)));
+        const route = new THREE.Line(geometry, this.material(color));
+        route.renderOrder = 10;
+        this.group.add(route);
+        continue;
+      }
+      // A box is faint white, unless it asks for its own color (solid).
+      const line = new THREE.LineSegments(EDGES, box && !solid ? this.boxMaterial : this.material(color));
       if (box) {
         line.scale.set((box.x1 - box.x0 + 1) / 1.04, (box.y1 - box.y0 + 1) / 1.04, (box.z1 - box.z0 + 1) / 1.04);
         line.position.set((box.x0 + box.x1 + 1) / 2, (box.y0 + box.y1 + 1) / 2, (box.z0 + box.z1 + 1) / 2);
