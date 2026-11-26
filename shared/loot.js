@@ -54,7 +54,9 @@ const lootGear = (rareWeight) => [ropeBundles, ...uncommonGear, ...rareWeapons(r
 export const LOOT_TABLES = {
   looseChest: { rolls: [2, 3], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
   looseChestCentral: { rolls: [4, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
-  tinyIsland: { rolls: [2, 4], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(4), riftOrb, ...lootGear(1)] },
+  // Out-of-the-way tiny islands pay for the trip: iron, iron gear, accessories.
+  tinyIsland: { rolls: [4, 6], entries: [...supplies, ...usefulGear, ...ironGear(2, 0.4),
+    { item: ITEM.IRON_INGOT, weight: 12, min: 2, max: 6 }, goldenBeef(3), ...accessoryEntries(5), riftOrb, ...lootGear(4)] },
   house: { rolls: [2, 4], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
   houseCentral: { rolls: [4, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
   tower: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },

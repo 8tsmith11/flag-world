@@ -17,8 +17,8 @@ export const CHUNK_SIZE = 16;
 // meshed, and fog hides the edge. Players can change it within the range.
 // The minimum shows the fire and ice islands from every team island on a
 // Small world (their near edge is up to ~195 blocks away).
-export const VIEW_DISTANCE = 208;
-export const VIEW_DISTANCE_MIN = 208;
+export const VIEW_DISTANCE = 200;
+export const VIEW_DISTANCE_MIN = 200;
 export const VIEW_DISTANCE_MAX = 320;
 // Full-height simulation columns near players; all team islands stay active.
 export const CHUNK_LOADING = { simulationDistance: 8, teamMargin: 16 };
@@ -357,7 +357,7 @@ export const METALS = {
   blockIds: { copperOre: 122, tinOre: 123, alloyFurnace: [124, 125, 126, 127] },
   itemIds: { copperIngot: 311, tinIngot: 312, bronzeIngot: 313, bronzeHammer: 314, bronzeArmor: 315,
     bronzeSword: 319 },
-  ore: { team: { copper: 0.35, tin: 0.04, iron: 0 }, tiny: { copper: 0, tin: 0.4, iron: 0.04 },
+  ore: { team: { copper: 0.35, tin: 0.04, iron: 0 }, tiny: { copper: 0.1, tin: 0.35, iron: 0.35 },
     center: { copper: 0.4, tin: 0.45, iron: 0.15 } },
   hardness: { copperOre: 3, tinOre: 3, ironOre: 4, ironTierBlocks: 5 },
   hammer: { bronzeStrength: 4, bronzeSpeed: 1.75, ironStrength: 5 },

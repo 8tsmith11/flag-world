@@ -119,7 +119,7 @@ is a Lava Bucket; it places lava source 136. Historic and reserved IDs remain in
 
 Block 122 is copper ore and 123 is tin ore (both hardness 3). Team islands
 contain common copper and rare tin, with no iron. Tiny island stone contains
-common tin and a little iron. The central island contains all three at higher
+the most iron (as much as tin) and some copper, so they're worth the trip. The central island contains all three at higher
 densities. The weights and assigned ids are in `METALS` in `shared/config.js`.
 
 **ItemStack** — `{ item, count, mods? }`. `mods`, only on weapons, tools,
@@ -1352,8 +1352,8 @@ than 30 blocks under the lowest main island's underside. Spacing between
 islands and the keep buffer are as before.
 
 Each tiny island holds at most one of: a dragon roost (radius 8 and up, 12%
-chance, at most 1 / 2 / 4 per world by size), else a loose chest (40%,
-`tinyIsland` loot), else nothing. A roost is a rough ring of logs and stone
+chance, at most 1 / 2 / 4 per world by size), else a loose chest (70%,
+`tinyIsland` loot: iron, iron gear and accessories, richer than other loose chests), else nothing. A roost is a rough ring of logs and stone
 on the surface with scorched earth inside and around it, and one chest in the
 nest (`roost` loot: iron gear, accessories, Golden Beef, Rift Orbs, often
 modded). Its dragon is leashed to the island (radius + 20).
