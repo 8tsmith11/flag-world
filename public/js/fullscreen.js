@@ -11,16 +11,20 @@ export async function enterFullscreen() {
 }
 export class MatchFullscreen {
   constructor(input) {
-    this.input=input;this.active=false;this.required=false;this.overlay=document.getElementById('fullscreen-return');
+    this.input=input;this.active=false;this.required=false;
     this.beforeUnload=event=>{event.preventDefault();event.returnValue='';};
     document.addEventListener('fullscreenchange',()=>this.changed());
-    this.overlay.addEventListener('click',async()=>{if(await enterFullscreen())this.onResume?.();});
+    // Leaving fullscreen opens the ordinary pause menu (onExit), and resuming
+    // re-enters fullscreen; there is no separate fullscreen screen.
     document.addEventListener('keydown',event=>{
       if(this.active&&(event.ctrlKey||event.metaKey)&&['KeyW','KeyN','KeyT','KeyR'].includes(event.code))event.preventDefault();
     });
   }
-  get paused(){return this.active&&this.required&&!document.fullscreenElement;}
+  get paused(){return false;}
+  // Fullscreen was left during the match: the next resume should go back in.
+  get wanted(){return this.active&&this.required&&!document.fullscreenElement;}
   start(){this.active=true;this.required=!!document.fullscreenElement;window.addEventListener('beforeunload',this.beforeUnload);this.changed();}
   stop(){this.active=false;window.removeEventListener('beforeunload',this.beforeUnload);navigator.keyboard?.unlock?.();this.changed();}
-  changed(){if(this.active&&document.fullscreenElement)this.required=true;this.overlay.classList.toggle('hidden',!this.paused);if(this.paused){this.input.release();document.exitPointerLock();}}
+  changed(){if(this.active&&document.fullscreenElement)this.required=true;
+    if(this.wanted){this.input.release();document.exitPointerLock();this.onExit?.();}}
 }

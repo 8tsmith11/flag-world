@@ -1484,7 +1484,9 @@ loaded chunks, and refloods only the bounded region affected by an edit.
 Time of day changes a skylight shader uniform and never dirties chunk meshes.
 
 Play enters fullscreen before setting ready or starting/reclaiming a match.
-Leaving fullscreen suspends input until the return overlay is clicked. A match
+Esc always opens the pause menu (with Keyboard Lock active, the client
+releases the mouse itself). Leaving fullscreen also opens the pause menu, and
+clicking to resume re-enters fullscreen. A match
 also installs a `beforeunload` confirmation, removed at match end/disconnection.
 Keyboard Lock is requested when supported; it requires a secure context
 (localhost or HTTPS), so ordinary HTTP LAN clients cannot capture browser

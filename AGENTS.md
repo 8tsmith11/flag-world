@@ -312,7 +312,8 @@ PROTOCOL.md                  WebSocket message reference
   after a gesture and fades it when loading finishes. Its volume is remembered.
   Source/license and normalization are in `ASSETS.md`.
 - `public/js/fullscreen.js` handles fullscreen, optional Keyboard Lock,
-  paused input and close confirmation. Keyboard Lock requires localhost/HTTPS;
+  re-entering it on resume (leaving it just opens the pause menu) and close
+  confirmation. Keyboard Lock requires localhost/HTTPS;
   ordinary HTTP LAN clients retain the browser's shortcut restrictions.
 - `render/capture.js` downloads the current view after host-authorized
   `captureLobby`; it does not enable preserveDrawingBuffer for normal frames.

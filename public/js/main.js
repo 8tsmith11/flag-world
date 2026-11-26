@@ -44,7 +44,7 @@ import { GrappleLine } from './render/grappleLine.js';
 import { TurretRenderer } from './render/turretRenderer.js';
 import { QuarryEffects } from './render/quarryEffects.js';
 import { LobbyMusic } from './lobbyMusic.js';
-import { MatchFullscreen } from './fullscreen.js';
+import { MatchFullscreen, enterFullscreen } from './fullscreen.js';
 import { downloadLobbyView } from './render/capture.js';
 import { Sounds } from './sounds.js';
 import { AudioSettings } from './audioSettings.js';
@@ -118,6 +118,8 @@ const music=new LobbyMusic(audioSettings);
 const battleMusic = new BattleMusic(audioSettings);
 const fullscreen=new MatchFullscreen(input);
 fullscreen.onResume=()=>{if(lockable())input.requestLock();};
+// Leaving fullscreen opens the pause menu.
+fullscreen.onExit=()=>{if(lockable()&&!loading&&currentScreen===null)showScreen('overlay');};
 document.addEventListener('pointerdown', () => sounds.unlock());
 const flags = new FlagRenderer(scene, entities);
 const highlight = new BlockHighlight(scene);
@@ -275,7 +277,9 @@ function resume() {
   if (inventoryScreen.open) { inventoryScreen.hide(true); }
   if (monkeyScreen.open || monkeyScreen.worldGame) monkeyScreen.close(false);
   showScreen(null);
-  input.requestLock();
+  // Back into fullscreen if it was left (this click is the gesture it needs).
+  if (fullscreen.wanted) enterFullscreen().finally(() => { if (lockable()) input.requestLock(); });
+  else input.requestLock();
 }
 
 overlay.addEventListener('click', resume);
@@ -302,6 +306,9 @@ input.onKey = (code) => {
   if (code === 'KeyE' && mode === MODE.PLAY && !monkeyScreen.picking) openInventory('inventory', null);
 };
 window.addEventListener('keydown', e => {
+  // With Keyboard Lock (localhost/HTTPS fullscreen) a quick Esc reaches the
+  // page instead of releasing the mouse: release it here, which opens the menu.
+  if (e.code === 'Escape' && input.locked && !e.repeat) document.exitPointerLock();
   if (e.code === 'Escape' && monkeyScreen.picking) { e.preventDefault(); monkeyScreen.finishPick(); }
   else if (e.code === 'Escape' && monkeyScreen.worldGame) monkeyScreen.close(false);
 });

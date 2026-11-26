@@ -1169,8 +1169,6 @@ body.loading-world #settings, body.loading-world #overlay .hint, body.loading-wo
 body.loading-world #overlay { background: transparent; cursor: default; }
 body.loading-world #status { font-size: 1.65em; }
 #world-loading-progress { width: min(360px, 75vw); height: 16px; accent-color: #e5b981; }
-#fullscreen-return { z-index: 100; background: rgba(5, 7, 15, 0.8); }
-#fullscreen-return button { font: inherit; color: white; padding: 20px 30px; border: 1px solid #c5b99d; border-radius: 8px; background: #242b3d; cursor: pointer; }
 #lobby .settings input[type="range"] { width: 10em; }
 #dragon-lord-health { position:fixed; left:50%; top:24px; transform:translateX(-50%);
   width:min(520px,70vw); z-index:15; text-align:center; pointer-events:none;
