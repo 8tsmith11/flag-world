@@ -34,9 +34,10 @@ export class MachineBase {
 export class FluidTank extends MachineBase {
   constructor() { super('tank', 0, []); }
   view() {
-    const group=this.fluidNode?.tank;
-    return { ...super.view(), fluid: group?.fluid ?? null, amount: group?.amount ?? 0,
-      capacity: group?.capacity ?? FLUID.tankCapacity };
+    const group=this.fluidNode?.tank, amount=group?.amount ?? 0;
+    return { ...super.view(), fluid: group?.fluid ?? null, amount,
+      capacity: group?.capacity ?? FLUID.tankCapacity,
+      status: amount > 0 ? `Storing ${group.fluid}` : 'Empty: pipe water or steam in' };
   }
 }
 
@@ -74,9 +75,18 @@ export class Boiler extends MachineBase {
     this.dirty=true;
     return this.burn!==before;
   }
+  // Why it is or isn't making steam, in words (canOutput: a pipe takes steam).
+  status() {
+    if (this.lit) return 'Operating';
+    const step = FLUID.boilerPerSecond / TICK_RATE;
+    if (this.water + 1e-9 < step) return 'Missing water: pump water in through a bronze pipe';
+    if (this.steam + step > FLUID.boilerSteamBuffer) return 'Steam full: connect a pipe to a machine that uses steam';
+    if (!this.slots[0] && this.burn <= 0) return 'Missing fuel: add charcoal, wood or a lava bucket';
+    return 'Idle';
+  }
   view() { return { ...super.view(), burn:this.burnTotal?this.burn/this.burnTotal:0,
     water:this.water, steam:this.steam, waterCapacity:FLUID.boilerWaterBuffer,
-    steamCapacity:FLUID.boilerSteamBuffer };
+    steamCapacity:FLUID.boilerSteamBuffer, status:this.status() };
   }
 }
 
@@ -110,5 +120,16 @@ export class Crusher extends MachineBase {
     this.dirty ||= this.progress!==before||priorReceived!==this.lastReceived;
     return this.dirty;
   }
-  view() { return { ...super.view(), progress:this.progress, steamReceived:this.lastReceived*TICK_RATE }; }
+  status() {
+    const out=this.slots[1],r=this.recipe();
+    if(!this.slots[0])return 'Idle: add stone or ore to crush';
+    if(!r)return 'Invalid recipe: that can\'t be crushed';
+    if(out&&(out.item!==r.item||out.count+r.count>maxStack(r.item)))return 'Output full: take out the output';
+    const needed=FLUID.crusherPerSecond/TICK_RATE;
+    if(this.lastReceived<=1e-9)return 'Insufficient steam: connect a boiler with a bronze pipe';
+    if(this.lastReceived+1e-9<needed)return 'Insufficient steam: running slowly';
+    return 'Operating';
+  }
+  view() { return { ...super.view(), progress:this.progress, steamReceived:this.lastReceived*TICK_RATE,
+    steamNeeded:FLUID.crusherPerSecond, status:this.status() }; }
 }

@@ -69,6 +69,8 @@ import { configurableFluidFaces, chosenPipeFace } from '../shared/fluidFaces.js'
 import { EntityInterest } from './entityInterest.js';
 import { MonkeyWorkers, WorkMonkey } from './monkeyWorkers.js';
 import { teamArrowTargets } from './hostility.js';
+import { MerchantSystem, SkyMerchant } from './merchants.js';
+import { QuestBook } from './quests.js';
 import { ChunkLoading } from './chunkLoading.js';
 import { TurretController } from './turrets.js';
 import { turretType } from '../shared/turrets.js';
@@ -297,6 +299,12 @@ export class Game {
       case C2S.MONKEY_ACTION:
         if(session.player)this.monkeys?.action(session.player,msg);
         break;
+      case C2S.MERCHANT_ACTION:
+        if (session.player) this.merchants?.action(session.player, msg);
+        break;
+      case C2S.QUEST_ACTION:
+        if (session.player) this.quests?.action(session.player, msg);
+        break;
       case C2S.SAVE_GAME:
         // Any match player can save now (the same file autosaves overwrite).
         if (session.player && this.tick - (this.lastManualSave ?? -Infinity) >= TICK_RATE * 2) {
@@ -359,7 +367,11 @@ export class Game {
         Math.round(value / CREATIVE_SPEED.step) * CREATIVE_SPEED.step));
     }
     else if (action === 'setDay' || action === 'setNight') {
-      const target = action === 'setDay' ? 0.25 : 0.75;
+      // Forward to the next noon or midnight, so the day count (merchant
+      // visits and stock) keeps running forward.
+      const now = DAY_START + this.dayOffset + this.tick / (DAY_LENGTH * TICK_RATE);
+      let target = Math.floor(now) + (action === 'setDay' ? 0.25 : 0.75);
+      if (target <= now) target++;
       this.dayOffset = target - DAY_START - this.tick / (DAY_LENGTH * TICK_RATE);
       this.broadcast({ type: S2C.DAY_TIME, dayTime: this.dayTime(), tick: this.tick });
     } else return;
@@ -469,6 +481,8 @@ export class Game {
     this.lava = new LavaSimulation(this.world, this.chunkLoading);
     this.waterFreeze = new Map();
     this.monkeys = new MonkeyWorkers(this);
+    this.merchants = new MerchantSystem(this);
+    this.quests = new QuestBook(this);
     this.leafDecay = new LeafDecay(this.world, (x, y, z, id) => {
       if (id === BLOCK.LEAVES && Math.random() < TREE_SETTINGS.decaySaplingChance) this.dropAt(ITEM.TREE_SEED, x, y, z);
     }, this.chunkLoading);
@@ -495,6 +509,7 @@ export class Game {
         this.garrison?.construction?.changed(x, y, z);
       }
       this.monkeys?.changed(x,y,z);
+      if (oldId === BLOCK.MERCHANT_DEPOT && id !== oldId) this.merchants?.depotRemoved(x, y, z);
       this.water.enqueueAround(x, y, z);
       this.lava.enqueueAround(x, y, z);
       const iceIsland=this.world.specialIslands?.ice;
@@ -523,6 +538,7 @@ export class Game {
       this.world.tileEntities.set(key, new Chest(table));
     }
     if (save) this.loadWorldChanges(save);
+    if (save) { this.merchants.load(save.merchants); this.quests.load(save.quests); this.teamProgress.load(save.teamProgress); }
 
     const teamFlags = new Map();
     if (save) this.loadPlayers(save, occupiedTeams, teamFlags);
@@ -600,6 +616,7 @@ export class Game {
       const container = data.kind === 'chest' ? new Chest() : createContainer(data.kind);
       if (!container) continue;
       Object.assign(container, data);
+      container.migrate?.();
       container.dirty = true;
       w.tileEntities.set(key, container);
     }
@@ -716,6 +733,7 @@ export class Game {
       if (config) { m.config = config; m.revision = data.revision; }
       m.inventory.slots = data.slots.map(restore); m.gear = data.gear.map(restore);
       m.status = m.team === null ? 'Wild' : 'Ready';
+      if (data.baby) { m.baby = true; m.growAt = this.tick + (data.growTicks ?? 0); m.status = 'Growing up'; }
       this.npcs.set(m.id, m);
     }
     for (const e of save.items) this.spawnItem(e.item, e.count, e.x, e.y, e.z, 0, 0, 0, 0, e.mods);
@@ -797,8 +815,10 @@ export class Game {
       litBoilers: [...this.world.tileEntities].filter(([, c]) => c.kind === 'boiler' && c.lit)
         .map(([key]) => { const [x,y,z]=key.split(',').map(Number);return {x,y,z}; }),
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
-      entities: [...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
+      entities: [...[...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
         ...this.mobs.values(), ...this.npcs.values()].map((e) => ({ ...e.describe(), loaded: this.chunkLoading.has(e.state.x, e.state.z) })),
+        ...[...this.merchants.ships.values()].map((ship) => ship.describe())],
+      merchants: this.merchants.message().merchants,
       inventory: player.inventory,
       teamObtained: [...this.teamProgress.of(player.team).obtained],
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
@@ -1120,6 +1140,7 @@ export class Game {
     // What goes where: [x, y, z, block id] for each cell.
     let cells;
     let lift = false;
+    let depotFacing = null;
     if (def.places === 'torch') {
       if (pos.ny !== 1 && (pos.ny !== 0 || Math.abs(pos.nx) + Math.abs(pos.nz) !== 1)) return;
       if (!isSupport(this.world.getBlock(pos.x - pos.nx, pos.y - pos.ny, pos.z - pos.nz))) return;
@@ -1169,6 +1190,15 @@ export class Game {
       const reinforced = def.places === 'reinforcedDoor';
       cells = [[pos.x, pos.y, pos.z, doorBlock(facing, false, false, reinforced)],
         [pos.x, pos.y + 1, pos.z, doorBlock(facing, false, true, reinforced)]];
+    } else if (def.block === BLOCK.MERCHANT_DEPOT) {
+      // One per team, on its own island's far edge with a clear dock
+      // (server/merchants.js, shared/merchant.js).
+      const site = this.merchants.canPlaceDepot(player, pos);
+      if (!site.ok) { this.send(player, { type: S2C.NOTICE, text: site.reason, kind: 'danger' }); return; }
+      if (this.playerIn(pos.x, pos.y, pos.z)) return;
+      if (!NEIGHBOURS.some(([dx, dy, dz]) => isSolid(this.world.getBlock(pos.x + dx, pos.y + dy, pos.z + dz)))) return;
+      cells = [[pos.x, pos.y, pos.z, BLOCK.MERCHANT_DEPOT]];
+      depotFacing = site.facing;
     } else {
       if (turretType(def.block) && (this.world.getBlock(pos.x, pos.y + 1, pos.z) !== BLOCK.AIR
         || !this.buildable(pos.x, pos.y + 1, pos.z)
@@ -1209,6 +1239,7 @@ export class Game {
       if (container) { this.world.tileEntities.set(`${x},${y},${z}`, container);this.fluids.attach(x,y,z,container); }
     }
     if (turretType(def.block)) this.turretController.place(pos.x, pos.y, pos.z, def.block, player.team);
+    if (depotFacing !== null) this.merchants.depotPlaced(player.team, pos, depotFacing);
     player.inventoryDirty = true;
     this.swing(player);
   }
@@ -1944,6 +1975,7 @@ export class Game {
     if (attacker instanceof Player) mob.provocation?.provoke(attacker, this.tick);
     if (mob.goblin) this.garrison.damaged(mob, attacker);
     if (mob.hp > 0) return;
+    this.teamProgress.event(attacker?.team, mob.goblin ? 'kill:goblin' : mob instanceof Crawler ? 'kill:crawler' : 'kill:eel');
     if (mob instanceof Crawler) {
       const silk = CRAWLER_DROPS.silk[0] + Math.floor(Math.random() * (CRAWLER_DROPS.silk[1] - CRAWLER_DROPS.silk[0] + 1));
       if (silk > 0) this.spawnItem(ITEM.SILK, silk, mob.state.x, mob.state.y + 0.3, mob.state.z,
@@ -1974,6 +2006,7 @@ export class Game {
     this.broadcast({ type: S2C.DAMAGE, id: dragon.id, attackerId: attacker?.id ?? null, hp: dragon.hp });
     if (attacker instanceof Player) dragon.provocation.provoke(attacker, this.tick);
     if (dragon.hp > 0) return;
+    this.teamProgress.event(attacker?.team, 'kill:dragon');
     dragon.dead = true;
     this.dragons.delete(dragon.id);
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: dragon.id });
@@ -2021,15 +2054,20 @@ export class Game {
     // LATER UPDATE: Ancient Monkeys are not damageable yet (see shared/npcs.js).
     if (npc.dead || !npc.damageable) return;
     if (npc instanceof WorkMonkey) {
-      // A team's own players can't hurt its monkeys; armor softens hits.
-      if (attacker instanceof Player && npc.team !== null && attacker.team === npc.team) return;
+      // A team's own players and monkeys can't hurt its monkeys; armor softens hits.
+      if (attacker && npc.team !== null && attacker.team === npc.team) return;
       amount = amount * 10 / (10 + npc.armorPoints());
+      // A guard turns on whoever hurt it (if they count as hostile).
+      if (attacker?.state && attacker !== npc) npc.provoker = attacker;
     }
+    // His own team can't hurt its Sky Merchant.
+    if (npc instanceof SkyMerchant && attacker && attacker.team === npc.team) return;
     npc.hp = Math.max(0, npc.hp - amount);
     this.broadcast({ type: S2C.DAMAGE, id: npc.id, attackerId: attacker?.id ?? null, hp: npc.hp });
     if (npc.hp > 0) return;
     npc.dead = true;
     if (npc instanceof WorkMonkey) this.monkeys.died(npc);
+    if (npc instanceof SkyMerchant) this.merchants.killed(npc, attacker);
     this.npcs.delete(npc.id);
     this.broadcast({ type: S2C.ENTITY_DESPAWN, id: npc.id });
     console.log(`${attacker?.name ?? 'Something'} killed the ${npc.name}`);
@@ -2048,6 +2086,9 @@ export class Game {
     if (gap > NPC.talkReach) return;
     player.nextTalkTick = this.tick + Math.round(NPC.talkCooldown * TICK_RATE);
     if(npc instanceof WorkMonkey){this.monkeys.open(player,npc);return;}
+    if (npc instanceof SkyMerchant) { this.merchants.talk(player, npc); return; }
+    // A team's own Wise Monkey opens its quest book as well as speaking.
+    if (npc.npc === NPC_KIND.WISE_MONKEY && npc.team === player.team) this.quests.open(player);
     const line = npcLine(npc, player, { progress: this.teamProgress.of(player.team),
       features: { stormCloud: !!this.world.stormCloud, gorgeCave: !!this.world.gorgeCave } });
     this.send(player, { type: S2C.SPEAK, id: npc.id, name: npc.name, voice: npc.def.voice, ...line });
@@ -2193,6 +2234,7 @@ export class Game {
     if (!player.creative) player.inventory.takeAll();
     player.inventoryDirty = true;
     console.log(killer ? `${killer.name} killed ${player.name} (${cause})` : `${player.name} died (${cause})`);
+    if (killer && killer.team !== player.team) this.teamProgress.event(killer.team, 'kill:player');
     this.broadcast({
       type: S2C.DEATH, id: player.id, killerId: killer?.id ?? null, killerName: killer?.name ?? null, cause, eliminated: player.eliminated,
     });
@@ -2500,6 +2542,8 @@ export class Game {
     this.updatePortals();
     this.boss?.step();
     this.updateNpcs();
+    this.merchants.update();
+    if (this.tick % TICK_RATE === 0) { this.merchants.checkViewers(); this.quests.update(); }
     this.fluids.tick(this.tick);
     this.updateContainers();
 
@@ -2532,6 +2576,8 @@ export class Game {
     const players = [...this.players.values()].map((p) => p.snapshot(this.tick));
     const ordinary = movedItems.filter(e => this.items.has(e.id) || this.arrows.has(e.id) || this.riftOrbs.has(e.id))
       .map(e => e.snapshot());
+    // Airships are few and seen from far away: every move goes to everyone.
+    ordinary.push(...this.merchants.snapshots());
     this.entityInterest.collect(this);
     const flags = [...this.flags.values()].map((f) => f.snapshot());
     const turrets = this.turretController.snapshot();
@@ -2544,6 +2590,12 @@ export class Game {
 
   send(player, msg) {
     sendTo(player.socket, msg);
+  }
+
+  // A message in the middle of the screen for one team only (lookout
+  // reports, a monkey growing up, the merchant arriving).
+  teamNotice(team, text, kind = 'info') {
+    for (const p of this.players.values()) if (p.team === team) this.send(p, { type: S2C.NOTICE, text, kind });
   }
 
   // To every connected match player, optionally skipping one.

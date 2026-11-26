@@ -739,9 +739,9 @@ export const MONKEY_DUTY = {
   lookout: { range: 40, spyglassRange: 80, cooldownSeconds: 30, scanTicks: 10 },
   craftsman: { craftTicks: 10, maxSets: 64 },
   baby: { growSeconds: 1200, scale: 0.6 },
-  // Wild monkeys in the central island's big trees: a chance per tall tree
-  // and a cap, so team and tiny islands stay the main source.
-  centralTrees: { chance: 0.04, max: 3, minHeight: 9 },
+  // Wild monkeys in the central island's big trees: 0 to max per world (on
+  // trunks at least minHeight tall), so team and tiny islands stay the main source.
+  centralTrees: { max: 3, minHeight: 9 },
 };
 
 // The Sky Merchant: daily visits by airship to each team's Merchant Depot.

@@ -5,7 +5,8 @@
 // contents, pipes and tanks, turrets, players and their inventories, flags,
 // working monkeys, NPCs, cows, dragons, Crawlers, Void Eels, dropped items,
 // the clock, goblin construction progress, the living goblins in their slots
-// and what the goblins lost for good. Only arrows in flight aren't kept.
+// and what the goblins lost for good, each team's Merchant Depot, baby monkey
+// purchases and merchant stock, and quest book progress. Only arrows in flight aren't kept.
 //
 // Files live in saves/ next to server.js, one per match (overwritten by
 // each autosave), named by when the match started and its seed.
@@ -50,8 +51,10 @@ export function serializeGame(game) {
       droppedTick: f.droppedTick })),
     monkeys: [...game.npcs.values()].filter(n => n.npc === 'workMonkey').map(m => ({
       name: m.name, team: m.team, x: m.state.x, y: m.state.y, z: m.state.z, hp: m.hp,
-      config: m.config, revision: m.revision, slots: m.inventory.slots.map(stack), gear: m.gear.map(stack) })),
-    npcs: [...game.npcs.values()].filter(n => n.npc !== 'workMonkey').map(n => ({
+      config: m.config, revision: m.revision, slots: m.inventory.slots.map(stack), gear: m.gear.map(stack),
+      ...(m.baby ? { baby: true, growTicks: Math.max(0, m.growAt - game.tick) } : {}) })),
+    // Sky Merchants arrive afresh by airship; only each team's depot, buys and stock are kept.
+    npcs: [...game.npcs.values()].filter(n => n.npc !== 'workMonkey' && n.npc !== 'skyMerchant').map(n => ({
       npc: n.npc, team: n.team, x: n.state.x, y: n.state.y, z: n.state.z, hp: n.hp, home: n.home })),
     npcKinds: [...new Set([...game.npcs.values()].map(n => n.npc))],
     cows: [...game.cows.values()].map(c => ({ x: c.state.x, y: c.state.y, z: c.state.z, hp: c.hp, herd: c.herd.id })),
@@ -64,6 +67,9 @@ export function serializeGame(game) {
       lostUnique: [...game.garrison.slots.values()].filter(s => s.unique && !s.mob && s.ready === null).map(s => s.role),
       construction: game.garrison.construction?.progress() ?? null, units: game.garrison.units() } : null,
     boss: game.boss ? { status: game.boss.status === 'dying' ? 'dead' : game.boss.status } : null,
+    merchants: game.merchants?.save() ?? [],
+    quests: game.quests?.save() ?? [],
+    teamProgress: game.teamProgress?.save() ?? [],
   };
 }
 

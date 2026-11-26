@@ -23,7 +23,7 @@ for (const island of world.islands) {
       if (index >= 0) counts[index]++;
     }
   }
-  counts.forEach((n, i) => totals[island.kind][i] += n);
+  counts.forEach((n, i) => (totals[island.kind] ??= [0, 0, 0])[i] += n);
   if (island.kind === 'team') {
     assert.ok(counts[0] > counts[1] && counts[1] > 0, `team ore mix ${counts}`);
     assert.equal(counts[2], 0, `iron on team island: ${counts}`);
@@ -56,16 +56,13 @@ for (const reversed of [false, true]) {
   alloy.slots[reversed ? 0 : 1] = { item: ITEM.TIN_INGOT, count: METALS.alloy.tin };
   alloy.insert({ item: BLOCK.PLANKS, count: 1 });
   for (let i = 0; i <= METALS.alloy.seconds * TICK_RATE; i++) alloy.tick();
-  assert.deepEqual(alloy.slots[3], { item: ITEM.BRONZE_INGOT, count: METALS.alloy.output });
-  const courier = { config: { from: {}, target: {}, filter: { mode: 'blacklist', items: [] } }, cargo: null, routes: new Map() };
-  MonkeyWorkers.prototype.courier.call({ container: () => alloy, travel: () => true }, courier);
-  assert.equal(courier.cargo?.item, ITEM.BRONZE_INGOT);
-  courier.cargo = { item: ITEM.COPPER_INGOT, count: 3 };
-  MonkeyWorkers.prototype.deliver.call({ container: () => alloy }, courier);
-  assert.equal(courier.cargo, null);
-  courier.cargo = { item: BLOCK.PLANKS, count: 1 };
-  MonkeyWorkers.prototype.deliver.call({ container: () => alloy }, courier);
-  assert.equal(alloy.slots[2]?.item, BLOCK.PLANKS);
+  assert.deepEqual(alloy.slots[4], { item: ITEM.BRONZE_INGOT, count: METALS.alloy.output });
+  // Couriers take bronze from the output and put copper, tin and fuel in.
+  const workers = Object.create(MonkeyWorkers.prototype);
+  assert.deepEqual(workers.sourceSlots(alloy), [4]);
+  assert.equal(workers.insertInto(alloy, { item: ITEM.COPPER_INGOT, count: 3 }), 3);
+  assert.equal(workers.insertInto(alloy, { item: BLOCK.PLANKS, count: 1 }), 1);
+  assert.equal(alloy.slots[3]?.item, BLOCK.PLANKS);
 }
 for (const id of ['alloy_furnace', 'bronze_hammer', 'bronze_armor', 'bronze_sword']) {
   assert.ok(RECIPES.find(r => r.id === id && r.station === 'workbench'));

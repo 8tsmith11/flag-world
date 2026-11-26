@@ -17,13 +17,16 @@ import { playerFitsAt, stepPlayer } from '../shared/physics.js';
 import { BLOCK, isSolid, isLiquid, getBlockDef, canBreak, breakTicks, blockDrops, cropAt, isMatureCrop, isCrop,
   CROPS, isDoor, isLadder } from '../shared/blocks.js';
 import { ITEM, getItemDef, registeredItemIds } from '../shared/items.js';
-import { FUEL } from '../shared/recipes.js';
+import { FUEL, SMELTING } from '../shared/recipes.js';
 import { breakingStats } from '../shared/tools.js';
 import { MONKEY_WORK as C, TICK_RATE, TICK_DT } from '../shared/config.js';
 import { NPC_KIND } from '../shared/npcs.js';
 import { MONKEY_ROLES, MONKEY_NAMES, MONKEY_FIELDS, defaultMonkeyConfig, monkeyFilter, monkeyRange,
-  quarryCells, farmBox, QUARRY_OPTIONS } from '../shared/monkeys.js';
-import { mergeInto, OUTPUT, INPUT, FUEL_SLOT } from './containers.js';
+  quarryCells, farmBox, QUARRY_OPTIONS, GATHERING_ROLES, SLOT_OPTIONS } from '../shared/monkeys.js';
+import { getRecipe } from '../shared/recipes.js';
+import { MONKEY_DUTY as D, ITEM_POP_SPEED, ITEM_PICKUP_DELAY } from '../shared/config.js';
+import { guardTick, guardPatrol, lookoutWatch } from './monkeyGuard.js';
+import { mergeInto, OUTPUT, INPUT, FUEL_SLOT, ALLOY_INPUTS, ALLOY_FUEL, ALLOY_OUTPUT, DEPOT_OUTPUTS } from './containers.js';
 import { S2C } from '../shared/protocol.js';
 import { MonkeyTaming } from './monkeyTaming.js';
 import { Inventory, clickSlot } from './inventory.js';
@@ -51,6 +54,13 @@ export class WorkMonkey extends Npc {
     this.cropMemory=new Map();this.farmScan=null;
     this.idleUntil=0;this.working=false;
     this.state.edgeGuard=true;
+    // Babies (bought from the Sky Merchant) grow up at growAt; until then
+    // they can't take a role or fight.
+    this.baby=false;this.growAt=0;
+    // Guards and lookouts: patrol progress, combat target, reports.
+    this.patrolIndex=0;this.target=null;this.nextAttack=0;this.drawTicks=0;this.reports=new Map();
+    // Arrows a monkey shoots only hit what is hostile to its team.
+    this.teamShooter=true;
   }
   step(world,players,tick) {this.lookAtNearest(players);this.manager.run(this,tick);}
   get tool() {return this.gear[TOOL];}
@@ -59,7 +69,7 @@ export class WorkMonkey extends Npc {
   take(item,count) {this.inventory.remove(item,count);}
   snapshot() {
     return {...super.snapshot(),role:this.config.role,tamed:this.team!==null,tool:this.gear[TOOL]?.item??null,
-      armor:this.gear[ARMOR]?.item??null};
+      armor:this.gear[ARMOR]?.item??null,...(this.baby?{baby:true}:{}),...(this.drawTicks?{draw:1}:{})};
   }
 }
 
@@ -80,11 +90,50 @@ export class MonkeyWorkers {
       const count=Math.max(C.minSpawns,Math.min(C.maxSpawns,Math.ceil(Math.PI*island.radius**2/C.spawnArea)));
       this.spawnOn(island,count,0.75,(x,z)=>Math.hypot(x-keep.cx,z-keep.cz)>=8);
     }
+    this.spawnInCentralTrees();
     for(const island of world.islands.filter(s=>s.kind==='tiny')) {
       if(this.random()>=C.tinyIslandChance)continue;
       const count=C.tinyIslandCount[0]+Math.floor(this.random()*(C.tinyIslandCount[1]-C.tinyIslandCount[0]+1));
       this.spawnOn(island,count,0.6,(x,z)=>![...this.game.npcs.values()].some(n=>Math.hypot(n.state.x-x-0.5,n.state.z-z-0.5)<2));
     }
+  }
+  // A baby monkey for a team (bought from the Sky Merchant) at a standing cell.
+  spawnBaby(spot,team) {
+    const m=new WorkMonkey(this.game.nextId++,this,{x:spot.x+0.5,y:spot.y,z:spot.z+0.5});
+    m.team=team;m.baby=true;m.growAt=this.game.tick+Math.round(D.baby.growSeconds*TICK_RATE);m.status='Growing up';
+    m.home={x:m.state.x,y:m.state.y,z:m.state.z,yaw:0};
+    this.game.npcs.set(m.id,m);
+    this.game.broadcast?.({type:S2C.ENTITY_SPAWN,entity:m.describe()});
+    return m;
+  }
+  // Wild monkeys up in the central island's tallest trees, now and then:
+  // never many, so team and tiny islands stay the main place to find them.
+  spawnInCentralTrees() {
+    const {world}=this.game,T=D.centralTrees,center=world.islands.find(i=>i.kind==='center');
+    if(!center)return 0;
+    const random=this.random,spots=[];
+    const r=center.radius*0.9;
+    for(let i=0;i<6000&&spots.length<T.max*20;i++) {
+      const angle=random()*Math.PI*2,d=Math.sqrt(random())*r;
+      const x=Math.floor(center.x+Math.cos(angle)*d),z=Math.floor(center.z+Math.sin(angle)*d);
+      const top=world.getSurfaceY(x,z,isSolid);
+      if(top<world.minY||world.getBlock(x,top,z)!==BLOCK.LEAVES)continue;
+      // A tall trunk under the canopy.
+      let y=top,trunk=0;
+      while(y>top-24&&world.getBlock(x,y,z)!==BLOCK.WOOD)y--;
+      while(world.getBlock(x,y,z)===BLOCK.WOOD){trunk++;y--;}
+      if(trunk<T.minHeight||!this.stand(x,top+1,z))continue;
+      if(spots.some(p=>Math.hypot(p.x-x,p.z-z)<12))continue;
+      spots.push({x,y:top+1,z});
+    }
+    // 0 to max of them, each tall tree equally likely (varies by world).
+    const count=Math.min(spots.length,Math.floor(random()*(T.max+1)));
+    for(let i=0;i<count;i++) {
+      const p=spots.splice(Math.floor(random()*spots.length),1)[0];
+      const monkey=new WorkMonkey(this.game.nextId++,this,{x:p.x+0.5,y:p.y,z:p.z+0.5});
+      monkey.treeMonkey=true;this.game.npcs.set(monkey.id,monkey);
+    }
+    return count;
   }
   spawnOn(island,count,spread,ok) {
     const {world}=this.game;let spawned=0;
@@ -126,8 +175,10 @@ export class MonkeyWorkers {
   }
   send(player,monkey,data) {this.game.send(player,{type:S2C.MONKEY,id:monkey.id,name:monkey.name,team:monkey.team,...data});}
   view(player,m,message=null) {
+    const baby=m.baby?{baby:{progress:Math.min(1,1-(m.growAt-this.game.tick)/(D.baby.growSeconds*TICK_RATE)),
+      secondsLeft:Math.max(0,Math.ceil((m.growAt-this.game.tick)/TICK_RATE))}}:{};
     this.send(player,m,{mode:'configure',editable:m.team===player.team,config:m.config,revision:m.revision,
-      slots:m.inventory.slots,gear:m.gear,hp:m.hp,maxHp:C.hp,status:m.status,...(message?{message}:{})});
+      slots:m.inventory.slots,gear:m.gear,hp:m.hp,maxHp:C.hp,status:m.status,...baby,...(message?{message}:{})});
   }
   viewAll(m) {for(const p of this.game.players.values())if(p.monkeyViewing===m.id)this.view(p,m);}
   open(player,m) {
@@ -162,6 +213,7 @@ export class MonkeyWorkers {
     }
     if(m.team!==player.team){this.view(player,m,'Only its team can configure this monkey.');return;}
     if(msg.action==='inventory') this.inventoryClick(player,m,msg);
+    else if(msg.action==='configure'&&m.baby) this.view(player,m,'It is too young to work. Wait until it grows up.');
     else if(msg.action==='configure') {
       if(msg.revision!==m.revision){this.view(player,m,'A teammate changed these settings. Review and save again.');return;}
       const config=this.parseConfig(msg.config);
@@ -173,8 +225,10 @@ export class MonkeyWorkers {
   applyConfig(m,config) {
     const was=JSON.stringify(m.config);
     m.config=config;m.revision++;
-    if(was!==JSON.stringify(config)){this.dropTask(m);m.quarry.signature=null;m.farmScan=null;m.idleUntil=0;m.badSpots.clear();}
+    if(was!==JSON.stringify(config)){this.dropTask(m);m.quarry.signature=null;m.farmScan=null;m.idleUntil=0;m.badSpots.clear();
+      m.target=null;m.patrolIndex=0;m.drawTicks=0;}
     m.status='Ready';this.viewAll(m);
+    if(config.role!=='idle')this.game.teamProgress?.event(m.team,`role:${config.role}`);
   }
   inventoryClick(player,m,msg) {
     if(player.monkeyViewing!==m.id||!Number.isInteger(msg.slot)||!['left','right'].includes(msg.button))return;
@@ -214,6 +268,7 @@ export class MonkeyWorkers {
     const {player,monkey:m}=s;
     if(result==='won') {
       m.team=player.team;m.status='Idle';
+      this.game.teamProgress?.event(player.team,'tame');
       for(const [id,other]of this.sessions)if(other.monkey===m) {
         this.sessions.delete(id);other.player.monkeyViewing=m.id;
         this.view(other.player,m,other.player.team===m.team?'Tamed for your team!':'Another team tamed this monkey.');
@@ -246,12 +301,26 @@ export class MonkeyWorkers {
       ||!['depth','radius','returnAt'].every(f=>int(q[f],QUARRY_OPTIONS[f].min,QUARRY_OPTIONS[f].max)))return null;
     const sources=this.positions(input.sources,MONKEY_FIELDS.sources.max),dests=this.positions(input.dests,MONKEY_FIELDS.dests.max);
     const sites=this.positions(input.sites,MONKEY_FIELDS.sites.max),blocks=this.positions(input.blocks,MONKEY_FIELDS.blocks.max);
-    if(!sources||!dests||!sites||!blocks)return null;
-    for(const f of ['cornerA','cornerB','home'])if(input[f]&&!this.position(input[f]))return null;
+    // Fields added later default when a saved configuration lacks them.
+    const waypoints=this.positions(input.waypoints??[],MONKEY_FIELDS.waypoints.max);
+    if(!sources||!dests||!sites||!blocks||!waypoints)return null;
+    for(const f of ['cornerA','cornerB','home','post','workbench'])if(input[f]&&!this.position(input[f]))return null;
+    if(input.collect!==undefined&&typeof input.collect!=='boolean')return null;
+    const recipe=input.recipe===null||input.recipe===undefined?null:getRecipe(input.recipe);
+    if(input.recipe!==null&&input.recipe!==undefined&&(!recipe||recipe.creative))return null;
+    // A slot choice per destination, only where that machine offers one.
+    const destSlots={};
+    if(input.destSlots!==undefined&&(typeof input.destSlots!=='object'||input.destSlots===null))return null;
+    for(const d of dests) {
+      const mode=input.destSlots?.[key(d)],options=SLOT_OPTIONS[this.container(d)?.kind];
+      if(mode&&mode!=='auto'&&options?.includes(mode))destSlots[key(d)]=mode;
+    }
     const config={role:input.role,sources,dests,blocks,home:this.position(input.home),
       cornerA:this.position(input.cornerA),cornerB:this.position(input.cornerB),
       quarry:{shape:q.shape,axis:q.axis,depth:q.depth,radius:q.radius,returnAt:q.returnAt},
-      radius:input.radius,filter:{mode:input.filter.mode,items:[...new Set(input.filter.items)]},sites:[]};
+      radius:input.radius,filter:{mode:input.filter.mode,items:[...new Set(input.filter.items)]},sites:[],
+      waypoints,post:this.position(input.post),workbench:this.position(input.workbench),recipe:recipe?.id??null,
+      collect:input.collect!==false,destSlots};
     // A soil selection marks the cell above it (where the sapling goes).
     for(const pos of sites) {
       const site=[BLOCK.GRASS,BLOCK.DIRT].includes(this.game.world.getBlock(pos.x,pos.y,pos.z))?{...pos,y:pos.y+1}:pos;
@@ -299,6 +368,15 @@ export class MonkeyWorkers {
     if(left) this.game.spawnItem(stack.item,left,m.state.x,m.state.y+1,m.state.z,0,0,0,0.5,stack.mods);
     return stack.count-left;
   }
+  // What a gathering monkey gets from a block or crop at p: kept (Collect
+  // drops on), or left on the ground there for collectors and players. With
+  // Collect drops off it still keeps the saplings or seeds it replants with.
+  gathered(m,stack,p) {
+    if(this.collects(m)){this.store(m,stack);return;}
+    const keep=Math.max(0,Math.min(stack.count,this.reserve(m,stack.item)-m.count(i=>i===stack.item)));
+    if(keep)this.store(m,{...stack,count:keep});
+    if(stack.count>keep)this.game.dropAt?.(stack.item,p.x,p.y,p.z,stack.count-keep,stack.mods??null);
+  }
   room(m) {return m.inventory.slots.some(s=>!s);}
   // Kept back from deliveries: a couple of saplings for a lumberjack, seeds
   // for a farmer's replanting.
@@ -307,12 +385,14 @@ export class MonkeyWorkers {
     if(m.config.role==='farmer'&&CROP_SEEDS.has(item))return C.seedReserve;
     return 0;
   }
-  // [{slot, stack, count}] of what it would deliver.
+  // [{slot, stack, count}] of what it would deliver. A craftsman delivers
+  // everything but its recipe's ingredients.
   deliverable(m) {
     const kept=new Map(),out=[];
+    const ingredients=m.config.role==='craftsman'?new Set(getRecipe(m.config.recipe)?.inputs.map(i=>i.item)??[]):null;
     for(let slot=0;slot<m.inventory.slots.length;slot++) {
       const stack=m.inventory.slots[slot];
-      if(!stack||!monkeyFilter(m.config,stack.item))continue;
+      if(!stack||(ingredients?ingredients.has(stack.item):!monkeyFilter(m.config,stack.item)))continue;
       const reserve=Math.max(0,this.reserve(m,stack.item)-(kept.get(stack.item)??0));
       const held=Math.min(reserve,stack.count);kept.set(stack.item,(kept.get(stack.item)??0)+held);
       if(stack.count-held>0)out.push({slot,stack,count:stack.count-held});
@@ -325,30 +405,46 @@ export class MonkeyWorkers {
     if(m.config.role==='courier'||m.config.role==='collector')return 1;
     return C.capacity;
   }
+  // The slots of container c that `item` may go into with slot mode `mode`
+  // ('auto', 'input' or 'fuel'), in the order they're filled.
+  targetSlots(c,item,mode='auto') {
+    if(c.kind==='furnace') {
+      const fuel=item in FUEL?[FUEL_SLOT]:[],input=item in SMELTING?[INPUT]:[];
+      return mode==='fuel'?fuel:mode==='input'?input:[...fuel,...input];
+    }
+    if(c.kind==='alloyFurnace') {
+      const fuel=item in FUEL?[ALLOY_FUEL]:[],input=ALLOY_INPUTS.filter(i=>c.accepts(i,item));
+      return mode==='fuel'?fuel:mode==='input'?input:[...fuel,...input];
+    }
+    return null;
+  }
   // Puts what fits of `load` into the container at p; returns the count moved.
-  insertInto(c,load) {
+  insertInto(c,load,mode='auto') {
     const before=load.count;
-    if(['alloyFurnace','boiler','crusher'].includes(c.kind)) c.insert(load);
-    else if(c.kind==='furnace') {
-      if(load.item in FUEL)mergeInto(c.slots,FUEL_SLOT,load);
-      if(load.count)mergeInto(c.slots,INPUT,load);
-    } else c.insert(load);
+    const slots=this.targetSlots(c,load.item,mode);
+    if(slots){for(const i of slots)if(load.count)mergeInto(c.slots,i,load);}
+    else c.insert(load);
     if(load.count!==before)c.dirty=true;
     return before-load.count;
   }
+  slotMode(m,p) {return m.config.destSlots?.[key(p)]??'auto';}
   // Whether the destination at p could take any of `stacks` (non-containers always can).
-  accepts(p,stacks) {
+  accepts(p,stacks,mode='auto') {
     const c=this.container(p);if(!c)return true;
     if(c.kind==='tank')return false;
     return stacks.some(({stack})=>{
-      if(c.kind==='furnace')return [FUEL_SLOT,INPUT].some(i=>!c.slots[i]||c.slots[i].item===stack.item&&c.slots[i].count<getItemDef(stack.item).maxStack);
-      return c.slots.some(s=>!s||s.item===stack.item&&!s.mods&&!stack.mods&&s.count<getItemDef(stack.item).maxStack);
+      const fits=i=>!c.slots[i]||c.slots[i].item===stack.item&&!c.slots[i].mods&&!stack.mods&&c.slots[i].count<getItemDef(stack.item).maxStack;
+      const slots=this.targetSlots(c,stack.item,mode);
+      if(slots)return slots.some(fits);
+      if(c.kind==='depot')return c.sellable(stack.item)&&c.inputSlots().some(fits);
+      if(c.rules)return c.rules.some((r,i)=>!r.takeOnly&&r.accepts(stack.item)&&fits(i));
+      return c.slots.some((_,i)=>fits(i));
     });
   }
   // Source slots a courier may take from.
   sourceSlots(c) {
-    return c.kind==='furnace'?[OUTPUT]:c.kind==='alloyFurnace'?[3]:c.kind==='crusher'?[1]
-      :c.kind==='boiler'||c.kind==='tank'?[]:c.slots.map((_,i)=>i);
+    return c.kind==='furnace'?[OUTPUT]:c.kind==='alloyFurnace'?[ALLOY_OUTPUT]:c.kind==='crusher'?[1]
+      :c.kind==='depot'?DEPOT_OUTPUTS:c.kind==='boiler'||c.kind==='tank'?[]:c.slots.map((_,i)=>i);
   }
 
   // ---- Movement ----
@@ -445,15 +541,22 @@ export class MonkeyWorkers {
       stepPlayer(s,{forward:0,strafe:0,yaw:s.yaw,pitch:0,crouch,jump:cue==='jump'&&phase===0},this.game.world);
       m.pose=crouch?'crouch':s.onGround?'ready':'jump';return;
     }
+    if(m.baby&&tick>=m.growAt){m.baby=false;m.status='Ready';this.viewAll(m);
+      this.game.teamNotice?.(m.team,`${m.name} has grown up and is ready to work!`,'monkey');}
     m.climbing=false;
-    const moved=m.path[0]?.climb?this.climbStep(m,m.path[0]):stepMobPath(m,this.game.world,C.speed);
+    // Guards fight every tick (aiming, swinging, chasing); out of a fight
+    // they patrol on think ticks like any other role.
+    const fighting=m.team!==null&&!m.baby&&m.config.role==='guard'&&guardTick(this,m,tick);
+    const moved=m.path[0]?.climb?this.climbStep(m,m.path[0]):stepMobPath(m,this.game.world,fighting?C.speed*1.35:C.speed);
     if(m.path.length&&moved<0.005) {
       if(++m.stuck>=C.stuckTicks){m.path=[];m.pathKey=null;m.stuck=0;}
     } else m.stuck=0;
     if(!m.path.length&&m.pathKey)m.arrived=true;
-    m.pose=m.climbing?'climb':m.walking?'walk':m.working?'work':m.team!==null&&m.config.role!=='idle'?'ready':'sit';
-    if(m.team===null||tick%C.thinkTicks!==m.id%C.thinkTicks)return;
+    m.pose=m.climbing?'climb':m.walking?'walk':m.working||tick<(m.swingUntil??0)?'work':m.team!==null&&m.config.role!=='idle'&&!m.baby?'ready':'sit';
+    if(m.team===null||m.baby||fighting||tick%C.thinkTicks!==m.id%C.thinkTicks)return;
     m.working=false;
+    if(m.config.role==='guard'){guardPatrol(this,m,tick);return;}
+    if(m.config.role==='lookout'){lookoutWatch(this,m,tick);return;}
     if(m.task){this.doTask(m,tick);return;}
     if(tick<m.idleUntil){this.idle(m);return;}
     const task=this.nextTask(m);
@@ -487,25 +590,28 @@ export class MonkeyWorkers {
   }
 
   // The next task, or null (with m.status saying why).
+  // Whether this monkey keeps what it gathers (Collect drops on).
+  collects(m) {return m.config.collect!==false||!GATHERING_ROLES.includes(m.config.role);}
   nextTask(m) {
     const role=m.config.role;
     if(role==='idle')return null;
-    if(!m.config.dests.length){m.status='Select a destination';return null;}
+    if(!m.config.dests.length&&this.collects(m)){m.status='Select a destination';return null;}
+    if(role==='craftsman')return this.craftsmanWork(m);
     const carried=this.carried(m);
-    if(carried&&(carried>=this.threshold(m)||!this.room(m))) {
+    if(carried&&(carried>=this.threshold(m)||!this.room(m))&&m.config.dests.length) {
       const d=this.deliveryTask(m);if(d)return d;
     }
     const work=role==='courier'?this.courierWork(m):role==='collector'?this.collectorWork(m)
       :role==='lumberjack'?this.lumberjackWork(m):role==='quarry'?this.quarryWork(m):role==='farmer'?this.farmerWork(m):null;
     if(work)return work;
-    if(carried)return this.deliveryTask(m);
+    if(carried&&m.config.dests.length)return this.deliveryTask(m);
     return null;
   }
   deliveryTask(m) {
     const stacks=this.deliverable(m),dests=m.config.dests;
     for(let i=0;i<dests.length;i++) {
       const index=(m.destIndex+i)%dests.length;
-      if(this.accepts(dests[index],stacks))return {kind:'deliver',index,at:dests[index]};
+      if(this.accepts(dests[index],stacks,this.slotMode(m,dests[index])))return {kind:'deliver',index,at:dests[index]};
     }
     m.status='Destinations are full';return null;
   }
@@ -530,7 +636,7 @@ export class MonkeyWorkers {
     const c=this.container(t.at);let moved=0;
     for(const {slot,stack,count}of this.deliverable(m)) {
       const load=cloneStack(stack,count);
-      if(c)moved+=this.insertInto(c,load);
+      if(c)moved+=this.insertInto(c,load,this.slotMode(m,t.at));
       else {this.game.spawnItem(load.item,load.count,t.at.x+0.5,t.at.y+1.15,t.at.z+0.5,0,0,0,0.5,load.mods);moved+=load.count;load.count=0;}
       stack.count-=count-load.count;
       if(!stack.count)m.inventory.slots[slot]=null;
@@ -577,7 +683,7 @@ export class MonkeyWorkers {
       if(t.progress<need)return false;
       t.progress-=need;t.cells.pop();
       w.setBlock(cell.x,cell.y,cell.z,BLOCK.AIR);
-      for(const stack of blockDrops(id,this.random))this.store(m,stack);
+      for(const stack of blockDrops(id,this.random))this.gathered(m,stack,cell);
       t.broke=(t.broke??0)+1;
       if(!this.room(m)&&this.carried(m))break;
     }
@@ -594,8 +700,96 @@ export class MonkeyWorkers {
   act_harvest(m,t) {
     const w=this.game.world,id=w.getBlock(t.at.x,t.at.y,t.at.z);
     if(!isMatureCrop(id))return true;
-    this.game.harvestCrop(t.at.x,t.at.y,t.at.z,stack=>this.store(m,stack));
+    this.game.harvestCrop(t.at.x,t.at.y,t.at.z,stack=>this.gathered(m,stack,t.at));
     m.status='Harvesting';return true;
+  }
+
+  // ---- Craftsman ----
+
+  // Whether, carrying what it has now plus k more sets of the recipe's
+  // ingredients, it could craft every complete set it then holds, keeping
+  // each output, without ever running out of room. This counts stack sizes,
+  // recipes that make several items, unstackable outputs, the room freed as
+  // ingredients are used up and anything else it already carries.
+  craftPlanFits(m,recipe,k) {
+    const inv=new Inventory(m.inventory.slots.length);
+    inv.slots=m.inventory.slots.map(s=>s&&cloneStack(s));
+    for(const {item,count}of recipe.inputs)if(inv.add(item,count*k)>0)return false;
+    let crafted=0;
+    while(inv.has(recipe.inputs)&&crafted<=D.craftsman.maxSets*4){if(!inv.craft(recipe))return false;crafted++;}
+    return crafted>0;
+  }
+  // The most sets (up to what `available` holds) it can take and finish.
+  craftSets(m,recipe,available) {
+    let k=Math.min(D.craftsman.maxSets,...recipe.inputs.map(({item,count})=>Math.floor((available.get(item)??0)/count)));
+    for(;k>0;k--)if(this.craftPlanFits(m,recipe,k))return k;
+    return 0;
+  }
+  // Plain (unmodded) ingredient counts in the source slots of container c.
+  sourceCounts(c,recipe) {
+    const want=new Set(recipe.inputs.map(i=>i.item)),counts=new Map();
+    for(const i of this.sourceSlots(c)) {
+      const s=c.slots[i];
+      if(s&&!s.mods?.length&&want.has(s.item))counts.set(s.item,(counts.get(s.item)??0)+s.count);
+    }
+    return counts;
+  }
+  craftsmanWork(m) {
+    const recipe=getRecipe(m.config.recipe),w=this.game.world,bench=m.config.workbench;
+    if(!recipe){m.status='Choose a recipe';return null;}
+    if(!bench){m.status='Select a workbench';return null;}
+    if(!m.config.sources.length){m.status='Select a source';return null;}
+    if(w.getBlock(bench.x,bench.y,bench.z)!==BLOCK.WORKBENCH){m.status='Its workbench is missing';return null;}
+    const name=getItemDef(recipe.output).name;
+    if(m.inventory.has(recipe.inputs)) {
+      const trial=new Inventory(m.inventory.slots.length);trial.slots=m.inventory.slots.map(s=>s&&cloneStack(s));
+      if(trial.craft(recipe))return {kind:'craft',at:bench,recipe,what:'its workbench',going:'Going to the workbench'};
+    }
+    if(this.carried(m)) {
+      const d=this.deliveryTask(m);if(d)return d;
+      m.status='Destination is full';return null;
+    }
+    const sources=m.config.sources;
+    for(let i=0;i<sources.length;i++) {
+      const index=(m.sourceIndex+i)%sources.length,c=this.container(sources[index]);
+      if(!c)continue;
+      if(this.craftSets(m,recipe,this.sourceCounts(c,recipe))>0)
+        return {kind:'fetchSet',at:sources[index],index,recipe,what:'a source',going:`Fetching ingredients for ${name}`};
+    }
+    m.status=m.inventory.slots.every(Boolean)?'Inventory is full':`Waiting for ingredients for ${name}`;
+    return null;
+  }
+  act_fetchSet(m,t) {
+    const c=this.container(t.at);
+    if(!c){m.status='Source is missing';return true;}
+    const k=this.craftSets(m,t.recipe,this.sourceCounts(c,t.recipe));
+    m.sourceIndex=(t.index??0)+1;
+    if(!k){m.status='Not enough ingredients';return true;}
+    for(const {item,count}of t.recipe.inputs) {
+      let want=count*k;
+      for(const i of this.sourceSlots(c)) {
+        const s=c.slots[i];
+        if(!want||!s||s.item!==item||s.mods?.length)continue;
+        const n=Math.min(want,s.count);
+        s.count-=n;want-=n;if(!s.count)c.slots[i]=null;
+        m.inventory.add(item,n);
+      }
+    }
+    c.dirty=true;
+    m.status=`Carrying ${k} set${k===1?'':'s'} of ingredients`;
+    return true;
+  }
+  // One craft per think at the workbench, through the same recipe check
+  // and inventory rules as a player's craft.
+  act_craft(m,t) {
+    const w=this.game.world,bench=t.at;
+    if(w.getBlock(bench.x,bench.y,bench.z)!==BLOCK.WORKBENCH){m.status='Its workbench is missing';return true;}
+    if(!m.inventory.has(t.recipe.inputs)||!m.inventory.craft(t.recipe))return true;
+    m.working=true;
+    this.game.teamProgress?.crafted(m.team,t.recipe.output);
+    this.game.teamProgress?.event(m.team,'monkeyCrafted');
+    m.status=`Crafting ${getItemDef(t.recipe.output).name}`;
+    return !m.inventory.has(t.recipe.inputs);
   }
 
   // ---- Roles ----

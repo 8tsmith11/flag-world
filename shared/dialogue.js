@@ -16,6 +16,8 @@ export const VOICES = {
     preferred: ['Daniel', 'Google UK English Male', 'Microsoft George', 'Microsoft David', 'Alex', 'Fred', 'Male'],
   },
   ancientMonkey: { mode: 'sound' },
+  merchant: { mode: 'speech', pitch: 1.25, rate: 1.05,
+    preferred: ['Google UK English Male', 'Daniel', 'Microsoft Ryan', 'Alex', 'Male'] },
 };
 
 // Seconds a subtitle stays up before it fades.
@@ -27,7 +29,7 @@ export function subtitleSeconds(text, sound = false) {
 
 // What a team has done, as the server tracks it (server/teamProgress.js).
 export function emptyProgress() {
-  return { obtained: new Set(), crafted: new Set(), placed: new Set() };
+  return { obtained: new Set(), crafted: new Set(), placed: new Set(), events: new Map() };
 }
 
 // Conditions are data:

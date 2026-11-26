@@ -1,7 +1,7 @@
 // Blocks with their own inventory, kept by the server as tile entities in
 // world.tileEntities ("x,y,z" -> container). Every container has:
 //   kind         the block's tileEntity type (chest, furnace, alloyFurnace,
-//                anvil, tank, boiler, or crusher)
+//                anvil, tank, boiler, crusher or depot)
 //   slots        its stacks (null = empty)
 //   click()      an inventory-screen click on one of its slots
 //   insert()     shift-click from the player's inventory: take what fits
@@ -11,13 +11,14 @@
 // Any number of players can have one open; every click goes through the
 // server one at a time, so two players can never take the same items.
 
-import { TICK_RATE, SMELT_TIME, METALS } from '../shared/config.js';
+import { TICK_RATE, SMELT_TIME, METALS, MERCHANT } from '../shared/config.js';
 import { SMELTING, FUEL } from '../shared/recipes.js';
 import { ITEM } from '../shared/itemIds.js';
 import { clickSlot, maxStack } from './inventory.js';
 import { rollLoot } from '../shared/loot.js';
 import { canHaveMods, rollMods, sameKind } from '../shared/modifiers.js';
 import { FluidTank, Boiler, Crusher } from './machines.js';
+import { metalOf } from '../shared/merchant.js';
 
 // Moves as much of `stack` as fits into slots[index] (empty, or the same item
 // with room). Returns whether anything moved.
@@ -157,6 +158,17 @@ export class Furnace {
     return false;
   }
 
+  // Why it is or isn't smelting, in words.
+  status() {
+    const input = this.slots[INPUT], output = this.slots[OUTPUT];
+    if (this.burn > 0 && this.canSmelt()) return 'Operating';
+    if (!input) return this.burn > 0 ? 'Missing materials (still burning)' : 'Idle: add something to smelt';
+    if (!(input.item in SMELTING)) return 'Invalid recipe: that can\'t be smelted';
+    if (output && (output.item !== SMELTING[input.item] || output.count >= maxStack(output.item)))
+      return 'Output full: take out what\'s in the output slot';
+    return 'Missing fuel: add charcoal, wood, planks or a lava bucket';
+  }
+
   // Fuel left (0-1) and smelt progress (0-1) as well as the slots.
   view() {
     return {
@@ -164,6 +176,7 @@ export class Furnace {
       slots: this.slots,
       burn: this.burnTotal ? this.burn / this.burnTotal : 0,
       progress: this.progress / SMELT_TICKS,
+      status: this.status(),
     };
   }
 
@@ -174,12 +187,19 @@ export class Furnace {
   }
 }
 
-// Two ingredients, one shared fuel supply and a take-only output.
-const ALLOY_FUEL = 2, ALLOY_OUTPUT = 3;
+// Alloy furnace: three ingredient slots, one fuel slot and a take-only
+// output. Ingredients are copper and tin in any form: ore, dust or ingot,
+// each worth one unit of metal (shared/merchant.js METAL_FORMS), and mixed
+// forms add up. METALS.alloy copper units + tin units make
+// METALS.alloy.output bronze ingots. Units are whole items, so nothing is
+// ever split or made from nothing; crushing ore first (two dust per ore)
+// still doubles the bronze, so the crusher stays worth it.
+export const ALLOY_INPUTS = [0, 1, 2], ALLOY_FUEL = 3, ALLOY_OUTPUT = 4;
 const ALLOY_TICKS = Math.round(METALS.alloy.seconds * TICK_RATE);
 const ALLOY_SLOTS = [
-  { accepts: item => item === ITEM.COPPER_INGOT || item === ITEM.TIN_INGOT },
-  { accepts: item => item === ITEM.COPPER_INGOT || item === ITEM.TIN_INGOT },
+  { accepts: item => metalOf(item) !== null },
+  { accepts: item => metalOf(item) !== null },
+  { accepts: item => metalOf(item) !== null },
   { accepts: item => item in FUEL },
   { takeOnly: true },
 ];
@@ -188,22 +208,46 @@ export class AlloyFurnace extends Furnace {
   constructor() {
     super();
     this.kind = 'alloyFurnace';
-    this.slots = [null, null, null, null];
+    this.slots = [null, null, null, null, null];
+  }
+
+  // Saves from before the third ingredient slot: [a, b, fuel, output].
+  migrate() {
+    if (this.slots.length === 4) this.slots = [this.slots[0], this.slots[1], null, this.slots[2], this.slots[3]];
+  }
+
+  accepts(slot, item) { return !!ALLOY_SLOTS[slot]?.accepts?.(item); }
+
+  // Copper and tin units in the ingredient slots.
+  units() {
+    const units = { copper: 0, tin: 0 };
+    for (const i of ALLOY_INPUTS) { const s = this.slots[i], metal = s && metalOf(s.item); if (metal) units[metal] += s.count; }
+    return units;
   }
 
   ingredients() {
-    const a = this.slots[0], b = this.slots[1];
-    if (!a || !b || a.item === b.item) return null;
-    const copper = a.item === ITEM.COPPER_INGOT ? a : b;
-    const tin = a.item === ITEM.TIN_INGOT ? a : b;
-    return copper.item === ITEM.COPPER_INGOT && copper.count >= METALS.alloy.copper
-      && tin.item === ITEM.TIN_INGOT && tin.count >= METALS.alloy.tin ? { copper, tin } : null;
+    const { copper, tin } = this.units();
+    return copper >= METALS.alloy.copper && tin >= METALS.alloy.tin;
+  }
+
+  outputFits() {
+    const output = this.slots[ALLOY_OUTPUT];
+    return !output || (output.item === ITEM.BRONZE_INGOT && output.count + METALS.alloy.output <= maxStack(ITEM.BRONZE_INGOT));
   }
 
   canSmelt() {
-    const output = this.slots[ALLOY_OUTPUT];
-    return !!this.ingredients() && (!output || (output.item === ITEM.BRONZE_INGOT
-      && output.count + METALS.alloy.output <= maxStack(ITEM.BRONZE_INGOT)));
+    return this.ingredients() && this.outputFits();
+  }
+
+  // Takes `count` units of `metal` from the ingredient slots, first slot first.
+  consume(metal, count) {
+    for (const i of ALLOY_INPUTS) {
+      const s = this.slots[i];
+      if (!count || !s || metalOf(s.item) !== metal) continue;
+      const n = Math.min(count, s.count);
+      s.count -= n; count -= n;
+      if (s.count === 0) this.slots[i] = null;
+    }
   }
 
   tick() {
@@ -212,16 +256,19 @@ export class AlloyFurnace extends Furnace {
     if (!this.burn && ready && this.slots[ALLOY_FUEL]) {
       const fuel = this.slots[ALLOY_FUEL];
       this.burnTotal = this.burn = FUEL[fuel.item] * ALLOY_TICKS;
+      const bucket = fuel.item === ITEM.LAVA_BUCKET;
       if (--fuel.count === 0) this.slots[ALLOY_FUEL] = null;
+      if (bucket) {
+        if (!this.slots[ALLOY_FUEL]) this.slots[ALLOY_FUEL] = { item: ITEM.EMPTY_BUCKET, count: 1 };
+        else (this.pendingReturns ??= []).push({ item: ITEM.EMPTY_BUCKET, count: 1 });
+      }
     }
     if (this.burn > 0) {
       this.burn--;
       if (ready && ++this.progress >= ALLOY_TICKS) {
         this.progress = 0;
-        const { copper, tin } = this.ingredients();
-        copper.count -= METALS.alloy.copper;
-        tin.count -= METALS.alloy.tin;
-        for (let i = 0; i < 2; i++) if (this.slots[i]?.count === 0) this.slots[i] = null;
+        this.consume('copper', METALS.alloy.copper);
+        this.consume('tin', METALS.alloy.tin);
         if (this.slots[ALLOY_OUTPUT]) this.slots[ALLOY_OUTPUT].count += METALS.alloy.output;
         else this.slots[ALLOY_OUTPUT] = { item: ITEM.BRONZE_INGOT, count: METALS.alloy.output };
         return true;
@@ -235,17 +282,125 @@ export class AlloyFurnace extends Furnace {
     return clickSlot(this.slots, slot, holder, button, ALLOY_SLOTS[slot]);
   }
 
+  // Fuel to the fuel slot; copper or tin onto a matching stack, else an empty slot.
   insert(stack) {
     if (stack.item in FUEL && mergeInto(this.slots, ALLOY_FUEL, stack)) return true;
-    if (stack.item !== ITEM.COPPER_INGOT && stack.item !== ITEM.TIN_INGOT) return false;
-    for (let i = 0; i < 2; i++) if ((!this.slots[i] || this.slots[i].item === stack.item)
-      && mergeInto(this.slots, i, stack)) return true;
-    return false;
+    if (metalOf(stack.item) === null) return false;
+    let moved = false;
+    for (const i of ALLOY_INPUTS) if (this.slots[i]?.item === stack.item && stack.count) moved = mergeInto(this.slots, i, stack) || moved;
+    for (const i of ALLOY_INPUTS) if (!this.slots[i] && stack.count) moved = mergeInto(this.slots, i, stack) || moved;
+    return moved;
+  }
+
+  status() {
+    const { copper, tin } = this.units();
+    if (this.burn > 0 && this.canSmelt()) return 'Operating';
+    if (!copper && !tin) return this.slots[ALLOY_FUEL] ? 'Idle: add copper and tin' : 'Idle';
+    if (copper < METALS.alloy.copper || tin < METALS.alloy.tin) {
+      const need = [copper < METALS.alloy.copper && `${METALS.alloy.copper - copper} more copper`,
+        tin < METALS.alloy.tin && `${METALS.alloy.tin - tin} more tin`].filter(Boolean);
+      return `Missing materials: needs ${need.join(' and ')}`;
+    }
+    if (!this.outputFits()) return 'Output full: take out the bronze';
+    return 'Missing fuel';
   }
 
   view() {
-    return { kind: this.kind, slots: this.slots,
+    const units = this.units();
+    return { kind: this.kind, slots: this.slots, copper: units.copper, tin: units.tin, status: this.status(),
       burn: this.burnTotal ? this.burn / this.burnTotal : 0, progress: this.progress / ALLOY_TICKS };
+  }
+
+  takeAll() {
+    const stacks = this.slots.filter(Boolean);
+    this.slots.fill(null);
+    return stacks;
+  }
+}
+
+// Merchant Depot: selling slots (any item the merchant buys) and take-only
+// coin slots. While the team's merchant is docked, server/merchants.js
+// sells one batch every MERCHANT.sellTicks (the merchant's batch size, e.g.
+// 8 wood for a coin) and puts the coins in the coin slots; a batch is only
+// sold when all its coins fit. Items he doesn't buy can't go in.
+export const DEPOT_INPUTS = Array.from({ length: MERCHANT.depotInput }, (_, i) => i);
+export const DEPOT_OUTPUTS = Array.from({ length: MERCHANT.depotOutput }, (_, i) => MERCHANT.depotInput + i);
+let depotOffers = [];
+// The merchant's buy list for this match (set by server/merchants.js).
+export function setDepotOffers(list) { depotOffers = list; }
+
+export class Depot {
+  constructor() {
+    this.kind = 'depot';
+    this.slots = new Array(MERCHANT.depotInput + MERCHANT.depotOutput).fill(null);
+    // Whether the team's merchant is docked (kept up to date by the merchant system).
+    this.present = false;
+    this.team = null;
+    this.sold = 0;
+  }
+
+  offer(item) { return depotOffers.find((o) => o.item === item) ?? null; }
+  sellable(item) { return !!this.offer(item); }
+  inputSlots() { return DEPOT_INPUTS; }
+
+  click(slot, button, holder) {
+    return clickSlot(this.slots, slot, holder, button,
+      slot < MERCHANT.depotInput ? { accepts: (item) => this.sellable(item) } : { takeOnly: true });
+  }
+
+  insert(stack) {
+    if (!this.sellable(stack.item) || stack.mods?.length) return false;
+    let moved = false;
+    for (const i of DEPOT_INPUTS) if (this.slots[i]?.item === stack.item && stack.count) moved = mergeInto(this.slots, i, stack) || moved;
+    for (const i of DEPOT_INPUTS) if (!this.slots[i] && stack.count) moved = mergeInto(this.slots, i, stack) || moved;
+    return moved;
+  }
+
+  // Room for this many more coins in the coin slots.
+  coinRoom() {
+    return DEPOT_OUTPUTS.reduce((n, i) => n + (!this.slots[i] ? maxStack(ITEM.GOLD_COIN)
+      : this.slots[i].item === ITEM.GOLD_COIN ? maxStack(ITEM.GOLD_COIN) - this.slots[i].count : 0), 0);
+  }
+
+  // Sells one batch of the first sellable stack that has a full batch and
+  // whose coins fit. Returns { item, count, coins } or null.
+  sellOne() {
+    const counts = new Map();
+    for (const i of DEPOT_INPUTS) { const s = this.slots[i]; if (s) counts.set(s.item, (counts.get(s.item) ?? 0) + s.count); }
+    const room = this.coinRoom();
+    for (const i of DEPOT_INPUTS) {
+      const s = this.slots[i], offer = s && this.offer(s.item);
+      if (!offer || counts.get(s.item) < offer.count || offer.coins > room) continue;
+      let left = offer.count;
+      for (const j of DEPOT_INPUTS) {
+        const t = this.slots[j];
+        if (!left || t?.item !== s.item) continue;
+        const n = Math.min(left, t.count); t.count -= n; left -= n;
+        if (!t.count) this.slots[j] = null;
+      }
+      const coins = { item: ITEM.GOLD_COIN, count: offer.coins };
+      for (const j of DEPOT_OUTPUTS) if (coins.count) mergeInto(this.slots, j, coins);
+      this.sold += offer.coins;
+      return { item: offer.item, count: offer.count, coins: offer.coins };
+    }
+    return null;
+  }
+
+  status() {
+    const goods = DEPOT_INPUTS.some((i) => this.slots[i]);
+    if (!this.present) return goods ? 'Waiting for the merchant (he docks each morning)' : 'The merchant is away';
+    if (!goods) return 'Merchant docked: put goods in the selling slots';
+    if (!this.coinRoom()) return 'Coin slots full: take out the coins';
+    const counts = new Map();
+    for (const i of DEPOT_INPUTS) { const s = this.slots[i]; if (s) counts.set(s.item, (counts.get(s.item) ?? 0) + s.count); }
+    const ready = [...counts].some(([item, n]) => n >= (this.offer(item)?.count ?? Infinity));
+    return ready ? 'Selling' : 'Not enough for a full batch yet';
+  }
+
+  tick() { return false; }
+
+  view() {
+    return { kind: this.kind, slots: this.slots, present: this.present, status: this.status(), sold: this.sold };
   }
 
   takeAll() {
@@ -305,5 +460,6 @@ export function createContainer(kind) {
   if (kind === 'crusher') return new Crusher();
   if (kind === 'chest') return new Chest();
   if (kind === 'anvil') return new Anvil();
+  if (kind === 'depot') return new Depot();
   return null;
 }

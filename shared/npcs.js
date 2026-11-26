@@ -12,7 +12,7 @@
 //   voice     - how it is heard (VOICES in dialogue.js)
 //   dialogue  - its lines (DIALOGUE_LINES in npcLines.js)
 
-import { NPC, MONKEY_WORK } from './config.js';
+import { NPC, MONKEY_WORK, MERCHANT } from './config.js';
 import { TEAMS } from './protocol.js';
 
 export const NPC_KIND = {
@@ -21,6 +21,7 @@ export const NPC_KIND = {
   ANCIENT_WATER_MONKEY: 'ancientWaterMonkey',
   ANCIENT_LIGHTNING_MONKEY: 'ancientLightningMonkey',
   ANCIENT_FIRE_MONKEY: 'ancientFireMonkey',
+  SKY_MERCHANT: 'skyMerchant',
 };
 
 export const NPC_DEFS = {
@@ -41,6 +42,11 @@ export const NPC_DEFS = {
   [NPC_KIND.ANCIENT_LIGHTNING_MONKEY]: {
     name: 'Ancient Lightning Monkey', model: 'gorilla', element: 'lightning', box: NPC.ancientMonkey.box,
     hp: null, behavior: 'restless', voice: 'ancientMonkey', dialogue: 'ancientMonkey',
+  },
+  // Arrives by airship each morning (server/merchants.js); right click to trade.
+  [NPC_KIND.SKY_MERCHANT]: {
+    name: 'Sky Merchant', model: 'octopus', box: MERCHANT.box, hp: MERCHANT.hp,
+    behavior: 'merchant', voice: 'merchant', dialogue: null,
   },
   [NPC_KIND.ANCIENT_FIRE_MONKEY]: {
     name: 'Ancient Fire Monkey', model: 'gorilla', element: 'fire', box: NPC.ancientMonkey.box,
