@@ -527,31 +527,42 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   assert.equal(steam(), 4000, 'a jog took steam'); assert.equal(deck(), 0); assert.ok(!bridge.moving);
   assert.equal(world.getBlock(mx + 1, Y, mz), BLOCK.STONE);
   world.setBlock(mx + 1, Y, mz, BLOCK.AIR);
-  // Blocked partway: it goes back to where it began (once paid, no more
-  // steam), leaving the block alone; the same for someone standing there.
+  // Blocked further out: it slides as far as the obstruction and stops
+  // there (it never goes back), leaving the block alone. Everyone sees each
+  // section slide.
   world.setBlock(mx + 3, Y, mz, BLOCK.STONE);
-  fill(); action(host, 'extend');
-  run(sectionTicks * 2 + 2);
-  assert.equal(deck(), 2); assert.ok(bridge.moving && /going back/.test(bridge.state), 'it did not turn back at the obstruction');
-  assert.match(action(host, 'extend').message ?? '', /already moving/);
+  fill(); sent.clear(); action(host, 'extend');
   run(whole);
-  assert.equal(deck(), 0, 'it did not go back to where it began'); assert.equal(bridge.state, 'Obstructed'); assert.ok(!bridge.moving);
-  assert.equal(4000 - steam(), L * DB.steamPerSection, 'going back cost more steam');
+  assert.equal(deck(), 2, 'it did not stop at the obstruction'); assert.equal(bridge.state, 'Obstructed'); assert.ok(!bridge.moving);
   assert.equal(world.getBlock(mx + 3, Y, mz), BLOCK.STONE, 'the bridge removed a block in its way');
-  assert.equal(bridge.stored, L, 'sections were lost going back');
+  for (const id of [1, 2, 3]) {
+    const slides = messages(id, S2C.DRAWBRIDGE_SLIDE);
+    assert.ok(slides.length >= 2 && slides[0].from === 0 && slides[0].to === 1 && slides[1].from === 1 && slides[1].to === 2, `player ${id} did not see the sections slide out`);
+  }
+  run(whole);
+  assert.equal(deck(), 2, 'it went back after the obstruction');
+  // Someone on the bridge isn't dropped when an enemy blocks its end mid-move.
   world.setBlock(mx + 3, Y, mz, BLOCK.AIR);
-  park(enemy, 63 + 4, 30); enemy.state.y = Y; enemy.state.x = mx + 4.5;   // standing in cell 4
+  fill(); action(host, 'retract'); run(whole);
+  park(mate, 63 + 1, 30); mate.state.y = Y + 1;
+  fill(); action(host, 'extend'); run(sectionTicks * 2 + 2);
+  world.setBlock(mx + 4, Y, mz, BLOCK.STONE);            // an enemy blocks the far end
+  run(whole);
+  assert.ok(deck() >= 3 && world.getBlock(mx + 1, Y, mz) === BLOCK.BRIDGE_DECK, 'blocking the end pulled the bridge back');
+  assert.equal(bridge.state, 'Obstructed');
+  world.setBlock(mx + 4, Y, mz, BLOCK.AIR); park(mate, 60, 2);
+  // Someone standing in the way stops it before them.
+  park(enemy, 63 + 5, 30); enemy.state.y = Y; enemy.state.x = mx + 5.5;   // standing in cell 5
   fill(); action(host, 'extend'); run(whole * 2);
-  assert.equal(deck(), 0, 'the bridge was laid into a player, or did not go back'); assert.equal(bridge.state, 'Obstructed');
+  assert.equal(deck(), 4, 'the bridge was laid into a player'); assert.equal(bridge.state, 'Obstructed');
   park(enemy, 60, 60);
-  // From part way out it goes back to that point, not all the way.
-  bridge.slots[0] = null; const spare = bridge.stored; bridge.stored = 3;
   fill(); action(host, 'extend'); run(whole);
-  assert.equal(deck(), 3); assert.equal(bridge.state, 'Missing construction materials');
-  bridge.stored = spare - 3; world.setBlock(mx + 5, Y, mz, BLOCK.STONE);
-  fill(); action(host, 'extend'); run(whole * 2);
-  assert.equal(deck(), 3, 'it did not go back to where this move began');
-  world.setBlock(mx + 5, Y, mz, BLOCK.AIR);
+  assert.equal(deck(), L);
+  // Retracting slides each section back in.
+  fill(); sent.clear(); action(host, 'retract'); run(whole);
+  assert.equal(deck(), 0);
+  const inward = messages(1, S2C.DRAWBRIDGE_SLIDE);
+  assert.ok(inward.length === L && inward[0].from === L && inward[0].to === L - 1 && inward.at(-1).to === 0, 'retracting sections did not slide back in');
   fill(); action(host, 'extend'); run(whole);
   assert.equal(deck(), L);
   // Another length and direction once retracted: 3 north, at a smaller cost.

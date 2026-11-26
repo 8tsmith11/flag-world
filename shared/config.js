@@ -825,8 +825,8 @@ export const SPIKES = { hardness: 3, breakTime: 3, blastResistance: 2, contactDa
 // whenever it isn't full) and then from the connected pipes, boilers and
 // tanks; without that much the move doesn't start. After that the bridge
 // moves one section every sectionSeconds whatever happens to the steam.
-// An obstructed first section makes it jog (jogSeconds); hitting an
-// obstruction partway sends it back to where that move began.
+// Sections slide straight out and in. An obstructed first section makes it
+// jog (jogSeconds); an obstruction further out stops it there.
 export const DRAWBRIDGE = { maxLength: 16, defaultLength: 6, sectionPlanks: 3, steamPerSection: 4, sectionSeconds: 0.4,
   steamStorage: 96, fillPerSecond: 20, jogSeconds: 0.7,
   hardness: 3, breakTime: 2, deckHardness: 1, deckBreakTime: 1.2, craftBronze: 4, craftIron: 2, craftPipe: 1 };

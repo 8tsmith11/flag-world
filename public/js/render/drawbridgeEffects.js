@@ -1,6 +1,11 @@
-// Drawbridge jog: when an obstructed drawbridge is told to move, a deck
-// section slides a little way out of the mechanism and back (DRAWBRIDGE_JOG),
-// with a clank and a puff of steam, so everyone can see it tried.
+// Drawbridge motion, drawn on clients:
+//   - slides (DRAWBRIDGE_SLIDE): the section the bridge is laying slides
+//     straight out from the end of the bridge to its cell, or the section it
+//     is lifting slides straight back toward the mechanism, at a steady
+//     speed. The solid deck block appears when a laid section arrives (and
+//     goes when a lifted one starts), so the end of the bridge moves linearly.
+//   - jogs (DRAWBRIDGE_JOG): an obstructed drawbridge pushes a section a
+//     little way out and back, with a clank and a puff of steam.
 import * as THREE from 'three';
 import { DRAWBRIDGE } from '/shared/config.js';
 import { BRIDGE_DECK_PARTS } from './defenseParts.js';
@@ -26,6 +31,16 @@ export class DrawbridgeEffects {
   constructor(scene, sounds, steam) {
     this.scene = scene; this.sounds = sounds; this.steam = steam;
     this.jogs = [];
+    this.slides = [];
+  }
+
+  // A section sliding from `from` to `to` cells out along dir over `seconds`.
+  slide(x, y, z, dir, from, to, seconds) {
+    const model = deckModel(), [dx, dz] = DIRS[dir] ?? DIRS[0];
+    model.position.set(x + dx * from, y, z + dz * from);
+    this.scene.add(model);
+    // A laid section lingers a moment at its cell until the solid block arrives.
+    this.slides.push({ model, x, y, z, dx, dz, from, to, t: 0, seconds, hold: to > from ? 0.25 : 0 });
   }
 
   jog(x, y, z, dir) {
@@ -40,6 +55,18 @@ export class DrawbridgeEffects {
   }
 
   update(dt) {
+    for (let i = this.slides.length - 1; i >= 0; i--) {
+      const s = this.slides[i];
+      s.t += dt;
+      if (s.t >= s.seconds + s.hold) {
+        this.scene.remove(s.model);
+        s.model.traverse((o) => o.geometry?.dispose());
+        this.slides.splice(i, 1);
+        continue;
+      }
+      const k = s.from + (s.to - s.from) * Math.min(1, s.t / s.seconds);
+      s.model.position.set(s.x + s.dx * k, s.y, s.z + s.dz * k);
+    }
     const T = DRAWBRIDGE.jogSeconds;
     for (let i = this.jogs.length - 1; i >= 0; i--) {
       const j = this.jogs[i];

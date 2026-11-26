@@ -1211,6 +1211,15 @@ An obstructed drawbridge was told to move (to every match player): `{x, y, z,
 dir}`, the mechanism and its direction. Clients slide a deck section a little
 way out of it and back, with a clank and a puff of steam.
 
+### `drawbridgeSlide`
+
+A drawbridge section is sliding (to every match player): `{x, y, z, dir,
+from, to, seconds}`: the mechanism, its direction, and the section's start
+and end, in cells out from the mechanism (0 is the mechanism itself), over
+`seconds`. Extending, a section slides from `i - 1` to `i` and its solid deck
+block arrives as a block change when it gets there; retracting, the deck
+block at `i` goes at once and the section slides from `i` to `i - 1`.
+
 ### `quests`
 
 Your team's quest book (`shared/quests.js` holds the chapters and quests).
@@ -1923,22 +1932,22 @@ to the same successful world and record the resolved seed as `world.seed`.
 - **Drawbridges** (`server/drawbridge.js`, `DRAWBRIDGE`): a container
   (`kind: "drawbridge"`) on the steam network, owned by the placing team and
   facing the way they looked. Its view adds `team, dir, length, target
-  ("extended"/"retracted"), stored, extended, progress, moving, returning,
+  ("extended"/"retracted"), stored, extended, progress, moving,
   steamStored, steamStorage, steamAvailable, steamCost, planks, required,
   status` and `message` (a refusal). It keeps its own steam store (up to
   96), filled from its pipes at up to 20 a second. Each extend or retract
   costs `steamCost` (4 per block of length), taken at once when the command
   arrives, from the store first and then the connected pipes, boilers and
-  tanks; without enough the move doesn't start. Once moving it lays or lifts
-  one `BLOCK.BRIDGE_DECK` section (solid; broken ones drop 3 planks) every
-  0.4 s to the end whatever happens to the steam, and refuses commands until
-  it stops. An obstructed first section means no move, only a
-  `drawbridgeJog`; an obstruction partway sends it back to where the move
-  began (status "Obstructed: going back", then "Obstructed"). Out of planks
-  it stops where it is. Sections are built once from 3 planks in its slot and
+  tanks; without enough the move doesn't start. Once moving it slides one
+  `BLOCK.BRIDGE_DECK` section (solid; broken ones drop 3 planks) out or in
+  every 0.4 s (`drawbridgeSlide`) to the end whatever happens to the steam,
+  and refuses commands until it stops. An obstructed first section means no
+  move, only a `drawbridgeJog`; an obstruction further out stops it just
+  short of the obstruction (it never goes back), and so does running out of
+  planks. Sections are built once from 3 planks in its slot and
   stored when retracted; breaking it drops its planks and stored sections'
   planks.
   Statuses: Extended, Retracted, Extending, Retracting, Insufficient steam,
-  Missing construction materials, Obstructed, Obstructed: going back. The
+  Missing construction materials, Obstructed. The
   crusher also keeps a small steam store (20), filled from its pipes and
   spent as it works; its view adds `steamStored`, `steamCapacity`.

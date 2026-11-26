@@ -718,6 +718,7 @@ conn.on(S2C.EMBER_BURST, (msg) => portals.burst(msg.x, msg.y, msg.z));
 conn.on(S2C.QUARRY_PUFF, (msg) => quarryEffects?.puff(msg.x, msg.y, msg.z));
 conn.on(S2C.EXPLOSION, (msg) => { if (world) explosionEffects.explode(msg.x, msg.y, msg.z, msg.radius, msg.kind, camera.position); });
 conn.on(S2C.DRAWBRIDGE_JOG, (msg) => { if (world) drawbridgeEffects.jog(msg.x, msg.y, msg.z, msg.dir); });
+conn.on(S2C.DRAWBRIDGE_SLIDE, (msg) => { if (world) drawbridgeEffects.slide(msg.x, msg.y, msg.z, msg.dir, msg.from, msg.to, msg.seconds); });
 conn.on(S2C.STEAM_PUFF, (msg) => quarryEffects?.steam(msg.x,msg.y,msg.z));
 conn.on(S2C.CREATIVE, (msg) => {
   setCreative(msg.enabled);

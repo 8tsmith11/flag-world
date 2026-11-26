@@ -175,9 +175,10 @@ including the host, plays by opening `http://<host-ip>:3000`.
   `machineAction` today; levers or plates later). Steam machines keep their
   own steam store (boiler, crusher, drawbridge). A move's steam is paid in
   full up front (store first, then `FluidSystem.draw`), then it runs to the
-  end without steam; it takes no command while moving. A blocked first
-  section only jogs (`drawbridgeJog`); an obstruction partway sends it back
-  to where the move began. Sections are paid for once
+  end without steam; it takes no command while moving. Sections slide
+  straight out and in (`drawbridgeSlide`). A blocked first section only jogs
+  (`drawbridgeJog`); an obstruction further out stops it there (never going
+  back, so blocking the end can't drop people off it). Sections are paid for once
   and conserved: never add a path that creates or deletes deck sections
   without going through `stored` or dropping their planks.
 - New block shapes for these live in `public/js/render/defenseParts.js`
@@ -357,7 +358,7 @@ public/
       depotRenderer.js       Lantern signs over Merchant Depots (lit while docked)
       defenseParts.js        Box models for barrels, spikes, drawbridges and bridge deck
       explosionEffects.js    Explosion fireballs, smoke and debris, fuse sparks, grenade beeps
-      drawbridgeEffects.js   An obstructed drawbridge's jog (a section sliding out and back)
+      drawbridgeEffects.js   Drawbridge sections sliding out and in, and an obstructed bridge's jog
 scripts/
   check.js                   `npm run check`
 PROTOCOL.md                  WebSocket message reference

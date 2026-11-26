@@ -17,17 +17,22 @@
 // retract) costs steamPerSection * length, taken all at once when it starts:
 // from the store first, then from the connected pipes, boilers and tanks
 // (FluidSystem.draw); without that much it doesn't start ("Insufficient
-// steam"). Once started it lays or lifts one section every sectionSeconds
-// until done, whatever happens to the steam supply, and takes no new command
-// while moving.
+// steam"). Once started it runs to the end whatever happens to the steam
+// supply, and takes no new command while moving.
+//
+// Sliding: the bridge slides straight out and back in, one section per step
+// of sectionSeconds. Extending, the next section slides out from the end of
+// the bridge (S2C.DRAWBRIDGE_SLIDE, drawn by clients) and becomes a solid
+// deck block when it arrives. Retracting, the end section stops being solid
+// and slides back in. Each step is `step` ({ place|remove, cell, i }).
 //
 // Obstructions: it never lays a section into a solid block or an entity and
 // never removes anything but deck. If the very first section is blocked the
 // move doesn't start; the bridge jogs (a section slides out a little and
-// back, S2C.DRAWBRIDGE_JOG) to show it tried. If it is blocked after laying
-// some of this move's sections it goes back to where the move began
-// ("returning"), then rests "Obstructed". Running out of planks stops it
-// where it is ("Missing construction materials").
+// back, S2C.DRAWBRIDGE_JOG) to show it tried. Blocked further out, it slides
+// as far as the obstruction and stops there ("Obstructed"), so a block put
+// at its end never pulls the bridge from under anyone on it. Running out of
+// planks also stops it where it is ("Missing construction materials").
 //
 // Control: everything goes through command(game, node, action, value), the
 // same entry point levers, pressure plates or remote controls can use later.
@@ -56,12 +61,11 @@ export class Drawbridge {
     this.moving = false;
     this.available = 0;
     this.steam = 0;
-    // A move in progress: sections out when it began, the target before it,
-    // how many it has laid, and the count to go back to when returning.
-    this.startOut = 0;
+    // A move in progress: the target before it, how many sections it has
+    // laid, and the section sliding now.
     this.fromTarget = 'retracted';
     this.laid = 0;
-    this.returnTo = null;
+    this.step = null;
     this.extended = 0;
     this.state = 'Retracted';
   }
@@ -112,14 +116,13 @@ export class Drawbridge {
         if (id !== BLOCK.AIR || (game.buildable && !game.buildable(c.x, c.y, c.z))) return { blocked: 'Obstructed' };
         if (this.occupied(game, c)) return { blocked: 'Obstructed' };
         if (this.stored <= 0 && this.planks() < C.sectionPlanks) return { blocked: 'Missing construction materials' };
-        return { place: true, cell: c };
+        return { place: true, cell: c, i };
       }
       return { done: true };
     }
-    if (this.returnTo !== null && this.deckCount(world, node) <= this.returnTo) return { done: true };
     for (let i = this.length; i >= 1; i--) {
       const c = this.cell(node, i);
-      if (this.inWorld(world, c) && world.getBlock(c.x, c.y, c.z) === BLOCK.BRIDGE_DECK) return { remove: true, cell: c };
+      if (this.inWorld(world, c) && world.getBlock(c.x, c.y, c.z) === BLOCK.BRIDGE_DECK) return { remove: true, cell: c, i };
     }
     return { done: true };
   }
@@ -144,44 +147,54 @@ export class Drawbridge {
   cost() { return C.steamPerSection * this.length; }
 
   // Ends a move with a state.
-  stop(state) { this.moving = false; this.progress = 0; this.state = state; this.returnTo = null; }
+  stop(state) { this.moving = false; this.progress = 0; this.state = state; this.step = null; }
+
+  // Starts the next section sliding, or ends the move. False if it ended.
+  beginStep(game, node) {
+    const move = this.nextMove(game, node);
+    if (move.done) { this.stop(this.finished()); return false; }
+    if (move.blocked) {
+      // Blocked before laying anything: only a jog. Otherwise it rests here.
+      if (move.blocked === 'Obstructed' && this.laid === 0) { this.jog(game, node); this.target = this.fromTarget; }
+      this.stop(move.blocked);
+      return false;
+    }
+    const c = move.cell;
+    this.step = { place: !!move.place, cell: c, i: move.i };
+    if (move.remove) { game.world.setBlock(c.x, c.y, c.z, BLOCK.AIR); this.stored++; }
+    game.broadcast?.({ type: S2C.DRAWBRIDGE_SLIDE, x: node.x, y: node.y, z: node.z, dir: this.dir,
+      from: move.place ? move.i - 1 : move.i, to: move.place ? move.i : move.i - 1, seconds: C.sectionSeconds });
+    game.broadcast?.({ type: S2C.STEAM_PUFF, x: node.x, y: node.y, z: node.z });
+    this.progress = 0;
+    return true;
+  }
+
+  // The sliding section arrived: a laid one becomes solid deck if its cell
+  // is still clear and paid for; otherwise the bridge stops where it is.
+  endStep(game) {
+    const step = this.step, c = step.cell;
+    this.step = null;
+    if (!step.place) return true;
+    const world = game.world;
+    if (world.getBlock(c.x, c.y, c.z) !== BLOCK.AIR || this.occupied(game, c)) { this.stop('Obstructed'); return false; }
+    if (this.stored <= 0 && this.planks() < C.sectionPlanks) { this.stop('Missing construction materials'); return false; }
+    if (this.stored > 0) this.stored--;
+    else { this.slots[0].count -= C.sectionPlanks; if (this.slots[0].count <= 0) this.slots[0] = null; }
+    world.setBlock(c.x, c.y, c.z, BLOCK.BRIDGE_DECK);
+    this.laid++;
+    return true;
+  }
   finished() { return this.target === 'extended' ? 'Extended' : 'Retracted'; }
 
   // One tick (from the fluid system).
   tick(game, node) {
     const before = JSON.stringify([this.state, this.progress, this.extended, this.stored, Math.round(this.available * 10), Math.round(this.steam * 10)]);
     this.available = this.steamAvailable(game, node);
-    if (this.moving) {
+    if (this.moving && (this.step || this.beginStep(game, node))) {
       this.progress += 1 / Math.max(1, Math.round(C.sectionSeconds * TICK_RATE));
-      if (this.progress >= 1 - 1e-9) {
-        this.progress = 0;
-        const move = this.nextMove(game, node);
-        if (!move.done && !move.blocked) {
-          const c = move.cell;
-          if (move.place) {
-            if (this.stored > 0) this.stored--;
-            else { this.slots[0].count -= C.sectionPlanks; if (this.slots[0].count <= 0) this.slots[0] = null; }
-            game.world.setBlock(c.x, c.y, c.z, BLOCK.BRIDGE_DECK);
-            this.laid++;
-          } else {
-            game.world.setBlock(c.x, c.y, c.z, BLOCK.AIR);
-            this.stored++;
-          }
-          game.broadcast?.({ type: S2C.STEAM_PUFF, x: node.x, y: node.y, z: node.z });
-        }
-        const next = move.done || move.blocked ? move : this.nextMove(game, node);
-        if (next.done) {
-          // Back where an obstructed move began.
-          if (this.returnTo !== null) { this.target = this.fromTarget; this.stop('Obstructed'); }
-          else this.stop(this.finished());
-        } else if (next.blocked === 'Obstructed' && this.target === 'extended') {
-          if (this.laid > 0) {
-            // Blocked partway: go back to where this move began.
-            this.target = 'retracted'; this.returnTo = this.startOut;
-            this.state = 'Obstructed: going back';
-          } else { this.jog(game, node); this.target = this.fromTarget; this.stop('Obstructed'); }
-        } else if (next.blocked) this.stop(next.blocked);
-      }
+      // Arrived: finish this section and start the next straight away, so
+      // the end of the bridge slides at a steady speed.
+      if (this.progress >= 1 - 1e-9 && this.endStep(game)) this.beginStep(game, node);
     }
     this.extended = this.deckCount(game.world, node);
     if (!this.moving && this.state === 'Extended' && this.extended === 0) this.state = 'Retracted';
@@ -219,7 +232,7 @@ export class Drawbridge {
         return `Insufficient steam: a move takes ${cost}, ${Math.floor(this.steamAvailable(game, node))} available`;
       }
       this.available = this.steamAvailable(game, node);
-      this.startOut = this.deckCount(game.world, node); this.fromTarget = previous; this.laid = 0; this.returnTo = null;
+      this.fromTarget = previous; this.laid = 0; this.step = null;
       this.moving = true; this.progress = 0;
       this.state = this.target === 'extended' ? 'Extending' : 'Retracting';
       this.dirty = true;
@@ -245,7 +258,7 @@ export class Drawbridge {
   view() {
     return { kind: this.kind, slots: this.slots, team: this.team, dir: this.dir, length: this.length, target: this.target, stored: this.stored,
       extended: this.extended, progress: this.progress, moving: this.moving, steamAvailable: this.available, steamCost: this.cost(),
-      steamStored: this.steam, steamStorage: C.steamStorage, returning: this.returnTo !== null,
+      steamStored: this.steam, steamStorage: C.steamStorage,
       planks: this.planks(), required: this.required(), status: this.state };
   }
 
