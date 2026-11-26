@@ -252,17 +252,32 @@ function showScreen(id) {
 }
 
 // Modes where the mouse drives the game; Esc brings up the click-to-continue overlay.
+// Menus count as open only while their screen is the one showing: a menu
+// flag left set behind another screen (a server update reopening a closed
+// menu, a death) must never make "click to resume" ignore clicks.
+function menuShowing() {
+  return currentScreen === 'inventory' || currentScreen === 'monkey';
+}
 function lockable() {
-  return player && connected && !inventoryScreen.open && !monkeyScreen.open && (mode === MODE.PLAY || mode === MODE.SPECTATE);
+  return player && connected && !menuShowing() && (mode === MODE.PLAY || mode === MODE.SPECTATE);
+}
+// Resuming closes any menu state left behind a screen that isn't showing.
+function resume() {
+  if (!lockable() || loading || fullscreen.paused) return;
+  if (inventoryScreen.open) { inventoryScreen.hide(true); }
+  if (monkeyScreen.open || monkeyScreen.worldGame) monkeyScreen.close(false);
+  showScreen(null);
+  input.requestLock();
 }
 
-overlay.addEventListener('click', () => {
-  if (lockable() && !loading && !fullscreen.paused) input.requestLock();
-});
-// After a menu closes with Esc (which can't recapture the mouse), a click on
-// the game itself resumes.
-renderer.domElement.addEventListener('click', () => {
-  if (lockable() && !loading && !fullscreen.paused && currentScreen === null) input.requestLock();
+overlay.addEventListener('click', resume);
+// After a menu closes with Esc (which can't recapture the mouse), a click
+// anywhere on the game resumes, not only on the canvas: HUD pieces can cover
+// it. Buttons and labels that handle their own clicks are left alone.
+document.addEventListener('click', (e) => {
+  if (currentScreen !== null || input.locked) return;
+  if (e.target.closest?.('button, a, input, select, label, #creative-label')) return;
+  resume();
 });
 const resumeHint = document.getElementById('resume-hint');
 const pipeModeHint = document.getElementById('pipe-mode-hint');
@@ -857,7 +872,7 @@ function frame(now) {
     // The shared physics decides whether it fires (cooldown, flag, already pulling).
     controls.hook = hook && controls.place;
     if (controls.hook && !player.state.grapple && !player.state.carrying && !(player.state.hookCooldown > 1)) viewModel.push();
-    controls.eat = !!getItemDef(heldItem()).food && input.secondaryDown;
+    controls.eat = !!getItemDef(heldItem()).food && input.secondaryDown && (self?.hp ?? 0) < (self?.maxHp ?? Infinity);
     if (controls.eat) controls.place = false;
     controls.glide = heldItem() === ITEM.GLIDER && input.secondaryDown;
     if (controls.glide) controls.place = false;

@@ -639,11 +639,14 @@ the nearest player they can see within 12 blocks, give up beyond 24, and bite
 for 3 (every 1 s, before armor) when within 0.6 blocks of the player's box. A
 dead Crawler drops 0–2 Silk.
 
-Void Eels: `eels` in `WORLD_SIZES` (8, 12, 16) roam a void band whose top
-is about 18 blocks under the central island and about 12 blocks below the
-nearest outer island underside elsewhere. Half start under the central
-island. Most new wander goals (60%) drift under a random player within 120
-blocks. An eel detects a player
+Void Eels: `eels` in `WORLD_SIZES` (8, 12, 16) have no patrol area. Every
+12–30 s (`EEL_LURK_TIME`) an eel picks a random column with a block in it
+(an island underside or a bridge, at any height) within 20 blocks
+(`EEL_PLAY_MARGIN`) of the central and team islands, never near the fire or
+ice islands, and lurks 3–9 blocks under its lowest block, drifting there
+until it chooses again. They start at such spots too. The void band (about
+18 blocks under the central island, 12 under other islands) only bounds
+their spawn fallback and the way back after a chase. An eel detects a player
 in a 32-block-radius column extending 180 blocks above it (30% farther at
 night) when no natural island terrain separates them, either in the player's
 own column or in one 2 blocks away (a player near an island's edge is
@@ -651,7 +654,7 @@ exposed). Player-built blocks do
 not block detection. It rises toward exposed players, chases up to about 40
 blocks away, and returns to the deep band after losing a target for 10 s or
 when the target dies or moves over natural island terrain. It retraces its
-approach and skirts island edges when returning. 30 HP; a bite does 4 with
+approach when returning. 30 HP; a bite does 4 with
 a 1.2 s cooldown. It coils and glows for 1 s with a hiss, then lunges. A bite
 stops gliding for 1.5 s. Its faintly glowing tail tip takes double damage.
 At night it glows faintly and rises 30% faster. A dead eel drops 1–2 Rift Orbs.

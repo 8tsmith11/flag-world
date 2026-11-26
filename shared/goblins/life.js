@@ -10,13 +10,13 @@ import { BLOCK } from '../blocks.js';
 // been within safeRange for safeTime (s). floorOnly: chases stay on the floor
 // of its slot (the King and the Totem Hall level).
 export const GOBLINS = {
-  worker: { width: 0.6, height: 1.2, hp: 10, speed: 0.55, respawn: 15, ladders: true, duty: 'worker',
+  worker: { width: 0.6, height: 1.2, hp: 10, speed: 0.55, respawn: 30, ladders: true, duty: 'worker',
     name: 'Goblin Worker', sight: 10, flee: { range: 8, safeRange: 12, safeTime: 3 } },
-  soldier: { width: 0.7, height: 1.3, hp: 16, speed: 0.6, respawn: 20, ladders: true,
+  soldier: { width: 0.7, height: 1.3, hp: 16, speed: 0.6, respawn: 45, ladders: true,
     name: 'Goblin Soldier', sight: 12, leash: 25, melee: { damage: 4, reach: 1, cooldown: 1, knockback: 1 } },
-  archer: { width: 0.6, height: 1.25, hp: 10, speed: 0.55, respawn: 20, ladders: true,
+  archer: { width: 0.6, height: 1.25, hp: 10, speed: 0.55, respawn: 45, ladders: true,
     name: 'Goblin Archer', sight: 20, ranged: { damage: 3, range: 20, cooldown: 1.5, arrowSpeed: 30, spread: 0.03 } },
-  brute: { width: 0.95, height: 1.95, hp: 50, speed: 0.45, respawn: 45, ladders: true,
+  brute: { width: 0.95, height: 1.95, hp: 50, speed: 0.45, respawn: 90, ladders: true,
     name: 'Goblin Brute', sight: 16, leash: 30, melee: { damage: 8, reach: 1.4, cooldown: 1.8, knockback: 2.5 } },
   king: { width: 1.1, height: 2.6, hp: 80, speed: 0.4, respawn: null, ladders: false, floorOnly: true,
     name: 'Goblin King', sight: 12, leash: 18, melee: { damage: 12, reach: 1.2, cooldown: 1.5, knockback: 1.8 } },
@@ -43,8 +43,8 @@ export const LIFE = {
   minArea: 30, maxSurfaceArea: 24000, maxUndergroundArea: 1600,
   undergroundAreas: [3, 8], roomsPerArea: 6,
   outskirtsWidth: 6, sectionLength: 48,
-  releaseSeconds: 1.5, workersPerCells: 650, patrolPerCells: 900,
-  patrolSoldiers: 2, patrolArchers: 1, reserve: 4,
+  releaseSeconds: 5, workersPerCells: 650, patrolPerCells: 1800,
+  patrolSoldiers: 1, patrolArchers: 0, reserve: 2,
   courtyardArchers: 1, towerArchers: 1, gateGuards: 1, gateArchers: 1,
   postRadius: 2, postWait: [3, 8], wanderWait: [2, 5], patrolPoints: 6,
   stuckTicks: 40, unseenAdvance: 3, creativeRadius: 6,
@@ -99,13 +99,16 @@ export const WORK = {
   backlogRetrySeconds: 60,  // parked (unreachable) construction cells are all retried this often
   maxRestore: 400,          // a piece whose site needs more cut/fill than this is skipped
   castleDepth: 8,           // the Castle's entry reaches this far below its box (its earthworks)
-  blocksPerWorker: 1500,    // construction crews: one worker per this many blocks an area has to build
+  blocksPerWorker: 4000,    // construction crews: one worker per this many blocks an area has to build
   openJobs: 24,             // jobs an entry keeps open at once (more are made as they finish)
   feedAttempts: 48,         // queued cells an entry turns into jobs (or defers) per tick
   siteRefreshTicks: 20,     // a construction site's reachable spots are recomputed at most this often
   // Pace: full completion takes about completionMinutes(island radius). The
   // swing interval comes from the blocks to build and that time, calibrated
-  // on the Small island (about 30 workers; walking takes the rest).
-  completionMinutes: radius => 40 * radius / 112,
+  // on the Small island (about 30 workers; walking takes the rest). Crews are
+  // smaller than that calibration now (blocksPerWorker), so real builds run
+  // several times slower than completionMinutes, on purpose: playtests found
+  // the village swarming the surface far too early.
+  completionMinutes: radius => 90 * radius / 112,
   buildSwingSeconds: (minutes, blocks) => 0.68 * minutes * 60 / Math.max(1, blocks),
 };

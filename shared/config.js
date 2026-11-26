@@ -320,9 +320,12 @@ export const EEL_REACH = 1.2;
 export const EEL_LOSE_RANGE = 40;
 // A player within this many blocks of an island's edge is exposed to eels.
 export const EEL_EDGE_REACH = 2;
-// Chance a new wander goal heads under a player within EEL_PROWL_RANGE.
-export const EEL_PROWL_CHANCE = 0.6;
-export const EEL_PROWL_RANGE = 120;
+// Wandering: every EEL_LURK_TIME seconds an eel picks a spot EEL_LURK_DEPTH
+// blocks under the lowest block of a random column (island or bridge) within
+// EEL_PLAY_MARGIN of the central/team islands, away from the elemental islands.
+export const EEL_LURK_TIME = [12, 30];
+export const EEL_LURK_DEPTH = [3, 9];
+export const EEL_PLAY_MARGIN = 20;
 export const RIFT_ORB = { durationSeconds: 10, maxStack: 4, throwSpeed: 13,
   gravity: 20, radius: 0.18, launchLift: 0.35, launchForward: 0.7 };
 

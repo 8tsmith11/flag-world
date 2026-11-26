@@ -5,9 +5,10 @@ import {
   EEL_LUNGE_WINDUP, EEL_REACH, EEL_DETECT_RADIUS, EEL_DETECT_HEIGHT,
   EEL_NIGHT_DETECT_SCALE, EEL_NIGHT_RISE_SCALE, EEL_FORGET_TIME,
   EEL_LOSE_RANGE, EEL_WANDER_RADIUS, EEL_ATTACK_COOLDOWN,
-  EEL_LUNGE_DURATION, EEL_TURN_RATE, EEL_EDGE_REACH, EEL_PROWL_CHANCE, EEL_PROWL_RANGE,
+  EEL_LUNGE_DURATION, EEL_TURN_RATE, EEL_EDGE_REACH, EEL_LURK_TIME, EEL_LURK_DEPTH, EEL_PLAY_MARGIN,
 } from '../shared/config.js';
 import { playerBoxOf, playerFitsAt } from '../shared/physics.js';
+import { isSolid } from '../shared/blocks.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { Provocation, huntable } from './provocation.js';
 
@@ -23,6 +24,45 @@ function turnToward(current, wanted) {
   let difference = (wanted - current + Math.PI) % (Math.PI * 2);
   if (difference < 0) difference += Math.PI * 2;
   return current + Math.max(-EEL_TURN_RATE, Math.min(EEL_TURN_RATE, difference - Math.PI));
+}
+
+// The play area eels roam: within EEL_PLAY_MARGIN of the central and team
+// islands (and the tiny islands among them), never out to the elemental
+// islands. Cached per world.
+const playAreas = new WeakMap();
+function playArea(world) {
+  let area = playAreas.get(world);
+  if (area) return area;
+  const islands = world.islands ?? [];
+  const center = islands.find(i => i.kind === 'center') ?? { x: world.sizeX / 2, z: world.sizeZ / 2, radius: 32 };
+  let radius = center.radius + EEL_PLAY_MARGIN;
+  for (const i of islands) if (i.kind === 'team') radius = Math.max(radius, Math.hypot(i.x - center.x, i.z - center.z) + i.radius + EEL_PLAY_MARGIN);
+  const avoid = islands.filter(i => i.kind === 'fire' || i.kind === 'ice');
+  area = { x: center.x, z: center.z, radius, avoid };
+  playAreas.set(world, area);
+  return area;
+}
+export function inEelPlayArea(world, x, z) {
+  const a = playArea(world);
+  return Math.hypot(x - a.x, z - a.z) <= a.radius
+    && !a.avoid.some(i => Math.hypot(x - i.x, z - i.z) <= i.radius + EEL_PLAY_MARGIN);
+}
+// A random point a few blocks under the lowest block of a random column
+// that has one, inside the play area; null when a few tries find nothing.
+export function underBlockSpot(world, band, tries = 12) {
+  const a = playArea(world);
+  for (let i = 0; i < tries; i++) {
+    const angle = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * a.radius;
+    const x = Math.floor(a.x + Math.cos(angle) * r), z = Math.floor(a.z + Math.sin(angle) * r);
+    if (!inEelPlayArea(world, x, z) || x < 2 || z < 2 || x >= world.sizeX - 2 || z >= world.sizeZ - 2) continue;
+    // Scan up from the bottom of the band for the first solid block.
+    for (let y = Math.max(world.minY ?? 0, Math.floor(band.bottom)); y < world.sizeY; y++) {
+      if (!isSolid(world.getBlock(x, y, z))) continue;
+      const depth = EEL_LURK_DEPTH[0] + Math.random() * (EEL_LURK_DEPTH[1] - EEL_LURK_DEPTH[0]);
+      return { x: x + 0.5, z: z + 0.5, y: Math.max(band.bottom + 4, y - depth) };
+    }
+  }
+  return null;
 }
 
 export class VoidEel {
@@ -119,51 +159,33 @@ export class VoidEel {
     return this.target;
   }
 
-  wander(world, tick, players = []) {
+  // Wandering has no home patrol: every so often the eel picks a new spot
+  // under some block (an island's underside or a bridge, at any height) in
+  // the main play area and lurks a few blocks below it.
+  wander(world, tick) {
     const s = this.state;
     if (this.wanderGoal && tick < this.wanderUntil
       && Math.hypot(s.x - this.wanderGoal.x, s.y - this.wanderGoal.y, s.z - this.wanderGoal.z) > 3) return this.wanderGoal;
-    this.wanderUntil = tick + TICK_RATE * (6 + Math.floor(Math.random() * 7));
-    // Prowl: often drift toward a player within range, staying in the band,
-    // so eels gather under where people are instead of the empty void.
-    if (Math.random() < EEL_PROWL_CHANCE) {
-      const near = players.filter(p => huntable(p) && Math.hypot(p.state.x - s.x, p.state.z - s.z) < EEL_PROWL_RANGE);
-      const pick = near[Math.floor(Math.random() * near.length)];
-      if (pick) {
-        const x = pick.state.x + (Math.random() - 0.5) * 16, z = pick.state.z + (Math.random() - 0.5) * 16;
-        const top = this.bandTop(world, x, z);
-        this.wanderGoal = { x, z, y: Math.max(this.band.bottom + 4, top - 4 - Math.random() * 8) };
-        return this.wanderGoal;
-      }
+    // Arrived: hold there a while, drifting a little, before choosing again.
+    if (this.wanderGoal && tick < this.wanderUntil) {
+      this.wanderGoal = { ...this.wanderGoal, x: this.wanderGoal.x + (Math.random() - 0.5) * 6,
+        z: this.wanderGoal.z + (Math.random() - 0.5) * 6 };
+      return this.wanderGoal;
     }
-    this.wanderGoal = {
-      x: Math.max(4, Math.min(world.sizeX - 4, s.x + (Math.random() - 0.5) * EEL_WANDER_RADIUS * 2)),
-      y: this.band.bottom + 4 + Math.random() * Math.max(1,
-        this.bandTop(world, s.x, s.z) - this.band.bottom - 8),
-      z: Math.max(4, Math.min(world.sizeZ - 4, s.z + (Math.random() - 0.5) * EEL_WANDER_RADIUS * 2)),
-    };
+    this.wanderUntil = tick + TICK_RATE * (EEL_LURK_TIME[0] + Math.random() * (EEL_LURK_TIME[1] - EEL_LURK_TIME[0]));
+    this.wanderGoal = underBlockSpot(world, this.band) ?? {
+      x: s.x + (Math.random() - 0.5) * 20, z: s.z + (Math.random() - 0.5) * 20,
+      y: this.band.bottom + 4 + Math.random() * Math.max(1, this.bandTop(world, s.x, s.z) - this.band.bottom - 8) };
     return this.wanderGoal;
   }
 
-  returnGoal(world, tick, players) {
+  // After a chase it retraces its way back down; otherwise it wanders.
+  returnGoal(world, tick) {
     const s = this.state;
-    if (s.y > this.bandTop(world)) {
-      while (this.escapeTrail.length && Math.hypot(s.x - this.escapeTrail.at(-1).x,
-        s.y - this.escapeTrail.at(-1).y, s.z - this.escapeTrail.at(-1).z) < 1) this.escapeTrail.pop();
-      if (this.escapeTrail.length) return this.escapeTrail.at(-1);
-      const island = world.islands?.filter((entry) => entry.kind !== 'tiny'
-        && s.y >= entry.bottomY - 3
-        && Math.hypot(s.x - entry.x, s.z - entry.z) < entry.radius + 8)
-        .sort((a, b) => Math.hypot(s.x - a.x, s.z - a.z) - Math.hypot(s.x - b.x, s.z - b.z))[0];
-      if (island) {
-        const dx = s.x - island.x, dz = s.z - island.z;
-        const angle = Math.hypot(dx, dz) > 0.01 ? Math.atan2(dz, dx) : this.id;
-        return { x: island.x + Math.cos(angle) * (island.radius + 12),
-          y: s.y, z: island.z + Math.sin(angle) * (island.radius + 12) };
-      }
-      return { x: s.x, y: this.bandTop(world) - 5, z: s.z };
-    }
-    return this.wander(world, tick, players);
+    while (this.escapeTrail.length && Math.hypot(s.x - this.escapeTrail.at(-1).x,
+      s.y - this.escapeTrail.at(-1).y, s.z - this.escapeTrail.at(-1).z) < 1) this.escapeTrail.pop();
+    if (this.escapeTrail.length) return this.escapeTrail.at(-1);
+    return this.wander(world, tick);
   }
 
   clear(world, x, y, z) {
@@ -252,7 +274,7 @@ export class VoidEel {
       ? { x: target.state.x + (this.approachOffset?.x ?? 0),
         y: target.state.y + playerBoxOf(target.state).height / 2,
         z: target.state.z + (this.approachOffset?.z ?? 0) }
-      : this.returnGoal(world, tick, players);
+      : this.returnGoal(world, tick);
     goal.x += this.separation?.x ?? 0;
     goal.y += this.separation?.y ?? 0;
     goal.z += this.separation?.z ?? 0;

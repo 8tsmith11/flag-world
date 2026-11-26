@@ -41,7 +41,7 @@ import { Cow, Herd, COW_BOX } from './cow.js';
 import { Dragon, DRAGON_BOX } from './dragon.js';
 import { invalidateDragonSurface } from './dragonSurface.js';
 import { Crawler, CRAWLER_BOX } from './crawler.js';
-import { VoidEel, EEL_BOX } from './eel.js';
+import { VoidEel, EEL_BOX, underBlockSpot } from './eel.js';
 import { canStand } from './pathfind.js';
 import { generateWorld, parseSeed, WORLD_SIZES, DEFAULT_WORLD_SIZE } from '../shared/worldgen.js';
 import { keepAt, flagHome, mulberry32, KEEP_REACH } from '../shared/structures.js';
@@ -1598,22 +1598,16 @@ export class Game {
       outerBelowIsland: EEL_BAND.outerBelowIsland };
   }
 
-  // Half start under the center; the others are spread across the world.
-  // Every eel can later roam the entire deep band.
+  // They start lurking under random blocks of the play area (islands and
+  // the gaps between them), never out by the elemental islands.
   spawnEels() {
     const count = WORLD_SIZES[this.worldSize].eels;
     const center = this.world.islands.find((island) => island.kind === 'center');
     const band = this.eelBand();
-    const random = mulberry32(this.seed ^ 0x35bd248a);
     for (let i = 0; i < count; i++) {
-      const angle = random() * Math.PI * 2;
-      const radius = Math.sqrt(random()) * center.radius * 0.8;
-      const x = i < Math.ceil(count / 2) ? center.x + Math.cos(angle) * radius
-        : 4 + random() * (this.world.sizeX - 8);
-      const z = i < Math.ceil(count / 2) ? center.z + Math.sin(angle) * radius
-        : 4 + random() * (this.world.sizeZ - 8);
-      const y = band.bottom + 4 + random() * (band.top - band.bottom - 8);
-      const eel = new VoidEel(this.nextId++, band, { x, y, z });
+      const spot = underBlockSpot(this.world, band, 40)
+        ?? { x: center.x, z: center.z, y: band.bottom + 4 + Math.random() * (band.top - band.bottom - 8) };
+      const eel = new VoidEel(this.nextId++, band, spot);
       this.mobs.set(eel.id, eel);
     }
   }
@@ -1996,7 +1990,9 @@ export class Game {
     const held = player.held();
     const item = getItemDef(held);
     const food = item.food;
-    if (!eat || !food) {
+    // Any missing health lets you eat (the leftover heal is simply lost);
+    // at full health nothing is eaten, so food is never wasted outright.
+    if (!eat || !food || player.hp >= player.maxHp()) {
       player.eatTicks = 0;
       player.eatingItem = null;
       return;
