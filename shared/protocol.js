@@ -23,6 +23,7 @@ export const C2S = {
   INVENTORY_SORT: 'inventorySort', // {container}: sort the main grid, or the open chest
   MERCHANT_ACTION: 'merchantAction', // {action,offer?,count?}: trade with your team's Sky Merchant
   QUEST_ACTION: 'questAction', // {action,quest?}: open the quest book, claim a reward, request a depot
+  MACHINE_ACTION: 'machineAction', // {action,value?}: controls of the machine screen you have open (drawbridge)
 };
 
 // Server -> client
@@ -66,6 +67,7 @@ export const S2C = {
   MERCHANT: 'merchant', // {open,...}: the trade screen for your team's Sky Merchant
   MERCHANTS: 'merchants', // {merchants}: each team's depot and whether its merchant is docked
   QUESTS: 'quests', // {completed,claimed,depot,...}: your team's quest book
+  EXPLOSION: 'explosion', // {x,y,z,radius,kind}: a grenade or barrel went off
 };
 
 // Where a flag is, in FlagState.
@@ -94,6 +96,8 @@ export const DEATH_CAUSE = {
   MOB: 'mob',
   LAVA: 'lava',
   MAGMA: 'magma',
+  EXPLOSION: 'explosion',
+  SPIKES: 'spikes',
 };
 
 // Server phases.
@@ -130,6 +134,7 @@ export const ENTITY_TYPE = {
   GOBLIN_TOTEM: 'goblinTotem',
   // The Sky Merchant's airship (the merchant himself is an NPC).
   AIRSHIP: 'airship',
+  GRENADE: 'grenade',
 };
 
 // Goblin worldgen plans remain server-side. Fortress poison shooters use the

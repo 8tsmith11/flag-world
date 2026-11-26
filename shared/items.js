@@ -16,7 +16,7 @@
 //   armorPoints   - armor: damage reduction (see Game.damage); fireImmune: no dragon fire damage
 //   texture       - armor: 'scales' draws the pieces with a scaled texture
 
-import { MAX_STACK, METALS, ELEMENTAL } from './config.js';
+import { MAX_STACK, METALS, ELEMENTAL, EXPLOSIVES } from './config.js';
 import { BLOCK, getBlockDef, registeredBlockIds, ladderBlock, doorBlock, blockBase, isLadder, isDoor, doorState, isWater, isLava, isCrop } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { ACCESSORIES, RIFT_ORB } from './accessories.js';
@@ -114,6 +114,13 @@ defineItem(ITEM.GOLD_COIN, 'gold coin', { color: 0xf2c230, icon: '/textures/gold
 // In a Lookout monkey's tool slot it extends its sight and names what it sees.
 defineItem(ITEM.SPYGLASS, 'spyglass', { maxStack: 1, tool: 'spyglass', color: 0xb8793e, icon: '/textures/spyglass.svg' });
 defineItem(ITEM.RIFT_ORB, 'rift orb', { maxStack: RIFT_ORB.maxStack, shape: 'rift', color: 0xa66aff });
+// Explosives. Sulfur seeds plant on farmland like wheat seeds (the crop never
+// grows wild); sulfur and charcoal make gunpowder; grenades are thrown.
+defineItem(ITEM.SULFUR_SEEDS, 'sulfur seeds', { places: 'crop', crop: 'sulfur', color: 0xd9c22a, icon: '/textures/sulfur-seeds.svg' });
+defineItem(ITEM.SULFUR, 'sulfur', { color: 0xf0d81e, icon: '/textures/sulfur.svg' });
+defineItem(ITEM.GUNPOWDER, 'gunpowder', { color: 0x3b3a38, icon: '/textures/gunpowder.svg' });
+defineItem(ITEM.GRENADE, 'grenade', { maxStack: EXPLOSIVES.grenade.maxStack, throwable: true, color: 0x4b5a3a,
+  icon: '/textures/grenade.svg' });
 
 // Extra tooltip lines (how to use it) for items that need explaining.
 export const ITEM_TIPS = {
@@ -125,7 +132,19 @@ export const ITEM_TIPS = {
     'Leave open sky in front of it: the airship flies in from the far side and docks there',
     'Put goods in its selling slots to sell them automatically while he is docked'],
   [BLOCK.REINFORCED_WALL]: ['Stone bricks bound with iron', 'Needs an iron hammer; takes four times as long to break as stone bricks',
-    'Resists explosions'],
+    'Twice as blast resistant as stone bricks'],
+  [ITEM.SULFUR_SEEDS]: ['Plant on farmland (till grass or dirt with a hoe)', 'Grows into a yellow sulfur plant; harvest it for sulfur and more seeds',
+    'Farmer monkeys plant and harvest it too'],
+  [ITEM.SULFUR]: ['Grown from sulfur plants', 'With charcoal, makes gunpowder'],
+  [ITEM.GUNPOWDER]: ['Made from sulfur and charcoal', 'Goes into grenades and explosive barrels'],
+  [ITEM.GRENADE]: ['Right click to throw; it bounces and goes off after a few seconds',
+    'Hurts creatures and players nearby; breaks only soft blocks', 'Never damages spike barricades'],
+  [BLOCK.EXPLOSIVE_BARREL]: ['Right click a placed barrel to light its fuse', 'Blows apart even stone; nearby explosions light it too',
+    'An unlit barrel can be picked back up by breaking it'],
+  [BLOCK.SPIKE_BARRICADE]: ['Hurts and throws back enemies and hostile creatures that touch it',
+    'Enemies breaking it by hand get hurt; explosions and arrows wear it down', 'Never hurts your own team or monkeys'],
+  [BLOCK.DRAWBRIDGE]: ['Steam-powered: pipe steam from a boiler into it', 'Right click to set direction and length, add planks, and extend or retract',
+    'Place it at the edge of a platform'],
 };
 
 const blockItems = new Map();

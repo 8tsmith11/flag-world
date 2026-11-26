@@ -18,6 +18,7 @@ import { clickSlot, maxStack } from './inventory.js';
 import { rollLoot } from '../shared/loot.js';
 import { canHaveMods, rollMods, sameKind } from '../shared/modifiers.js';
 import { FluidTank, Boiler, Crusher } from './machines.js';
+import { Drawbridge } from './drawbridge.js';
 import { metalOf } from '../shared/merchant.js';
 
 // Moves as much of `stack` as fits into slots[index] (empty, or the same item
@@ -461,5 +462,6 @@ export function createContainer(kind) {
   if (kind === 'chest') return new Chest();
   if (kind === 'anvil') return new Anvil();
   if (kind === 'depot') return new Depot();
+  if (kind === 'drawbridge') return new Drawbridge();
   return null;
 }

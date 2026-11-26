@@ -1,4 +1,5 @@
 import { ANVIL_PARTS } from './anvilParts.js';
+import { DEFENSE_SHAPES } from './defenseParts.js';
 import { mergeStaticMeshes } from './mergeStaticMeshes.js';
 // 3D models shared by the world, the first-person view and the inventory
 // preview: the player (body, head with a face, one arm with a fist that holds
@@ -774,7 +775,7 @@ export function createItemModel(item, blockSize = 0.25) {
   const block=def.block===null?null:blockBase(def.block).base;
   const fluidParts=block===BLOCK.BRONZE_PIPE?pipeParts():block===BLOCK.FLUID_TANK?tankFrameParts()
     :block===BLOCK.FLUID_PUMP?PUMP_PARTS:block===BLOCK.BOILER?BOILER_PARTS
-      :block===BLOCK.CRUSHER?CRUSHER_PARTS:null;
+      :block===BLOCK.CRUSHER?CRUSHER_PARTS:block!==null?DEFENSE_SHAPES[getBlockDef(block).shape]??null:null;
   if(fluidParts) {
     const group=new THREE.Group();
     for(const {box,color} of fluidParts) {

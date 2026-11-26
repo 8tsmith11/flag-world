@@ -715,8 +715,8 @@ export const COMMERCE_IDS = {
 // Reinforced walls: 1 iron ingot + 10 stone bricks make 10. Stone bricks need
 // an iron hammer (hardness 5) and take 1.5 s by hand speed; reinforced walls
 // need the same hammer and take four times as long. blastResistance is how
-// many times harder an explosion has to hit it than plain stone (1); no
-// explosion in the game breaks blocks yet, so it is data for when one does.
+// many times harder an explosion has to hit it than plain stone (1); see
+// EXPLOSIVES for how explosions use it.
 export const REINFORCED_WALL = { hardness: 5, breakTime: 6, blastResistance: 6, craftCount: 10,
   craftBricks: 10, craftIron: 1, stoneBrickBlastResistance: 3 };
 
@@ -762,3 +762,59 @@ export const MERCHANT = {
   // buying those materials back).
   requests: 3, requestPremium: 1.6,
 };
+
+// ---- Explosives and defensive infrastructure update ----
+
+// New block and item ids. Never renumber or reuse. sulfurPlant is the four
+// growth stages of the sulfur crop (163..166).
+export const EXPLOSIVES_IDS = {
+  blocks: { sulfurPlant: 163, explosiveBarrel: 167, litBarrel: 168, spikeBarricade: 169, drawbridge: 170, bridgeDeck: 171 },
+  items: { sulfurSeeds: 332, sulfur: 333, gunpowder: 334, grenade: 335 },
+};
+
+// Explosions (server/explosives.js). Each kind has:
+//   power, blastRadius: structural strength at the center, falling linearly
+//     to 0 at blastRadius. A block takes power*(1-d/blastRadius) divided by
+//     its resistance as damage (1 = destroyed); damage adds up across
+//     explosions, so strong walls fall to repeated blasts.
+//   damage, damageRadius: entity damage at the center, falling linearly to 0;
+//     through solid blocks it is scaled by `cover`.
+//   knockback: push away from the center (1 = a sword hit).
+// A block's resistance is blastResistance * max(0.5, hardness / 2): dirt,
+// wood and plants 0.5, stone 1, stone bricks 7.5, reinforced walls 15,
+// spike barricades 3; unbreakable blocks never break.
+// Grenades: thrown (throwSpeed along the look, plus lift), bounce off blocks
+// (bounce keeps that share of speed, friction on landing), go off after
+// fuseSeconds. Grenades never damage spike barricades.
+// Barrels: right click to light (fuseSeconds); an explosion lights barrels in
+// its blast with a short chain fuse (chainFuseSeconds range) instead.
+export const EXPLOSIVES = {
+  cover: 0.4, maxBlocks: 600,
+  grenade: { throwSpeed: 15, lift: 0.18, gravity: 22, radius: 0.14, bounce: 0.35, friction: 0.65,
+    fuseSeconds: 2.5, cooldownSeconds: 0.6, power: 1.2, blastRadius: 2.5, damage: 9, damageRadius: 4,
+    knockback: 1.3, maxStack: 16, craftGunpowder: 2, craftCopper: 1, craftCount: 2 },
+  barrel: { fuseSeconds: 3, chainFuseSeconds: [0.5, 0.9], power: 9, blastRadius: 4.5, damage: 14,
+    damageRadius: 5.5, knockback: 1.8, craftGunpowder: 6, craftPlanks: 4, craftCopper: 1 },
+  gunpowder: { craftSulfur: 1, craftCharcoal: 1, craftCount: 2 },
+};
+
+// Iron spike barricades (server/spikes.js): solid blocks that hurt and push
+// back anything hostile to the team that placed them on touch (within
+// touchMargin of the block), at most once per contactCooldown seconds per
+// target, and hurt enemy players breaking them by hand (breakDamage every
+// breakInterval seconds of breaking). Arrows chip them (arrowDamage of a
+// whole block per hit, crossbow bolts boltDamage); explosions treat them as
+// resistance 3 (grenades never touch them).
+export const SPIKES = { hardness: 3, breakTime: 3, blastResistance: 2, contactDamage: 3, contactCooldown: 0.75,
+  knockback: 1.1, touchMargin: 0.12, breakDamage: 2, breakInterval: 0.75, arrowDamage: 0.2, boltDamage: 0.4,
+  craftIron: 3, craftCount: 2 };
+
+// Steam-powered drawbridges (server/drawbridge.js). A mechanism block lays
+// bridge deck sections out from its front, one at a time, up to maxLength.
+// Each section is built once from sectionPlanks planks put in the
+// mechanism, then kept: retracted sections are stored inside it and laid
+// again for free; broken sections drop their planks and must be paid for
+// again. Moving uses steamPerSecond (a section takes steamPerSection steam);
+// standing still uses none.
+export const DRAWBRIDGE = { maxLength: 16, defaultLength: 6, sectionPlanks: 3, steamPerSecond: 20, steamPerSection: 8,
+  hardness: 3, breakTime: 2, deckHardness: 1, deckBreakTime: 1.2, craftBronze: 4, craftIron: 2, craftPipe: 1 };

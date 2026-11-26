@@ -5,7 +5,7 @@
 // the inventory screen or a workbench) or 'workbench' (only at a workbench).
 // `id` is what the client sends to craft it.
 
-import { LIGHTING, METALS, FLUID, ELEMENTAL, REINFORCED_WALL, SPYGLASS } from './config.js';
+import { LIGHTING, METALS, FLUID, ELEMENTAL, REINFORCED_WALL, SPYGLASS, EXPLOSIVES, SPIKES, DRAWBRIDGE } from './config.js';
 import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { creativeItemIds, getItemDef } from './items.js';
@@ -64,6 +64,19 @@ export const RECIPES = [
     inputs: needs([ITEM.IRON_INGOT, REINFORCED_WALL.craftIron], [BLOCK.STONE_BRICKS, REINFORCED_WALL.craftBricks]) },
   { id: 'spyglass', station: 'workbench', output: ITEM.SPYGLASS, count: 1,
     inputs: needs([ITEM.BRONZE_INGOT, SPYGLASS.craftBronze], [BLOCK.GLASS, SPYGLASS.craftGlass]) },
+  // Explosives and defenses. Gunpowder needs no station, so it can be mixed anywhere.
+  { id: 'gunpowder', station: null, output: ITEM.GUNPOWDER, count: EXPLOSIVES.gunpowder.craftCount,
+    inputs: needs([ITEM.SULFUR, EXPLOSIVES.gunpowder.craftSulfur], [ITEM.CHARCOAL, EXPLOSIVES.gunpowder.craftCharcoal]) },
+  { id: 'grenade', station: 'workbench', output: ITEM.GRENADE, count: EXPLOSIVES.grenade.craftCount,
+    inputs: needs([ITEM.GUNPOWDER, EXPLOSIVES.grenade.craftGunpowder], [ITEM.COPPER_INGOT, EXPLOSIVES.grenade.craftCopper]) },
+  { id: 'explosive_barrel', station: 'workbench', output: BLOCK.EXPLOSIVE_BARREL, count: 1,
+    inputs: needs([ITEM.GUNPOWDER, EXPLOSIVES.barrel.craftGunpowder], [BLOCK.PLANKS, EXPLOSIVES.barrel.craftPlanks],
+      [ITEM.COPPER_INGOT, EXPLOSIVES.barrel.craftCopper]) },
+  { id: 'spike_barricade', station: 'workbench', output: BLOCK.SPIKE_BARRICADE, count: SPIKES.craftCount,
+    inputs: needs([ITEM.IRON_INGOT, SPIKES.craftIron]) },
+  { id: 'drawbridge', station: 'workbench', output: BLOCK.DRAWBRIDGE, count: 1,
+    inputs: needs([ITEM.BRONZE_INGOT, DRAWBRIDGE.craftBronze], [ITEM.IRON_INGOT, DRAWBRIDGE.craftIron],
+      [BLOCK.BRONZE_PIPE, DRAWBRIDGE.craftPipe]) },
 ];
 
 // Server checks creative permission before accepting these ids. The client

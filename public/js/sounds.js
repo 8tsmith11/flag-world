@@ -100,6 +100,23 @@ export class Sounds {
     if (!this.mixer.play(sounds.place, C.blockGain.place, position)) this.noiseBurst(0.09, 900, C.blockGain.place, position, this.mixer.listener);
   }
 
+  // Explosives update: a deep boom (bigger for barrels), a crackling fuse and
+  // a grenade's beep.
+  explosion(position, big = false) {
+    const listener = this.mixer.listener;
+    this.noiseBurst(big ? 1.6 : 0.9, big ? 520 : 800, big ? 0.9 : 0.6, position, listener);
+    this.noiseBurst(big ? 0.5 : 0.3, 2600, big ? 0.45 : 0.3, position, listener);
+    this.tone(big ? 90 : 130, 32, big ? 1.1 : 0.6, big ? 0.55 : 0.35, position, listener, 'sine');
+  }
+
+  fuseHiss(position) {
+    this.noiseBurst(0.2, 6000 + Math.random() * 2000, 0.07, position, this.mixer.listener);
+  }
+
+  grenadeBeep(position, urgent = false) {
+    this.tone(urgent ? 1760 : 1320, urgent ? 1760 : 1320, 0.07, 0.12, position, this.mixer.listener, 'square');
+  }
+
   mobDamage(entity, hp) {
     if (!entity) return;
     const type=entity.info.type, sounds=MOB_SOUNDS[type];

@@ -44,7 +44,8 @@ import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { RECIPES } from './recipes.js';
 import { METALS, FLUID, MERCHANT, MONKEY_DUTY, REINFORCED_WALL, SMELT_TIME, FLAG_GRAB_TIME, FLAG_CAPTURE_TIME,
-  SAPLING_DROP_CHANCE, TURRET, FLAG_RETURN_TIME } from './config.js';
+  SAPLING_DROP_CHANCE, TURRET, FLAG_RETURN_TIME, EXPLOSIVES, SPIKES, DRAWBRIDGE, FARMING } from './config.js';
+import { MERCHANT_SELLS } from './merchant.js';
 
 const obtained = (...ids) => ({ obtained: ids });
 const crafted = (...ids) => ({ crafted: ids });
@@ -53,6 +54,7 @@ const event = (name, count = 1) => ({ event: name, count });
 const anyEvent = (prefix, ids) => ({ any: ids.map((id) => event(`${prefix}:${id}`)) });
 const coins = (count) => [{ item: ITEM.GOLD_COIN, count }];
 const region = (label, x0, y0, x1, y1) => ({ label, x0, y0, x1, y1 });
+const SULFUR_OFFER = MERCHANT_SELLS.find((o) => o.item === ITEM.SULFUR_SEEDS);
 const ACCESSORY_ITEMS = [ITEM.WIND_BOOTS, ITEM.SPRING_BOOTS, ITEM.HEART_AMULET, ITEM.MENDING_CHARM, ITEM.EMBER_HEART, ITEM.DRAGON_CROWN];
 // Bronze ingots and everything crafted from them.
 const BRONZE_GOODS = [ITEM.BRONZE_INGOT,
@@ -62,12 +64,13 @@ export const CHAPTERS = [
   { id: 'adventure', name: 'A Brand New Adventure', icon: BLOCK.WOOD, unlock: null,
     regions: [region('Tools and building', 0, 0, 4, 1), region('Metalworking', 5, 1, 7, 2), region('Food and farming', 8, 1, 9, 1),
       region('Keep and combat', 0, 3, 2, 4), region('Iron and defenses', 3, 3, 6, 4),
-      region('Monkeys', 0, 5, 4, 7), region('The Sky Merchant', 6, 5, 8, 7), region('Exploration and creatures', 0, 8, 5, 10)],
-    intro: 'Everything you can do with wood, stone, copper, tin and iron: tools and buildings, your keep and flag, monkeys and their jobs, furnaces, fights and defenses, the Sky Merchant, and the islands around you.' },
+      region('Monkeys', 0, 5, 4, 7), region('The Sky Merchant', 6, 5, 8, 7), region('Exploration and creatures', 0, 8, 5, 10),
+      region('Explosives', 7, 8, 9, 10)],
+    intro: 'Everything you can do with wood, stone, copper, tin and iron: tools and buildings, your keep and flag, monkeys and their jobs, furnaces, fights and defenses, explosives, the Sky Merchant, and the islands around you.' },
   { id: 'business', name: 'Monkey Business', icon: ITEM.BRONZE_INGOT,
     unlock: { goal: obtained(ITEM.BRONZE_INGOT), text: 'Unlocks when anyone on your team first holds a bronze ingot (made in an Alloy Furnace).' },
     regions: [region('Bronze', 0, 0, 2, 1), region('Steam power', 0, 3, 3, 4), region('Industry', 5, 1, 6, 3)],
-    intro: 'What bronze makes possible: bronze tools and iron mining, pumps, pipes, boilers and crushers, and monkey-run industry that feeds machines, works metal and sells it.' },
+    intro: 'What bronze makes possible: bronze tools and iron mining, pumps, pipes, boilers, crushers and steam drawbridges, and monkey-run industry that feeds machines, works metal and sells it.' },
   { id: 'beyond', name: 'Beyond the Island', icon: ITEM.DRAGON_SCALE,
     unlock: { discovery: true, goal: event('encounter:dragon'), text: 'Found by discovering something remarkable out in the world.' },
     regions: [region('The fire island', 0, 0, 2, 0), region('Dragons', 4, 0, 5, 0), region('Treasures', 7, 1, 7, 1),
@@ -181,6 +184,11 @@ export const QUESTS = [
     goal: { all: [made(BLOCK.ARROW_TURRET), event('role:guard')] },
     text: ['Have an arrow turret and a guard monkey watching over your base. Surround your keep with walls, put a reinforced door in them, and post a lookout where raiders will come from.'] },
 
+  { id: 'spikes', chapter: 'adventure', x: 3, y: 3, deps: ['iron'], icon: BLOCK.SPIKE_BARRICADE, title: 'Spike Barricades', goal: { placed: [BLOCK.SPIKE_BARRICADE] },
+    text: [`${SPIKES.craftIron} iron ingots make ${SPIKES.craftCount} iron spike barricades at a workbench. Place them like any block: on floors, walls, ceilings or under your island. They work the same whichever way they face.`,
+      `Enemy players and monkeys, goblins and hostile creatures that touch one take ${SPIKES.contactDamage} damage and are thrown back (at most once every ${SPIKES.contactCooldown} seconds). An enemy breaking one by hand (it needs a stone hammer) takes ${SPIKES.breakDamage} damage every ${SPIKES.breakInterval} seconds while they work at it. Your own team and monkeys are never hurt.`,
+      `Raiders can still get through: about ${Math.ceil(1 / SPIKES.arrowDamage)} arrows (or ${Math.ceil(1 / SPIKES.boltDamage)} crossbow bolts) wear one away, and an explosive barrel blows them apart. Grenades don't touch them. Use them on outer walls, bridge ends and the underside of your island.`] },
+
   // ---- Monkeys ----
   { id: 'tame', chapter: 'adventure', x: 0, y: 6, icon: ITEM.MONKEY_EGG, title: 'Taming a Monkey', goal: event('tame'),
     reward: [{ item: ITEM.BREAD, count: 3 }],
@@ -281,6 +289,31 @@ export const QUESTS = [
     text: ['Goblins build villages and a sealed fortress in the central island\'s lowlands, and keep expanding. Workers, soldiers, archers, brutes and a king defend them, and their walls hide poison traps.',
       'Turrets, guard monkeys and lookouts all treat goblins as enemies.'] },
 
+  // ---- Explosives ----
+  { id: 'sulfurSeeds', chapter: 'adventure', x: 7, y: 9, icon: ITEM.SULFUR_SEEDS, title: 'Sulfur Seeds', goal: obtained(ITEM.SULFUR_SEEDS),
+    text: [`Sulfur never grows wild. Buy sulfur seeds from the Sky Merchant (${SULFUR_OFFER.count} seeds for ${SULFUR_OFFER.coins} coins, up to ${SULFUR_OFFER.stock} times a day) or look for them in loot chests on the islands.`,
+      'You only need a few: every sulfur plant gives seeds back when you harvest it.'] },
+  { id: 'sulfurFarm', chapter: 'adventure', x: 8, y: 9, deps: ['sulfurSeeds'], icon: ITEM.SULFUR, title: 'Growing Sulfur', goal: obtained(ITEM.SULFUR),
+    reward: [{ item: ITEM.CHARCOAL, count: 4 }],
+    text: ['Plant sulfur seeds like wheat: till grass or dirt into farmland with a hoe, then right click the farmland with the seeds. The plant grows by itself through four stages into a bright yellow crop.',
+      `Right click a ripe plant to harvest it: you get 1 sulfur and ${FARMING.matureSeeds[0]} to ${FARMING.matureSeeds[1]} seeds, so the farm keeps itself going without buying more.`] },
+  { id: 'sulfurAuto', chapter: 'adventure', x: 8, y: 8, links: ['sulfurFarm'], icon: ITEM.SULFUR_SEEDS, title: 'Sulfur Farmhands', goal: event('monkeyHarvested:sulfur'),
+    text: ['Give a Farmer monkey an area covering your sulfur farmland, a destination chest and a few sulfur seeds. It harvests ripe plants, replants them from the seeds it gets back and brings the sulfur to the chest, with nobody watching.'] },
+  { id: 'gunpowder', chapter: 'adventure', x: 9, y: 9, deps: ['sulfurFarm'], icon: ITEM.GUNPOWDER, title: 'Gunpowder', goal: crafted(ITEM.GUNPOWDER),
+    text: [`${EXPLOSIVES.gunpowder.craftSulfur} sulfur and ${EXPLOSIVES.gunpowder.craftCharcoal} charcoal make ${EXPLOSIVES.gunpowder.craftCount} gunpowder, no workbench needed. Smelt wood in a furnace for charcoal.`,
+      'Gunpowder goes into grenades and explosive barrels. It stacks and travels like any item, so couriers can carry it.'] },
+  { id: 'explosivesFactory', chapter: 'adventure', x: 8, y: 10, links: ['gunpowder'], icon: BLOCK.WORKBENCH, title: 'An Explosives Factory',
+    goal: event(`monkeyCrafted:${ITEM.GUNPOWDER}`), reward: coins(3),
+    text: ['Have a Craftsman monkey make gunpowder: a source chest with sulfur and charcoal, a workbench, the gunpowder recipe and a destination chest. A second craftsman can turn that gunpowder (and copper) into grenades.',
+      'With a farmer filling the sulfur chest and a courier bringing charcoal from a furnace burning wood, the whole chain runs itself, no mining needed.'] },
+  { id: 'grenades', chapter: 'adventure', x: 9, y: 8, deps: ['gunpowder'], icon: ITEM.GRENADE, title: 'Grenades', goal: event('grenadeThrown'),
+    text: [`${EXPLOSIVES.grenade.craftGunpowder} gunpowder and ${EXPLOSIVES.grenade.craftCopper} copper ingot make ${EXPLOSIVES.grenade.craftCount} grenades at a workbench. Right click to throw one: it arcs, bounces off blocks, blinks and beeps faster and faster, and goes off ${EXPLOSIVES.grenade.fuseSeconds} seconds after it leaves your hand.`,
+      `The blast does up to ${EXPLOSIVES.grenade.damage} damage at the center, less with distance (nothing beyond ${EXPLOSIVES.grenade.damageRadius} blocks) and less through walls, and throws things back. It never hurts your own team. It only breaks soft blocks (dirt, sand, wood, leaves, glass, crops) right next to it, and never spike barricades: it is for creatures and players, not walls.`] },
+  { id: 'barrels', chapter: 'adventure', x: 9, y: 10, deps: ['gunpowder'], icon: BLOCK.EXPLOSIVE_BARREL, title: 'Explosive Barrels', goal: event('barrelLit'),
+    text: [`${EXPLOSIVES.barrel.craftGunpowder} gunpowder, ${EXPLOSIVES.barrel.craftPlanks} planks and ${EXPLOSIVES.barrel.craftCopper} copper ingot make an explosive barrel at a workbench. Place it, then right click it to light the fuse: it sparks and hisses for ${EXPLOSIVES.barrel.fuseSeconds} seconds and can't be picked up once lit. An unlit barrel breaks back into its item.`,
+      `It blows apart stone and most blocks within about ${Math.floor(EXPLOSIVES.barrel.blastRadius * (1 - 1 / EXPLOSIVES.barrel.power))} blocks and hurts everything nearby (up to ${EXPLOSIVES.barrel.damage} damage). Stone bricks only crack, and reinforced walls take several barrels; damage adds up. Spike barricades go. Unbreakable blocks never do.`,
+      'Another explosion lights any barrel in its blast with a short fuse, so rows of barrels go off one after another.'] },
+
   // ======== Monkey Business ========
 
   // ---- Bronze ----
@@ -309,6 +342,12 @@ export const QUESTS = [
     goal: obtained(ITEM.IRON_DUST, ITEM.COPPER_DUST, ITEM.TIN_DUST), reward: [{ item: ITEM.CHARCOAL, count: 8 }],
     text: [`The crusher (4 bronze ingots, 2 stone, 1 pipe) uses ${FLUID.crusherPerSecond} steam a second. Each ore becomes ${FLUID.crusherOreDust} dust in ${FLUID.crusherSeconds} seconds; stone becomes sand.`,
       'Dust smelts into ingots in a furnace or goes straight into the Alloy Furnace, so crushing doubles your metal. With too little steam it runs slowly.'] },
+
+  { id: 'drawbridge', chapter: 'business', x: 2, y: 4, deps: ['boiler'], icon: BLOCK.DRAWBRIDGE, title: 'Steam Drawbridge',
+    goal: { all: [made(BLOCK.DRAWBRIDGE), event('drawbridgeExtended')] }, reward: [{ item: BLOCK.PLANKS, count: 9 }],
+    text: [`Craft a drawbridge from ${DRAWBRIDGE.craftBronze} bronze ingots, ${DRAWBRIDGE.craftIron} iron ingots and ${DRAWBRIDGE.craftPipe} bronze pipe at a workbench, and place it at the edge of a platform: it extends the way you were facing. Right click it to set its direction and its length (1 to ${DRAWBRIDGE.maxLength}); while its screen is open an outline shows where the bridge will go. Length and direction only change while it is fully retracted. Only your team can open it.`,
+      `Put planks in its slot: each section is built once from ${DRAWBRIDGE.sectionPlanks} planks. Retracted sections are stored inside and laid again for free, so moving it back and forth costs nothing.`,
+      `Pipe steam in from a boiler. It uses ${DRAWBRIDGE.steamPerSecond} steam a second while moving (${DRAWBRIDGE.steamPerSection} per section) and none standing still; without steam it stops where it is and carries on later. It won't build into a block or anyone in the way. A broken section drops its planks and leaves a gap; press Extend with planks supplied to replace it. Monkeys walk across an extended bridge.`] },
 
   // ---- Industry ----
   { id: 'metalwork', chapter: 'business', x: 5, y: 1, icon: BLOCK.BRONZE_PIPE, title: 'Automated Metalwork', goal: anyEvent('monkeyCrafted', BRONZE_GOODS),

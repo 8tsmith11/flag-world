@@ -30,7 +30,7 @@ import { MerchantScreen } from './merchantScreen.js';
 import { QuestScreen } from './questScreen.js';
 import { DepotRenderer } from './render/depotRenderer.js';
 import { checkDepotSite, DOCK, DOCK_DIRS } from '/shared/merchant.js';
-import { SPYGLASS, VIEW_DISTANCE_MAX as SPY_MAX } from '/shared/config.js';
+import { SPYGLASS, VIEW_DISTANCE_MAX as SPY_MAX, DRAWBRIDGE } from '/shared/config.js';
 import { createScene, setViewDistance } from './render/scene.js';
 import { Clouds } from './render/clouds.js';
 import { Sky } from './render/sky.js';
@@ -48,6 +48,7 @@ import { PortalRenderer } from './render/portalRenderer.js';
 import { GrappleLine } from './render/grappleLine.js';
 import { TurretRenderer } from './render/turretRenderer.js';
 import { QuarryEffects } from './render/quarryEffects.js';
+import { ExplosionEffects } from './render/explosionEffects.js';
 import { LobbyMusic } from './lobbyMusic.js';
 import { MatchFullscreen, enterFullscreen } from './fullscreen.js';
 import { downloadLobbyView } from './render/capture.js';
@@ -118,6 +119,8 @@ const grappleLine = new GrappleLine(scene);
 const audioSettings = new AudioSettings();
 const audioMixer = new AudioMixer(audioSettings);
 const sounds = new Sounds(audioMixer);
+const explosionEffects = new ExplosionEffects(scene, sounds);
+entities.onGrenade = (id, position, fuse) => explosionEffects.grenade(id, position, fuse);
 const dialogue = new Dialogue(document.getElementById('subtitle'), audioSettings, audioMixer);
 const music=new LobbyMusic(audioSettings);
 const battleMusic = new BattleMusic(audioSettings);
@@ -158,6 +161,7 @@ const questScreen = new QuestScreen(conn);
 const depotRenderer = new DepotRenderer(scene);
 // Outlines for the airship's dock while holding a Merchant Depot.
 const depotPreview = new SelectionOutlines(scene);
+const bridgePreview = new SelectionOutlines(scene);
 const pickHint = document.getElementById('pick-hint');
 for (const menu of [merchantScreen, questScreen]) {
   menu.onOpen = () => { pickHint.hidden = true; closeInventory(false); if (monkeyScreen.open) monkeyScreen.close(false);
@@ -379,6 +383,7 @@ function stationKind(id) {
   if (isAnvil(id)) return 'anvil';
   if (['tank','boiler','crusher'].includes(fluidKind(id))) return fluidKind(id);
   if (id === BLOCK.MERCHANT_DEPOT) return 'depot';
+  if (id === BLOCK.DRAWBRIDGE) return 'drawbridge';
   return null;
 }
 
@@ -455,6 +460,8 @@ function deathText(msg) {
   if (cause === DEATH_CAUSE.FALL && !killer) return `${victim} fell from a high place`;
   if (cause === DEATH_CAUSE.LAVA) return `${victim} fell into lava`;
   if (cause === DEATH_CAUSE.MAGMA) return `${victim} burned on magma`;
+  if (cause === DEATH_CAUSE.EXPLOSION) return killer ? `${killer} blew up ${victim}` : `${victim} was blown up`;
+  if (cause === DEATH_CAUSE.SPIKES) return `${victim} was impaled on spikes`;
   return killer ? `${killer} killed ${victim}` : `${victim} died`;
 }
 
@@ -477,6 +484,8 @@ function enterDeath(msg, isEliminated) {
   else if (msg?.cause === DEATH_CAUSE.FALL && !killer) cause = 'You fell from a high place';
   else if (msg?.cause === DEATH_CAUSE.LAVA) cause = 'You fell into lava';
   else if (msg?.cause === DEATH_CAUSE.MAGMA) cause = 'You burned on magma';
+  else if (msg?.cause === DEATH_CAUSE.EXPLOSION) cause = killer ? `Blown up by ${killer}` : 'You were blown up';
+  else if (msg?.cause === DEATH_CAUSE.SPIKES) cause = 'You were impaled on spikes';
   else if (msg) cause = killer ? `Killed by ${killer}` : 'You died';
   deathCause.textContent = eliminated ? `${cause}${cause ? '. ' : ''}You have no flag, so you are eliminated.` : cause;
   document.body.classList.add('dead');
@@ -587,8 +596,10 @@ function startGame(msg, generated) {
   quarryEffects = new QuarryEffects(scene, world);
   stormEffects?.dispose();
   stormEffects = world.stormCloud ? new StormEffects(scene, world.stormCloud, audioMixer) : null;
+  explosionEffects.clear();
   for (const { x, y, z, id } of msg.blocks) {
     if (id === BLOCK.QUARRY_STONE) quarryEffects.changed(x, y, z, id);
+    if (id === BLOCK.LIT_BARREL) explosionEffects.blockChanged(x, y, z, id);
   }
   for (const { x, y, z } of msg.litFurnaces ?? []) furnaceEffects.setLit(x, y, z, true);
   for (const portal of msg.portals ?? []) portals.add(portal);
@@ -703,6 +714,7 @@ conn.on(S2C.BOSS_VICTORY, msg => {
 });
 conn.on(S2C.EMBER_BURST, (msg) => portals.burst(msg.x, msg.y, msg.z));
 conn.on(S2C.QUARRY_PUFF, (msg) => quarryEffects?.puff(msg.x, msg.y, msg.z));
+conn.on(S2C.EXPLOSION, (msg) => { if (world) explosionEffects.explode(msg.x, msg.y, msg.z, msg.radius, msg.kind, camera.position); });
 conn.on(S2C.STEAM_PUFF, (msg) => quarryEffects?.steam(msg.x,msg.y,msg.z));
 conn.on(S2C.CREATIVE, (msg) => {
   setCreative(msg.enabled);
@@ -727,6 +739,7 @@ conn.on(S2C.SPEAK, (msg) => {
 });
 conn.on(S2C.CONTAINER, (msg) => {
   const at = inventoryScreen.at;
+  if (msg.kind === 'drawbridge') openBridge = { x: msg.x, y: msg.y, z: msg.z, dir: msg.dir, length: msg.length };
   if (inventoryScreen.open && inventoryScreen.mode === msg.kind && at.x === msg.x && at.y === msg.y && at.z === msg.z) {
     inventoryScreen.setContainer(msg);
   }
@@ -764,6 +777,7 @@ function applyBlockChange(msg) {
   if (isFurnace(oldId) && !isFurnace(msg.id)) {
     furnaceEffects?.setLit(msg.x, msg.y, msg.z, false);
   }
+  explosionEffects.blockChanged(msg.x, msg.y, msg.z, msg.id);
   world.setBlock(msg.x, msg.y, msg.z, msg.id);
   if (oldId === BLOCK.QUARRY_STONE || msg.id === BLOCK.QUARRY_STONE) {
     quarryEffects?.changed(msg.x, msg.y, msg.z, msg.id);
@@ -929,6 +943,32 @@ function updateSpyglass(scoped, now, dir) {
 // Holding a depot and aiming at a block: the airship's dock (and its
 // approach corridor) is outlined where it would go, green when clear, red
 // with the blocking block marked when not, with the reason as a prompt.
+// Drawbridge preview: the cells its bridge will take, green where clear and
+// red where something is in the way. While holding one, from where it would
+// be placed along the way you face (default length); while its screen is
+// open, from the mechanism with its configured direction and length.
+let openBridge = null, bridgePreviewKey = null;
+const BRIDGE_DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+function updateDrawbridgePreview(playing) {
+  let at = null;
+  if (inventoryScreen.open && inventoryScreen.mode === 'drawbridge' && openBridge) at = openBridge;
+  else if (playing && heldItem() === BLOCK.DRAWBRIDGE && !monkeyScreen.picking) {
+    const place = placeTarget();
+    if (place) {
+      const look = lookDirection(player.state.yaw, 0);
+      at = { ...place, dir: Math.abs(look.x) > Math.abs(look.z) ? (look.x > 0 ? 1 : 3) : (look.z > 0 ? 2 : 0), length: DRAWBRIDGE.defaultLength };
+    }
+  } else openBridge = null;
+  if (!at) { if (bridgePreviewKey) { bridgePreviewKey = null; bridgePreview.update(null); } return; }
+  bridgePreviewKey = true;
+  const [dx, dz] = BRIDGE_DIRS[at.dir], list = [];
+  for (let i = 1; i <= at.length; i++) {
+    const pos = { x: at.x + dx * i, y: at.y, z: at.z + dz * i }, id = world.getBlock(pos.x, pos.y, pos.z);
+    list.push({ pos, color: id === BLOCK.AIR || id === BLOCK.BRIDGE_DECK ? 0x30d158 : 0xff453a });
+  }
+  bridgePreview.update(list);
+}
+
 let depotPreviewKey = null, depotPreviewList = null, depotPreviewText = '';
 function updateDepotPreview(playing) {
   const place = playing && heldItem() === BLOCK.MERCHANT_DEPOT && !monkeyScreen.picking ? placeTarget() : null;
@@ -1015,6 +1055,9 @@ function frame(now) {
     if (controls.glide) controls.place = false;
     controls.rift = heldItem() === ITEM.RIFT_ORB && controls.place;
     if (controls.rift) { controls.place = false; viewModel.push(); }
+    // Right click with a grenade throws it (the server applies the cooldown).
+    controls.grenade = heldItem() === ITEM.GRENADE && controls.place && !(target && stationKind(target.id));
+    if (controls.grenade) { controls.place = false; viewModel.push(); }
     controls.spawnEgg = getItemDef(heldItem()).mobType && controls.place && target
       ? { x: target.x, y: target.y, z: target.z } : null;
     if (controls.spawnEgg) { controls.place = false; viewModel.push(); }
@@ -1043,6 +1086,7 @@ function frame(now) {
     // Right click on a door opens or closes it instead of placing.
     const tilling = getItemDef(heldItem()).tool === 'hoe' && (target?.id === BLOCK.GRASS || target?.id === BLOCK.DIRT);
     const useTarget = controls.place && target && (changingFace || tilling || isMatureCrop(target.id) || (!placingWhileCrouched && isDoor(target.id))
+      || (!placingWhileCrouched && target.id === BLOCK.EXPLOSIVE_BARREL)
       || ((target.id === BLOCK.WATER || target.id === BLOCK.LAVA) && heldItem() === ITEM.EMPTY_BUCKET));
     controls.use = useTarget ? { x: target.x, y: target.y, z: target.z,
       nx:target.nx,ny:target.ny,nz:target.nz } : null;
@@ -1090,6 +1134,12 @@ function frame(now) {
   highlight.update(target, breaking ? breaking.ticks / breakTicks(target.id, heldTool().speed) : 0);
   checkContainer();
 
+  if (explosionEffects.shake > 0) {
+    const amount = explosionEffects.shake * 0.5;
+    camera.position.x += (Math.random() - 0.5) * amount;
+    camera.position.y += (Math.random() - 0.5) * amount;
+    camera.position.z += (Math.random() - 0.5) * amount;
+  }
   if (now < shakeUntil) {
     const amount = SHAKE_AMOUNT * (shakeUntil - now) / SHAKE_MS;
     camera.position.x += (Math.random() - 0.5) * 2 * amount;
@@ -1113,6 +1163,7 @@ function frame(now) {
   }
   input.lookScale = camera.fov / FOV;
   updateDepotPreview(playing);
+  updateDrawbridgePreview(playing);
   questScreen.update(dt);
   depotRenderer.update(dt);
 
@@ -1143,6 +1194,7 @@ function frame(now) {
   furnaceEffects?.update(dt, camera.position, chunks.viewDistance);
   fluidRenderer?.update(dt);
   quarryEffects?.update(dt, camera.position, chunks.viewDistance);
+  explosionEffects.update(dt);
   stormEffects?.update(dt, camera.position, mode === MODE.PLAY || mode === MODE.SPECTATE);
   portals.update(dt, camera);
   arenaEffects.update(dt, camera, !!world && inDragonArena(world, camera.position.x, camera.position.z));

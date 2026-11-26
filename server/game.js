@@ -71,6 +71,8 @@ import { MonkeyWorkers, WorkMonkey } from './monkeyWorkers.js';
 import { teamArrowTargets } from './hostility.js';
 import { MerchantSystem, SkyMerchant } from './merchants.js';
 import { QuestBook } from './quests.js';
+import { Explosives } from './explosives.js';
+import { Spikes } from './spikes.js';
 import { ChunkLoading } from './chunkLoading.js';
 import { TurretController } from './turrets.js';
 import { turretType } from '../shared/turrets.js';
@@ -305,6 +307,9 @@ export class Game {
       case C2S.QUEST_ACTION:
         if (session.player) this.quests?.action(session.player, msg);
         break;
+      case C2S.MACHINE_ACTION:
+        if (session.player) this.machineAction(session.player, msg);
+        break;
       case C2S.SAVE_GAME:
         // Any match player can save now (the same file autosaves overwrite).
         if (session.player && this.tick - (this.lastManualSave ?? -Infinity) >= TICK_RATE * 2) {
@@ -494,6 +499,8 @@ export class Game {
         && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y), null, this.chunkLoading);
     this.quarry = new QuarryRegrowth(this);
     this.fluids = new FluidSystem(this);
+    this.explosives = new Explosives(this);
+    this.spikes = new Spikes(this);
     this.farming = new Farming(this);
     this.world.onBlockChanged = (x, y, z, id, oldId) => {
       invalidateDragonSurface(this.world, x, z);
@@ -509,6 +516,8 @@ export class Game {
         this.garrison?.construction?.changed(x, y, z);
       }
       this.monkeys?.changed(x,y,z);
+      this.explosives?.changed(x, y, z, id);
+      this.spikes?.changed(x, y, z, id);
       if (oldId === BLOCK.MERCHANT_DEPOT && id !== oldId) this.merchants?.depotRemoved(x, y, z);
       this.water.enqueueAround(x, y, z);
       this.lava.enqueueAround(x, y, z);
@@ -538,7 +547,8 @@ export class Game {
       this.world.tileEntities.set(key, new Chest(table));
     }
     if (save) this.loadWorldChanges(save);
-    if (save) { this.merchants.load(save.merchants); this.quests.load(save.quests); this.teamProgress.load(save.teamProgress); }
+    if (save) { this.merchants.load(save.merchants); this.quests.load(save.quests); this.teamProgress.load(save.teamProgress);
+      this.explosives.load(save.explosives); this.spikes.load(save.spikes); }
 
     const teamFlags = new Map();
     if (save) this.loadPlayers(save, occupiedTeams, teamFlags);
@@ -817,7 +827,8 @@ export class Game {
       players: [...this.players.values()].map((p) => ({ ...p.describe(), ...p.snapshot() })),
       entities: [...[...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
         ...this.mobs.values(), ...this.npcs.values()].map((e) => ({ ...e.describe(), loaded: this.chunkLoading.has(e.state.x, e.state.z) })),
-        ...[...this.merchants.ships.values()].map((ship) => ship.describe())],
+        ...[...this.merchants.ships.values()].map((ship) => ship.describe()),
+        ...[...this.explosives.grenades.values()].map((g) => g.describe())],
       merchants: this.merchants.message().merchants,
       quests: this.quests.state(player.team),
       inventory: player.inventory,
@@ -858,6 +869,7 @@ export class Game {
       hook: !!msg.hook,
       flyToggle: !!msg.flyToggle,
       scope: !!msg.scope,
+      grenade: !!msg.grenade,
     });
   }
 
@@ -998,6 +1010,11 @@ export class Game {
     const b = player.breaking;
     if (b && b.x === pos.x && b.y === pos.y && b.z === pos.z) b.ticks++;
     else player.breaking = { ...pos, ticks: 1 };
+    // Spike barricades hurt enemies who break them by hand.
+    if (id === BLOCK.SPIKE_BARRICADE) {
+      this.spikes.breaking(player, pos, player.breaking.ticks);
+      if (player.dead) { player.breaking = null; return; }
+    }
     if (player.breaking.ticks % BREAK_SWING_TICKS === 1) this.swing(player);
     if (player.breaking.ticks >= breakTicks(id, tool.speed)) {
       player.breaking = null;
@@ -1066,6 +1083,8 @@ export class Game {
   // Right click on a door: open or close both halves. A door can't close on a player.
   stepUse(player, pos, crouch = false) {
     const id = this.world.getBlock(pos.x, pos.y, pos.z);
+    // Right click an explosive barrel: light its fuse.
+    if (id === BLOCK.EXPLOSIVE_BARREL && this.inReach(player, pos)) { this.explosives.ignite(pos.x, pos.y, pos.z, { source: player }); this.swing(player); return; }
     if (configurableFluidFaces(fluidKind(id)) && crouch
       && this.inReach(player,pos)) {
       const eye={x:player.state.x,y:player.state.y+eyeHeight(player.state),z:player.state.z};
@@ -1241,6 +1260,16 @@ export class Game {
       if (container) { this.world.tileEntities.set(`${x},${y},${z}`, container);this.fluids.attach(x,y,z,container); }
     }
     if (turretType(def.block)) this.turretController.place(pos.x, pos.y, pos.z, def.block, player.team);
+    if (def.block === BLOCK.SPIKE_BARRICADE) this.spikes.placed(pos.x, pos.y, pos.z, player.team);
+    if (def.block === BLOCK.DRAWBRIDGE) {
+      // Owned by the placer's team; it extends the way they were facing.
+      const bridge = this.world.tileEntities.get(`${pos.x},${pos.y},${pos.z}`);
+      if (bridge) {
+        const look = lookDirection(player.state.yaw, 0);
+        bridge.team = player.team;
+        bridge.dir = Math.abs(look.x) > Math.abs(look.z) ? (look.x > 0 ? 1 : 3) : (look.z > 0 ? 2 : 0);
+      }
+    }
     if (depotFacing !== null) this.merchants.depotPlaced(player.team, pos, depotFacing);
     player.inventoryDirty = true;
     this.swing(player);
@@ -1405,8 +1434,25 @@ export class Game {
     const container = this.world.tileEntities.get(key);
     if (!container) return;
     container.populate?.(this.seed, pos.x, pos.y, pos.z);
+    // A drawbridge only opens for the team that placed it.
+    if (container.kind === 'drawbridge' && container.team !== null && container.team !== player.team) {
+      this.send(player, { type: S2C.NOTICE, text: 'This drawbridge belongs to another team.', kind: 'danger' });
+      return;
+    }
     player.viewing = key;
     this.send(player, { type: S2C.CONTAINER, ...pos, ...container.view() });
+  }
+
+  // A control on the machine screen the player has open (a drawbridge's
+  // extend/retract, length and direction). Replies with the machine's view.
+  machineAction(player, msg) {
+    const container = this.viewedContainer(player);
+    if (player.dead || container?.kind !== 'drawbridge' || typeof msg.action !== 'string') return;
+    if (container.team !== null && container.team !== player.team) return;
+    const [x, y, z] = player.viewing.split(',').map(Number);
+    const node = this.fluids.nodes.get(player.viewing) ?? { x, y, z };
+    const error = container.command(this, node, msg.action, msg.value);
+    this.send(player, { type: S2C.CONTAINER, x, y, z, ...container.view(), ...(error ? { message: error } : {}) });
   }
 
   // The container the player has open, if it still exists and is in reach.
@@ -1424,7 +1470,7 @@ export class Game {
     for (const [key, container] of this.world.tileEntities.activeEntries()) {
       const isOven = container.kind === 'furnace' || container.kind === 'alloyFurnace';
       const wasLit = isOven && container.burn > 0;
-      if (!['tank','boiler','crusher'].includes(container.kind) && container.tick()) container.dirty = true;
+      if (!['tank','boiler','crusher','drawbridge'].includes(container.kind) && container.tick()) container.dirty = true;
       if(container.pendingReturns?.length){
         const [x,y,z]=key.split(',').map(Number);
         for(const stack of container.pendingReturns)this.spawnItem(stack.item,stack.count,x+0.5,y+1,z+0.5,0,ITEM_POP_SPEED,0,ITEM_PICKUP_DELAY);
@@ -1658,6 +1704,7 @@ export class Game {
             ...(this.boss?.status === 'active' ? [this.boss] : [])];
       const result = arrow.step(this.world, targets);
       this.arrows.relocate(arrow);
+      if (flying && arrow.stuckIn) this.spikes.arrowHit(arrow);
       if (result === 'gone' || arrow.y < this.world.voidY) {
         this.removeArrow(arrow);
       } else if (result?.hit) {
@@ -2558,6 +2605,7 @@ export class Game {
         else if (input.place) this.stepPlace(player, input.place, input.slot);
         if (input.spawnEgg) this.stepSpawnEgg(player, input.spawnEgg, input.slot);
         if (input.rift) this.stepRift(player);
+        if (input.grenade && !input.scope) this.explosives.throwGrenade(player);
         if (input.drop) this.stepDrop(player, input.slot);
         this.stepBow(player, input.draw);
         this.stepCrossbow(player, input.draw, input.fire);
@@ -2588,6 +2636,8 @@ export class Game {
     assignMobSteering(livingMobs);
     const movedItems = [...this.updateItems(), ...this.updateArrows(), ...this.updateRiftOrbs(), ...this.updateCows(), ...this.updateDragons(),
       ...this.updateMobs()];
+    this.explosives.update();
+    this.spikes.update(this.tick);
     for (const mob of resolveMobOverlaps(this.world, livingMobs)) {
       for (const map of [this.cows, this.dragons, this.mobs, this.npcs]) if (map.has(mob.id)) map.relocate(mob);
       if (!movedItems.includes(mob)) movedItems.push(mob);
@@ -2614,6 +2664,8 @@ export class Game {
       .map(e => e.snapshot());
     // Airships are few and seen from far away: every move goes to everyone.
     ordinary.push(...this.merchants.snapshots());
+    // Grenades are few and short-lived: everyone gets them every tick.
+    ordinary.push(...this.explosives.snapshots());
     this.entityInterest.collect(this);
     const flags = [...this.flags.values()].map((f) => f.snapshot());
     const turrets = this.turretController.snapshot();

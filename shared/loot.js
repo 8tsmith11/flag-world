@@ -18,6 +18,8 @@ const supplies = [
   { item: BLOCK.IRON_ORE, weight: 9, min: 2, max: 6 },
   { item: ITEM.LEATHER, weight: 10, min: 1, max: 4 },
   { item: ITEM.BEEF, weight: 10, min: 1, max: 3 },
+  // Sulfur never grows wild: chests and the Sky Merchant are where seeds start.
+  { item: ITEM.SULFUR_SEEDS, weight: 6, min: 1, max: 3 },
 ];
 const simpleGear = [
   { item: ITEM.WOOD_SWORD, weight: 5, min: 1, max: 1, modChance: COMMON_MODS },

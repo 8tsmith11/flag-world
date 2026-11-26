@@ -59,6 +59,29 @@ function createDroppedItemModel({ item }) {
   return group;
 }
 
+// A thrown grenade: an olive body with grooves, a steel cap and a red lamp
+// that blinks faster as its fuse runs down (animateGrenade).
+function createGrenadeModel() {
+  const group = new THREE.Group(), s = 0.16;
+  const body = new THREE.Mesh(new THREE.SphereGeometry(s, 10, 8), new THREE.MeshLambertMaterial({ color: 0x4b5a3a }));
+  body.scale.y = 1.15; group.add(body);
+  const groove = new THREE.MeshLambertMaterial({ color: 0x2f3a24 });
+  for (const y of [-0.06, 0.06]) { const ring = new THREE.Mesh(new THREE.TorusGeometry(s * 0.98, 0.012, 4, 14), groove); ring.rotation.x = Math.PI / 2; ring.position.y = y; group.add(ring); }
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.07, 8), new THREE.MeshLambertMaterial({ color: 0x8d9299 }));
+  cap.position.y = s * 1.15; group.add(cap);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), new THREE.MeshBasicMaterial({ color: 0xff3b2f }));
+  lamp.position.y = s * 1.15 + 0.05; group.add(lamp);
+  group.userData.grenade = { lamp, spin: Math.random() * Math.PI * 2 };
+  return group;
+}
+function animateGrenade(object, dt, fuse, moving) {
+  const g = object.userData.grenade;
+  g.age = (g.age ?? 0) + dt;
+  const rate = fuse > 30 ? 3 : fuse > 12 ? 6 : 12;
+  g.lamp.visible = Math.sin(g.age * rate * Math.PI * 2) > 0;
+  if (moving) { g.spin += dt * 9; object.children[0].rotation.z = g.spin; }
+}
+
 // Camera-facing sprite, for entity types that should render flat.
 export function createSpriteModel(texture, width, height) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
@@ -121,6 +144,7 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.VOID_EEL]: createEelModel,
   [ENTITY_TYPE.NPC]: (info) => info.npc === 'skyMerchant' ? createMerchantModel(info) : createNpcModel(info),
   [ENTITY_TYPE.AIRSHIP]: createAirshipModel,
+  [ENTITY_TYPE.GRENADE]: createGrenadeModel,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
     const arrow = createArrowModel();
@@ -205,7 +229,7 @@ export class EntityRenderer {
       onGround: !!snap.onGround,
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
       pose: snap.pose ?? null, look: snap.look ?? 0,
-      thrust: snap.thrust ?? 0, pilot: !!snap.pilot, baby: !!snap.baby,
+      thrust: snap.thrust ?? 0, pilot: !!snap.pilot, baby: !!snap.baby, fuse: snap.fuse ?? null,
       team: snap.team ?? null, name: snap.name ?? entity.info.name,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
@@ -373,6 +397,7 @@ export class EntityRenderer {
       if (object.userData.merchant) animateMerchant(object, dt, { speed, look: b.look, pose: b.pose,
         talking: now < (entity.talkUntil ?? 0) });
       if (object.userData.airship) animateAirship(object, dt, { thrust: b.thrust, pilot: b.pilot });
+      if (object.userData.grenade) { animateGrenade(object, dt, b.fuse ?? 50, Math.hypot(b.vx ?? 0, b.vz ?? 0) > 0.2); this.onGrenade?.(entity.id, object.position, b.fuse ?? 50); }
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch);
       // A renamed player gets a new tag (relit with the body below).

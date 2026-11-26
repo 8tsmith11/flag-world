@@ -1406,3 +1406,17 @@ body.scoped #hotbar, body.scoped #health { opacity: 0.35; }
 .quest-locked p { max-width: 460px; }
 .quest-badge.locked { background: #4a3a20; color: #ffd884; }
 @media (max-width: 900px) { .quest-chapters { width: 160px; } }
+/* Steam drawbridge screen (machinePanels.js). */
+.drawbridge-config { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.drawbridge-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+.drawbridge-label { width: 5.5em; color: #cfd6dc; }
+.screen .panel .drawbridge-row button { padding: 4px 10px; min-width: 2.2em; }
+.screen .panel .drawbridge-row button.selected { background: #3d5a7a; outline: 2px solid #8fb8e8; }
+.screen .panel .drawbridge-row button:disabled { opacity: 0.45; }
+.drawbridge-length { min-width: 5em; text-align: center; font-weight: bold; }
+.screen .panel .drawbridge-go { padding: 6px 18px; font-weight: bold; }
+.drawbridge-materials { display: flex; flex-direction: column; gap: 2px; font-size: 0.9em; color: #dfe5ea; margin-left: 12px; }
+.drawbridge-short { color: #ffb37a; }
+.drawbridge-ok { color: #9be39a; }
+.drawbridge-progress { width: 100%; max-width: 320px; }
+.drawbridge-note { margin: 0; }

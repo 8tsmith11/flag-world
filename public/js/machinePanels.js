@@ -1,17 +1,19 @@
-// Machine screens (furnace, alloy furnace, boiler, crusher, fluid tank and
-// Merchant Depot), all built from one layout so they read the same way:
+// Machine screens (furnace, alloy furnace, boiler, crusher, fluid tank,
+// drawbridge and Merchant Depot), all built from one layout so they read the
+// same way:
 //   - the machine's name and what it is for
 //   - its slots, each labeled, with a faint picture of what goes there
 //   - progress (arrow) and fuel (flame) bars, fluid gauges
 //   - its current status from the server: why it is or isn't working
 //   - the recipes it knows, and what it needs to run (fuel, water, steam)
 // The server's CONTAINER view fills it in (setView); slot clicks go out
-// through the callback given to build().
+// through the callback given to the constructor, and machine controls (the
+// drawbridge's buttons) through sendAction(action, value).
 import { BLOCK } from '/shared/blocks.js';
 import { ITEM } from '/shared/itemIds.js';
 import { getItemDef } from '/shared/items.js';
 import { SMELTING, CRUSHING, FUEL } from '/shared/recipes.js';
-import { METALS, FLUID, SMELT_TIME, ELEMENTAL, MERCHANT } from '/shared/config.js';
+import { METALS, FLUID, SMELT_TIME, ELEMENTAL, MERCHANT, DRAWBRIDGE } from '/shared/config.js';
 import { METAL_FORMS, buyList } from '/shared/merchant.js';
 import { renderStack, itemIcon } from './itemIcon.js';
 
@@ -111,10 +113,13 @@ const MACHINES = {
   },
 };
 
+const DIRECTIONS = ['North', 'East', 'South', 'West'];
+
 export class MachineView {
-  constructor(container, sendClick) {
+  constructor(container, sendClick, sendAction = () => {}) {
     this.root = container;
     this.sendClick = sendClick;
+    this.sendAction = sendAction;
     this.kind = null;
     this.seed = 0;
   }
@@ -143,6 +148,7 @@ export class MachineView {
     this.cells = [];
     this.root.replaceChildren();
     if (kind === 'depot') return this.buildDepot();
+    if (kind === 'drawbridge') return this.buildDrawbridge();
     const m = MACHINES[kind];
     const head = el('div', 'machine-head');
     const icon = el('div', 'machine-icon'); icon.append(itemIcon(m.icon));
@@ -211,7 +217,86 @@ export class MachineView {
     this.setView({ slots: Array(MERCHANT.depotInput + MERCHANT.depotOutput).fill(null), present: false, status: '' });
   }
 
+  // The drawbridge: planks slot and materials, direction and length (only
+  // while retracted), extend/retract, progress, steam and status.
+  buildDrawbridge() {
+    const head = el('div', 'machine-head');
+    const icon = el('div', 'machine-icon'); icon.append(itemIcon(BLOCK.DRAWBRIDGE));
+    head.append(icon, el('h2', '', 'Steam Drawbridge'));
+    this.root.append(head, el('p', 'machine-about',
+      'Lays a bridge out from its front, one section at a time, using steam from a boiler. Sections are built once from planks and stored inside when it retracts.'));
+    const button = (label, onClick, className = '') => { const b = el('button', className, label); b.type = 'button'; b.addEventListener('click', onClick); return b; };
+    const config = el('div', 'drawbridge-config');
+    this.dirButtons = DIRECTIONS.map((name, i) => button(name, () => this.sendAction('direction', i), 'drawbridge-dir'));
+    const dirs = el('div', 'drawbridge-row'); dirs.append(el('span', 'drawbridge-label', 'Direction'), ...this.dirButtons);
+    this.lengthValue = el('span', 'drawbridge-length', '');
+    this.lengthDown = button('−', () => this.sendAction('length', Math.max(1, (this.view?.length ?? 1) - 1)));
+    this.lengthUp = button('+', () => this.sendAction('length', Math.min(DRAWBRIDGE.maxLength, (this.view?.length ?? 1) + 1)));
+    const len = el('div', 'drawbridge-row'); len.append(el('span', 'drawbridge-label', 'Length'), this.lengthDown, this.lengthValue, this.lengthUp);
+    this.configNote = el('p', 'machine-needs drawbridge-note', '');
+    config.append(dirs, len, this.configNote);
+    const row = el('div', 'machine-row');
+    const ins = el('div', 'machine-inputs'); ins.append(this.slot(0, 'Planks', BLOCK.PLANKS, `Construction materials: ${DRAWBRIDGE.sectionPlanks} planks per section`));
+    this.materials = el('div', 'drawbridge-materials');
+    row.append(ins, this.materials);
+    const controls = el('div', 'drawbridge-row');
+    this.extendButton = button('Extend', () => this.sendAction('extend'), 'drawbridge-go');
+    this.retractButton = button('Retract', () => this.sendAction('retract'), 'drawbridge-go');
+    controls.append(this.extendButton, this.retractButton);
+    this.root.append(config, row, controls);
+    this.arrow = el('div', 'machine-progress drawbridge-progress'); this.arrow.title = 'Extension'; this.arrow.append(el('div', 'fill'));
+    this.extensionText = el('p', 'machine-extra', '');
+    this.root.append(el('h3', '', 'Extension'), this.arrow, this.extensionText);
+    this.gauges = el('div', 'machine-gauges'); this.root.append(this.gauges);
+    this.message = el('p', 'quest-message', ''); this.root.append(this.message);
+    this.status = el('p', 'machine-status'); this.root.append(this.status);
+    this.extra = null; this.flame = null;
+    this.root.append(el('h3', '', 'Needs'), el('p', 'machine-needs',
+      `Steam from a boiler through bronze pipes: ${DRAWBRIDGE.steamPerSecond} a second while moving (${DRAWBRIDGE.steamPerSection} per section), none while it stands still. Without steam it stops where it is and carries on later. ${DRAWBRIDGE.sectionPlanks} planks build each section once; a broken section drops its planks and needs new ones. It won't build into blocks or anyone standing in the way.`));
+    this.setView({ slots: [null], dir: 0, length: DRAWBRIDGE.defaultLength, extended: 0, stored: 0, progress: 0, steamReceived: 0,
+      steamNeeded: DRAWBRIDGE.steamPerSecond, planks: 0, required: 0, target: 'retracted', status: '' });
+  }
+
+  setDrawbridge(view) {
+    this.view = view;
+    const out = view.extended > 0, moving = /^(Extending|Retracting|Insufficient)/.test(view.status ?? '');
+    this.dirButtons.forEach((b, i) => { b.classList.toggle('selected', i === view.dir); b.disabled = out; });
+    this.lengthValue.textContent = `${view.length} block${view.length === 1 ? '' : 's'}`;
+    this.lengthDown.disabled = out || view.length <= 1; this.lengthUp.disabled = out || view.length >= DRAWBRIDGE.maxLength;
+    this.configNote.textContent = out ? 'Retract the bridge fully to change its length or direction.' : 'The outline in the world shows where the bridge will go.';
+    const needed = view.length * DRAWBRIDGE.sectionPlanks;
+    this.materials.replaceChildren(
+      el('div', '', `Needs ${needed} planks for ${view.length} section${view.length === 1 ? '' : 's'} (${DRAWBRIDGE.sectionPlanks} each)`),
+      el('div', '', `Built: ${view.extended} out, ${view.stored} stored`),
+      el('div', view.required > view.planks ? 'drawbridge-short' : 'drawbridge-ok',
+        `Supplied: ${view.planks} planks${view.required > 0 ? ` · still to supply: ${Math.max(0, view.required - view.planks)}` : ' · enough'}`));
+    this.extendButton.classList.toggle('selected', view.target === 'extended');
+    this.retractButton.classList.toggle('selected', view.target === 'retracted');
+    const fraction = Math.min(1, (view.extended + (moving && view.target === 'extended' ? view.progress : 0)) / Math.max(1, view.length));
+    this.arrow.firstChild.style.width = `${fraction * 100}%`;
+    this.extensionText.textContent = `${view.extended} of ${view.length} sections out, facing ${DIRECTIONS[view.dir].toLowerCase()}`;
+    this.gauges.replaceChildren((() => {
+      const g = el('div', 'machine-gauge'), bar = el('div', 'machine-gauge-bar'), fill = el('div', 'fill');
+      fill.style.width = `${Math.min(100, view.steamReceived / view.steamNeeded * 100)}%`; fill.style.background = '#d8dde2';
+      bar.append(fill);
+      g.append(el('span', '', `Steam: ${Math.floor(view.steamReceived * 10) / 10}/s (needs ${view.steamNeeded}/s while moving)`), bar);
+      return g;
+    })());
+    this.message.textContent = view.message ?? '';
+  }
+
   setView(view) {
+    if (this.kind === 'drawbridge') {
+      this.cells.forEach((cell, i) => {
+        renderStack(cell, view.slots?.[i] ?? null);
+        if (!view.slots?.[i]) { const ghost = itemIcon(BLOCK.PLANKS); ghost.classList.add('ghost'); cell.append(ghost); }
+      });
+      this.setDrawbridge(view);
+      const status = view.status ?? '';
+      this.status.textContent = status ? `Status: ${status}` : '';
+      this.status.className = `machine-status ${/^(Extended|Extending|Retracting)/.test(status) ? 'ok' : /^Retracted/.test(status) ? 'idle' : 'warn'}`;
+      return;
+    }
     this.cells.forEach((cell, i) => {
       if (!cell) return;
       const stack = view.slots?.[i] ?? null;
@@ -248,4 +333,4 @@ export class MachineView {
   }
 }
 
-export const MACHINE_KINDS = [...Object.keys(MACHINES), 'depot'];
+export const MACHINE_KINDS = [...Object.keys(MACHINES), 'depot', 'drawbridge'];

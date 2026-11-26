@@ -10,6 +10,7 @@ import { BLOCK, getBlockDef, LADDER_DEPTH, ladderFacing, doorState, blockBase, i
 import { PUMP_PARTS, BOILER_PARTS, CRUSHER_PARTS, pipeParts, tankFrameParts } from '/shared/fluidModels.js';
 import { FLUID_FACES } from '/shared/fluidFaces.js';
 import { ANVIL_PARTS } from './anvilParts.js';
+import { DEFENSE_SHAPES } from './defenseParts.js';
 
 // Workers load Three from its vendor URL; pages use the import map.
 // Both construct the same mesher, including colors, shapes and illumination.
@@ -375,7 +376,7 @@ export function createChunkMesher(THREE) {
     { box: [0.15, 0.35, 0.15, 0.85, 0.55, 0.85], color: 0x9f705c }];
   const SHAPES = { mushroom: MUSHROOM, workbench: WORKBENCH, furnace: FURNACE,
     fluidPump:PUMP_PARTS, boiler:BOILER_PARTS, crusher:CRUSHER_PARTS,
-    chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL };
+    chest: CHEST, sapling: SAPLING, rope: ROPE, anvil: ANVIL, ...DEFENSE_SHAPES };
 
   // [{ box, color }] for a shaped block, turned to its facing.
   function shapeBoxes(id, def, x, y, z) {

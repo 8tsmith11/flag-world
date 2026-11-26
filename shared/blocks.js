@@ -12,7 +12,10 @@
 //   shape        - null for a plain cube, or a name the mesher draws from boxes
 //                  ('ladder', 'door', 'workbench', 'furnace', 'chest', 'rope', 'anvil',
 //                   'sapling', 'branch', 'pipe', 'fluidTank', 'fluidPump',
-//                   'boiler', 'crusher')
+//                   'boiler', 'crusher', 'barrel', 'litBarrel', 'spikes',
+//                   'drawbridge', 'bridgeDeck')
+//   dropCount    - how many of `drops` it drops (default 1)
+//   blastResistance - see EXPLOSIVES in config.js
 //
 // Ladders and doors keep their state in the block id:
 //   ladder: LADDER + facing, where facing is the side of the cell it hangs on
@@ -27,7 +30,7 @@
 //                  ('furnace', 'alloyFurnace', 'chest', 'anvil', 'tank', 'boiler', 'crusher')
 
 import { SAPLING_DROP_CHANCE, FARMING, TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS, METALS, FLUID, ELEMENTAL, FIRE_TEMPLE,
-  COMMERCE_IDS, REINFORCED_WALL } from './config.js';
+  COMMERCE_IDS, REINFORCED_WALL, EXPLOSIVES_IDS, SPIKES, DRAWBRIDGE } from './config.js';
 import { ITEM } from './itemIds.js';
 
 export const BLOCK = {
@@ -104,6 +107,15 @@ export const BLOCK = {
   MERCHANT_DEPOT: COMMERCE_IDS.blocks.merchantDepot,
   // The Wise Monkey's shrine floor and throne: nothing breaks it.
   SHRINE_BRICKS: COMMERCE_IDS.blocks.shrineBricks,
+  // Explosives update (EXPLOSIVES_IDS in config.js). SULFUR_PLANT..+3 are the
+  // sulfur crop's growth stages; LIT_BARREL is an explosive barrel whose fuse
+  // is burning (it can't be broken, only waited out).
+  SULFUR_PLANT: EXPLOSIVES_IDS.blocks.sulfurPlant,
+  EXPLOSIVE_BARREL: EXPLOSIVES_IDS.blocks.explosiveBarrel,
+  LIT_BARREL: EXPLOSIVES_IDS.blocks.litBarrel,
+  SPIKE_BARRICADE: EXPLOSIVES_IDS.blocks.spikeBarricade,
+  DRAWBRIDGE: EXPLOSIVES_IDS.blocks.drawbridge,
+  BRIDGE_DECK: EXPLOSIVES_IDS.blocks.bridgeDeck,
 };
 
 export function isWater(id) {
@@ -157,6 +169,7 @@ export function fluidKind(id) {
   if (base === BLOCK.FLUID_PUMP) return 'pump';
   if (base === BLOCK.BOILER) return 'boiler';
   if (base === BLOCK.CRUSHER) return 'crusher';
+  if (base === BLOCK.DRAWBRIDGE) return 'drawbridge';
   return null;
 }
 
@@ -282,6 +295,10 @@ VEGETATION_IDS.forEach((id, i) => {
 export const CROPS = {
   wheat: { name: 'wheat', stages: [BLOCK.WHEAT, BLOCK.WHEAT + 1, BLOCK.WHEAT + 2, BLOCK.WHEAT + 3],
     seed: ITEM.WHEAT_SEEDS, produce: ITEM.WHEAT },
+  // Never grows wild: seeds come from the Sky Merchant and loot chests, and
+  // every mature plant gives sulfur and seeds back.
+  sulfur: { name: 'sulfur', stages: [BLOCK.SULFUR_PLANT, BLOCK.SULFUR_PLANT + 1, BLOCK.SULFUR_PLANT + 2, BLOCK.SULFUR_PLANT + 3],
+    seed: ITEM.SULFUR_SEEDS, produce: ITEM.SULFUR },
 };
 const cropOfId = new Map();
 for (const crop of Object.values(CROPS)) crop.stages.forEach((id, stage) => cropOfId.set(id, { crop, stage }));
@@ -294,6 +311,11 @@ CROPS.wheat.stages.forEach((id, stage) => define(id, 'wheat', {
   solid: false, transparent: true, lightOpaque: false, blocksAttack: false, hardness: 0, breakTime: 0,
   shape: 'plant', plantArt: `wheat-${stage}`, support: [0, -1, 0], drops: ITEM.WHEAT_SEEDS,
   plantHeight: [0.3, 0.55, 0.8, 1][stage], color: 0xffffff, icon: `/textures/wheat-${stage}.svg`,
+}));
+CROPS.sulfur.stages.forEach((id, stage) => define(id, 'sulfur plant', {
+  solid: false, transparent: true, lightOpaque: false, blocksAttack: false, hardness: 0, breakTime: 0,
+  shape: 'plant', plantArt: `sulfur-${stage}`, support: [0, -1, 0], drops: ITEM.SULFUR_SEEDS,
+  plantHeight: [0.3, 0.5, 0.75, 0.95][stage], color: 0xffffff, icon: `/textures/sulfur-${stage}.svg`,
 }));
 define(BLOCK.FARMLAND, 'farmland', { color: 0x5b3a22, breakTime: 0.5, drops: BLOCK.DIRT });
 // Every plant drawn from the plant atlas, in atlas order.
@@ -311,6 +333,24 @@ define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: METALS.h
 define(BLOCK.REINFORCED_WALL, 'reinforced wall', { color: 0x6f7378, hardness: REINFORCED_WALL.hardness,
   breakTime: REINFORCED_WALL.breakTime, blastResistance: REINFORCED_WALL.blastResistance });
 // Wise Monkey shrine floors and thrones, so he can't be dug out from under.
+// Explosive barrel: right click to light it (BLOCK.LIT_BARREL while the
+// fuse burns, server/explosives.js). Unlit barrels break and drop normally.
+define(BLOCK.EXPLOSIVE_BARREL, 'explosive barrel', { color: 0xa83a2a, transparent: true, hardness: 1, breakTime: 0.8, shape: 'barrel',
+  icon: '/textures/explosive-barrel.svg' });
+define(BLOCK.LIT_BARREL, 'lit explosive barrel', { color: 0xd8502e, transparent: true, breakable: false, hardness: Infinity, drops: null,
+  shape: 'litBarrel', emission: 6, icon: '/textures/explosive-barrel.svg' });
+// Iron caltrop: four spikes along the cube's body diagonals (shared/spikeGeometry.js).
+// Solid; hurts hostile things that touch it (server/spikes.js).
+define(BLOCK.SPIKE_BARRICADE, 'iron spike barricade', { color: 0x7d8288, hardness: SPIKES.hardness, breakTime: SPIKES.breakTime,
+  blastResistance: SPIKES.blastResistance, transparent: true, lightOpaque: false, shape: 'spikes',
+  icon: '/textures/spike-barricade.svg' });
+// Steam-powered drawbridge mechanism (a container: server/drawbridge.js) and
+// the deck sections it lays. A broken deck section drops the planks it was
+// built from.
+define(BLOCK.DRAWBRIDGE, 'drawbridge', { color: 0x6b5a3e, transparent: true, hardness: DRAWBRIDGE.hardness, breakTime: DRAWBRIDGE.breakTime,
+  tileEntity: 'drawbridge', shape: 'drawbridge', icon: '/textures/drawbridge.svg' });
+define(BLOCK.BRIDGE_DECK, 'bridge deck', { color: 0x9a6f3c, hardness: DRAWBRIDGE.deckHardness, breakTime: DRAWBRIDGE.deckBreakTime,
+  drops: BLOCK.PLANKS, dropCount: DRAWBRIDGE.sectionPlanks, shape: 'bridgeDeck', icon: '/textures/bridge-deck.svg' });
 define(BLOCK.SHRINE_BRICKS, 'shrine bricks', { color: 0x9a8f78, breakable: false, hardness: Infinity, drops: null,
   blastResistance: Infinity });
 // Where the Sky Merchant's airship docks (one per team). A container: items
@@ -446,7 +486,7 @@ export function blockDrops(id, random = Math.random) {
     return out;
   }
   const drop = getBlockDef(id).drops;
-  if (drop !== null && drop !== undefined) out.push({ item: drop, count: 1 });
+  if (drop !== null && drop !== undefined) out.push({ item: drop, count: getBlockDef(id).dropCount ?? 1 });
   if (id === BLOCK.LEAVES && random() < SAPLING_DROP_CHANCE) out.push({ item: ITEM.TREE_SEED, count: 1 });
   if ((id === BLOCK.GRASS_TUFT || id === BLOCK.FERN) && random() < FARMING.seedFromGrass) out.push({ item: ITEM.WHEAT_SEEDS, count: 1 });
   return out;

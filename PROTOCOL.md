@@ -242,6 +242,12 @@ snapshots at distance cadence.
 | `pose` | string | `"sit"`, `"stand"` (chest beat), `"walk"`, `"look"`, or worker `"ready"`, `"crouch"`, `"jump"` |
 | `look` | number | Head turn toward the nearest player, relative to `yaw` (radians) |
 
+**GrenadeSnapshot** — a thrown grenade (entity type `"grenade"`): `{id, type,
+item, x, y, z, vx, vy, vz, fuse}`, `fuse` the ticks left before it goes off.
+Sent in `entitySpawn`, then in every `state` tick to every player (grenades
+are few and short-lived) until it explodes (`entityDespawn`, then an
+`explosion`) or falls into the void.
+
 **RiftOrbSnapshot** — a thrown Rift Orb in flight. Sent in `entitySpawn` and
 each `state` tick until it lands or falls into the void.
 
@@ -635,6 +641,19 @@ Match players only, `{action, quest?}`.
 | `requestDepot` | — | Gives you a Merchant Depot if your team has none placed and none exists anywhere (carried, stored, on the ground); within 12 blocks of your Wise Monkey |
 | `close` | — | Closes the book |
 
+### `machineAction`
+
+Match players only, `{action, value?}`: a control on the machine screen you
+have open (in reach). Only drawbridges have controls, and only the team that
+placed one may use them. The reply is a fresh `container` view, with
+`message` when refused.
+
+| Action | Value | Behavior |
+|--------|-------|----------|
+| `extend` / `retract` / `toggle` | — | Sets where the bridge is heading; it moves one section at a time while it has steam |
+| `length` | int 1..16 | Bridge length; refused unless fully retracted |
+| `direction` | int 0..3 | North, east, south, west (`FACING_DIRS`); refused unless fully retracted |
+
 ### `reclaim`
 
 Match-in-progress screen only. Takes over a disconnected match player; gets
@@ -662,6 +681,7 @@ Match players only. Sent once per simulation tick (20 per wall-clock second). Ea
 | `hook`    | bool   | Right-click edge with a grappling hook in hand: fires the hook this tick. Ignored without one; the shared physics also refuses it while carrying a flag, while already pulling, or during the cooldown |
 | `eat`     | bool   | Right mouse held with food in hand; raw/cooked beef takes 30 uninterrupted ticks and heals gradually, while golden beef heals to full immediately on press |
 | `glide`   | bool   | Right mouse held with a glider in hand; in the air it caps falling speed and drives forward motion |
+| `grenade` | bool   | Right click with a grenade selected: the server throws one (it is used up) unless you threw one in the last 0.6 s or are looking through a spyglass |
 | `rift`    | bool   | Right-click edge with a Rift Orb selected; the server consumes one and throws it in an arc. A portal opens where it lands, or the orb drops if it lands in a keep zone |
 | `spawnEgg` | BlockPos \| null | Right-clicked solid block while holding a spawn egg. The server spawns that mob on top if there is room, consumes one egg, and uses that position as its home (nearest island for Void Eels) |
 | `yaw`     | number | Look yaw |
@@ -943,7 +963,7 @@ reclaim.
 | `winnerId`| int \| null   | Set if the match is already over |
 | `winnerTeam` | int \| null | Winning team index, if over |
 | `winnerMembers` | string[] | Names on the winning team, if over |
-| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| AirshipSnapshot)[] | Dropped items, projectiles, mobs and airships currently in the world. Mob entries include `loaded: false` when their simulation column is asleep |
+| `entities`| (ItemInfo \| ArrowSnapshot \| RiftOrbSnapshot \| GrenadeSnapshot \| CowSnapshot \| DragonSnapshot \| CrawlerSnapshot \| VoidEelSnapshot \| AirshipSnapshot)[] | Dropped items, projectiles, mobs and airships currently in the world. Mob entries include `loaded: false` when their simulation column is asleep |
 | `merchants` | MerchantInfo[] | Each team's depot and merchant; see `merchants` |
 | `inventory` | InventoryState | Your inventory |
 
@@ -1177,6 +1197,14 @@ The merchant himself is an NPC (`npc: "skyMerchant"`, with `appearance`, the
 number his name and look come from; see `merchantLook` in
 `shared/merchant.js`).
 
+### `explosion`
+
+A grenade or explosive barrel went off, to every match player: `{x, y, z,
+radius, kind}` (`kind` `"grenade"` or `"barrel"`, `radius` its blast radius).
+Clients draw the fireball, smoke and debris, play the boom and shake the
+camera with distance. Blocks it broke arrive as ordinary block changes; hurt
+entities as `damage`.
+
 ### `quests`
 
 Your team's quest book (`shared/quests.js` holds the chapters and quests).
@@ -1217,7 +1245,7 @@ A player died. Broadcast to every match player, for the kill feed. Their
 | `id`       | int         | Player who died |
 | `killerId` | int \| null | Player or mob who killed them. For `void`, whoever hit them in the last 5 s, else `null` |
 | `killerName` | string \| null | The killer's name, also for killers that aren't entities (the Dragon Lord, poison traps) |
-| `cause`    | string      | `"player"`, `"mob"` (dragon fire, a Crawler or Void Eel bite), `"void"`, `"fall"`, `"lava"` or `"magma"` (`DEATH_CAUSE`). Feed text: "X killed Y" (fall with a killer too), "X knocked Y into the void", "Y fell into the void", "Y fell from a high place" |
+| `cause`    | string      | `"player"`, `"mob"` (dragon fire, a Crawler or Void Eel bite), `"void"`, `"fall"`, `"lava"`, `"magma"`, `"explosion"` (a grenade or barrel; the killer is whoever threw or lit it) or `"spikes"` (a spike barricade) (`DEATH_CAUSE`). Feed text: "X killed Y" (fall with a killer too), "X knocked Y into the void", "Y fell into the void", "Y fell from a high place" |
 | `eliminated` | bool      | They were flagless, so this death knocks them out of the match (see below) |
 
 ### `flagEvent`
@@ -1297,7 +1325,7 @@ smelt, the half-done item starts over.
 | Field       | Type   | Notes |
 |-------------|--------|-------|
 | `x`,`y`,`z` | int    | The block |
-| `kind`      | string | `"chest"`, `"furnace"`, `"alloyFurnace"`, `"tank"`, `"boiler"`, `"crusher"`, `"anvil"` or `"depot"` |
+| `kind`      | string | `"chest"`, `"furnace"`, `"alloyFurnace"`, `"tank"`, `"boiler"`, `"crusher"`, `"anvil"`, `"depot"` or `"drawbridge"` |
 | `slots`     | (ItemStack \| null)[] | Chest: 27. Furnace: input, fuel, output. Alloy furnace: three ingredients, fuel, output. Boiler: fuel. Crusher: input, output. Tank: none. Anvil: one. Depot: 9 selling slots then 9 coin slots (take only) |
 | `status`    | string | Machines and depots: what it is doing or why it isn't, e.g. `"Operating"`, `"Missing fuel: ..."`, `"Missing materials: needs 1 more tin"`, `"Insufficient steam: ..."`, `"Output full: ..."`, `"Invalid recipe: ..."`, `"Idle: ..."` |
 | `copper`,`tin` | int | Alloy furnace: units of copper and tin in its ingredient slots (ore, dust and ingots each count one) |
@@ -1843,7 +1871,9 @@ to the same successful world and record the resolved seed as `world.seed`.
   or recorded once by `TeamProgress.discover` (taming, roles, trades, depot
   sales, kills, `flagCaptured`, `meet:<npc>`, `visit:center|fire|ice`,
   `discover:fireTemple|glacier`, `encounter:dragon|dragonLord`,
-  `monkeyFed:<machine>`, `monkeyCrafted:<item>`, `depotSold:<item>`...). Places
+  `monkeyFed:<machine>`, `monkeyCrafted:<item>`, `depotSold:<item>`,
+  `monkeyHarvested:<crop>`, `grenadeThrown`, `barrelLit`,
+  `drawbridgeExtended`...). Places
   are checked once a second (`Game.noteDiscoveries`). A quest completes once
   its chapter is unlocked, its prerequisites (`deps`) are done and its goal is
   met; progress made earlier, including while a chapter was locked or hidden,
@@ -1852,3 +1882,42 @@ to the same successful world and record the resolved seed as `world.seed`.
   same tick) are refused. Every team has the same quests; progress is
   separate. Saves keep unlocked chapters, completions, claims, team progress,
   depots, baby purchases and stock.
+
+## Explosives and defensive infrastructure
+
+- **Sulfur** (`CROPS.sulfur` in `shared/blocks.js`): a farm crop (blocks
+  163-166) planted from sulfur seeds like wheat. It never grows wild; seeds
+  come from the Sky Merchant (`sulfur_seeds` offer) and loot chests. A mature
+  plant drops 1 sulfur and 1-3 seeds, so farms are renewable; farmer monkeys
+  plant and harvest it like any crop.
+- **Gunpowder** (1 sulfur + 1 charcoal → 2, no station), **grenades** (2
+  gunpowder + 1 copper → 2, workbench) and **explosive barrels** (6 gunpowder
+  + 4 planks + 1 copper, workbench). Craftsman monkeys can make all of them.
+- **Explosions** (`server/explosives.js`, tuning in `EXPLOSIVES`): damage to
+  entities falls linearly with distance and is scaled by 0.4 through solid
+  blocks; nobody on the same team as whoever set it off is hurt. Blocks take
+  `power * (1 - d / blastRadius) / resistance`, where resistance is
+  `blastResistance * max(0.5, hardness / 2)` (dirt and wood 0.5, stone 1,
+  stone bricks 7.5, reinforced walls 15, spike barricades 3, unbreakable
+  blocks never); damage adds up across explosions and a block breaks at 1
+  (dropping like any broken block). Grenades never damage spike barricades.
+  An explosion lights barrels in its blast with a 0.5-0.9 s fuse.
+- **Barrels**: right click (`use`) lights one; it becomes `BLOCK.LIT_BARREL`
+  (unbreakable, glowing fuse) for 3 s, then explodes. Unlit barrels break
+  into their item. Lit barrels and accumulated block damage are saved.
+- **Spike barricades** (`server/spikes.js`, `SPIKES`): solid blocks owned by
+  the placing team (saved). Anything hostile to that team (`isHostileTo`)
+  touching one takes 3 damage and knockback, at most every 0.75 s; an enemy
+  breaking one by hand takes 2 damage every 0.75 s of breaking. Enemy arrows
+  add 0.2 block damage per hit (crossbow bolts 0.4).
+- **Drawbridges** (`server/drawbridge.js`, `DRAWBRIDGE`): a container
+  (`kind: "drawbridge"`) on the steam network, owned by the placing team and
+  facing the way they looked. Its view adds `team, dir, length, target
+  ("extended"/"retracted"), stored, extended, progress, steamReceived,
+  steamNeeded, planks, required, status` and `message` (a refusal). It lays
+  `BLOCK.BRIDGE_DECK` sections (solid, broken ones drop 3 planks) one at a
+  time using 8 steam each, at up to 20 steam a second, only while moving.
+  Sections are built once from 3 planks in its slot and stored when
+  retracted; breaking it drops its planks and stored sections' planks.
+  Statuses: Extended, Retracted, Extending, Retracting, Insufficient steam,
+  Missing construction materials, Obstructed.

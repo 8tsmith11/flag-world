@@ -713,6 +713,7 @@ export class MonkeyWorkers {
   act_harvest(m,t) {
     const w=this.game.world,id=w.getBlock(t.at.x,t.at.y,t.at.z);
     if(!isMatureCrop(id))return true;
+    this.game.teamProgress?.discover(m.team,`monkeyHarvested:${cropAt(id).crop.name}`);
     this.game.harvestCrop(t.at.x,t.at.y,t.at.z,stack=>this.gathered(m,stack,t.at));
     m.status='Harvesting';return true;
   }

@@ -70,6 +70,8 @@ export function serializeGame(game) {
     merchants: game.merchants?.save() ?? [],
     quests: game.quests?.save() ?? [],
     teamProgress: game.teamProgress?.save() ?? [],
+    explosives: game.explosives?.save() ?? null,
+    spikes: game.spikes?.save() ?? [],
   };
 }
 

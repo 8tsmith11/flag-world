@@ -29,7 +29,7 @@ for (const [input, output] of [[BLOCK.WOOD, ITEM.CHARCOAL], [BLOCK.SAND, BLOCK.G
   assert.equal(furnace.slots[INPUT].count, 1);
   assert.equal(furnace.slots[FUEL_SLOT], null);
 }
-const creatures = Object.values(ENTITY_TYPE).filter(type => !['player','item','arrow','riftOrb','npc','airship'].includes(type));
+const creatures = Object.values(ENTITY_TYPE).filter(type => !['player','item','arrow','riftOrb','grenade','npc','airship'].includes(type));
 assert.equal(new Set(MOB_EGGS.map(e => e.item)).size, MOB_EGGS.length);
 for (const type of creatures) assert.ok(MOB_EGGS.some(e => e.type === type), `No egg for ${type}`);
 for (const npc of Object.keys(NPC_DEFS).filter(n => n !== 'skyMerchant')) assert.ok(MOB_EGGS.some(e => e.npc === npc), `No egg for ${npc}`);

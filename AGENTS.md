@@ -152,8 +152,29 @@ including the host, plays by opening `http://<host-ip>:3000`.
 - `TeamProgress`, quest books, depots, baby purchases and merchant stock are
   saved (`server/save.js`); ships and merchants are not (they fly in again).
 - Checks: `node scripts/commerce-check.js`, `node scripts/merchant-check.js`,
-  `node scripts/monkey-duty-check.js`, `node scripts/quest-check.js`, plus
-  `npm run check`.
+  `node scripts/monkey-duty-check.js`, `node scripts/quest-check.js`,
+  `node scripts/explosives-check.js`, plus `npm run check`.
+
+## Explosives and defensive infrastructure
+
+- Explosions go through `server/explosives.js` (`Explosives.explode`), which
+  hurts entities with the game's friendly-fire rule and damages blocks by
+  resistance (`blastResistance(id)`); anything new that blows up should use
+  it. Barrels are lit only through `Explosives.ignite(x, y, z, { source,
+  seconds })`, the single trigger entry point for later pressure plates or
+  remote detonators. Grenades never damage spike barricades.
+- Spike barricades (`server/spikes.js`) remember the placing team and use
+  `isHostileTo` for contact, breaking and arrow damage; their caltrop shape
+  (four body diagonals, eight points) is `shared/spikeGeometry.js`.
+- Drawbridges (`server/drawbridge.js`) are steam containers driven only
+  through `Drawbridge.command(game, node, action, value)` (the UI's
+  `machineAction` today; levers or plates later). Sections are paid for once
+  and conserved: never add a path that creates or deletes deck sections
+  without going through `stored` or dropping their planks.
+- New block shapes for these live in `public/js/render/defenseParts.js`
+  (shared by the mesher and item models); explosion, fuse and grenade
+  effects in `public/js/render/explosionEffects.js`.
+- Check: `node scripts/explosives-check.js`.
 
 ## Quest book design rules
 
@@ -275,6 +296,9 @@ server/
   merchants.js               Sky Merchant: daily airship visits, trading, depot sales, baby monkeys
   monkeyGuard.js             Guard (patrol, pursuit, melee/bow) and lookout (reports) monkeys
   quests.js                  Team quest books: completion, rewards, depot requests
+  explosives.js              Grenades, explosive barrels (fuses, chain reactions) and explosions
+  spikes.js                  Iron spike barricades: team ownership, contact, breaking and arrow damage
+  drawbridge.js              Steam-powered drawbridge container: sections, steam, controls
   containers.js              Chest and furnace tile entities: slots, shift-click, smelting
 shared/                      Runs on server and client
   modifiers.js               Item modifier pools, rolls, names and tooltip lines
@@ -303,6 +327,7 @@ shared/                      Runs on server and client
   protocol.js                Message type names, phases, entity type names
   merchant.js                Merchant prices, requested goods, dock geometry, merchant looks
   quests.js                  Quest book chapters, quests, goals and knowledge text
+  spikeGeometry.js           Spike barricade caltrop boxes (four body diagonals)
 public/
   index.html                 Page shell and import map
   css/style.css
@@ -338,6 +363,8 @@ public/
       grappleLine.js         Grappling hook rope and hook head while a pull is on
       merchantModels.js      Sky Merchant (octopus) and airship models
       depotRenderer.js       Lantern signs over Merchant Depots (lit while docked)
+      defenseParts.js        Box models for barrels, spikes, drawbridges and bridge deck
+      explosionEffects.js    Explosion fireballs, smoke and debris, fuse sparks, grenade beeps
       monkeyModels.js        Orangutan and gorilla NPC models on one rig; pose blending and idle animation
       stormEffects.js        Storm cloud flashes (additive sprites) and thunder
 scripts/

@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { HOTBAR_SIZE, INVENTORY_SIZE, FLUID } from '/shared/config.js';
 
 const CHEST_SIZE = 27;
-export const CONTAINERS = ['furnace', 'alloyFurnace', 'tank', 'boiler', 'crusher', 'chest', 'anvil', 'depot'];
+export const CONTAINERS = ['furnace', 'alloyFurnace', 'tank', 'boiler', 'crusher', 'chest', 'anvil', 'depot', 'drawbridge'];
 import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
 import { recipesAt, browserRecipes, filterRecipesByOutput, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
@@ -80,7 +80,8 @@ export class InventoryScreen {
     // Furnaces, steam machines, tanks and the depot share one layout.
     this.machineEl = document.getElementById('inv-machine');
     this.machine = new MachineView(this.machineEl, (slot, button, shift) => this.conn.send({
-      type: C2S.INVENTORY_CLICK, slot, button, shift, container: true }));
+      type: C2S.INVENTORY_CLICK, slot, button, shift, container: true }),
+      (action, value) => this.conn.send({ type: C2S.MACHINE_ACTION, action, value }));
     this.chestSlots = [];
     const chest = document.getElementById('inv-chest');
     for (let i = 0; i < CHEST_SIZE; i++) {

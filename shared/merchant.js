@@ -47,6 +47,9 @@ export const MERCHANT_SELLS = [
   { id: 'stone', item: BLOCK.STONE, count: 32, coins: 3 },
   { id: 'sapling', item: ITEM.TREE_SEED, count: 2, coins: 1 },
   { id: 'seeds', item: ITEM.WHEAT_SEEDS, count: 4, coins: 1 },
+  // The only bought source of sulfur seeds (also found in loot); the crop
+  // gives seeds back, so a farm never needs more.
+  { id: 'sulfur_seeds', item: ITEM.SULFUR_SEEDS, count: 2, coins: 4, stock: 4 },
   { id: 'glass', item: BLOCK.GLASS, count: 4, coins: 2 },
   { id: 'copper', item: ITEM.COPPER_INGOT, count: 2, coins: 3 },
   { id: 'tin', item: ITEM.TIN_INGOT, count: 1, coins: 3, stock: 16 },
