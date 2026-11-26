@@ -155,8 +155,9 @@ Syntax-checks every JavaScript file and imports the server and shared modules.
 
 ## View distance
 
-The click-to-play screen has a view distance slider (64–320 blocks, default
-160). Lower it if the game runs slowly. It's remembered per browser.
+The click-to-play screen has a view distance slider (208–320 blocks, default
+208). The minimum is set so the fire and ice islands are visible from every
+team island on a Small world. It's remembered per browser.
 
 ## Debug overlay
 

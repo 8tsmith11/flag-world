@@ -15,8 +15,10 @@ export const CHUNK_SIZE = 16;
 
 // Client view distance in blocks (horizontal): chunks further away aren't
 // meshed, and fog hides the edge. Players can change it within the range.
-export const VIEW_DISTANCE = 160;
-export const VIEW_DISTANCE_MIN = 64;
+// The minimum shows the fire and ice islands from every team island on a
+// Small world (their near edge is up to ~195 blocks away).
+export const VIEW_DISTANCE = 208;
+export const VIEW_DISTANCE_MIN = 208;
 export const VIEW_DISTANCE_MAX = 320;
 // Full-height simulation columns near players; all team islands stay active.
 export const CHUNK_LOADING = { simulationDistance: 8, teamMargin: 16 };
