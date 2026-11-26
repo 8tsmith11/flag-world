@@ -1340,6 +1340,12 @@ height variation, and a stone underside tapering from about 0.6× its radius
 deep in the middle, with root-like spurs. They have no caves or ponds. Radius
 7 and up grow 1–2 trees (not on roosts).
 
+On top of those, a second layer of tiny islands (40% as many again, radius
+4–14 / 5–17 / 5–20's smaller range) floats 30–55 blocks above the highest
+main island top, scattered over the play area out to the team islands' far
+edge (`SKY_LAYER` in `shared/islands.js`; its own random stream, `tinyGroup`
+4). They get the same contents as other tiny islands.
+
 About 45% ring the central island, 25% ring the team islands, 15% are
 scattered further out (up to team distance + team radius + 40 from the
 center) and 15% are stacked over (70%) or under (30%) a main island, with

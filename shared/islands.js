@@ -173,6 +173,28 @@ function planIslands(seed, teamCount, config) {
       if (!placed) tinyPlacementStats.failedByGroup[category]++;
     }
   }
+  // A second layer of tiny islands well above the main ones, scattered over
+  // the play area (its own random stream, so the layer below is unchanged).
+  {
+    const sky = SKY_LAYER, skyRand = mulberry32(seed ^ sky.salt);
+    const count = Math.round(totalTiny * sky.fraction);
+    const highestTop = Math.max(...mainIslands.map(entry => entry.topY));
+    const reach = teamDistance + config.teamRadius;
+    for (let i = 0; i < count; i++) {
+      for (let attempt = 0; attempt < config.placementAttempts; attempt++) {
+        const radius = config.tinyRadius[0] + Math.floor(skyRand() * (config.tinyRadius[1] - config.tinyRadius[0] + 1));
+        const angle = skyRand() * Math.PI * 2, distance = Math.sqrt(skyRand()) * reach;
+        const surfaceY = Math.round(highestTop + sky.height[0] + skyRand() * (sky.height[1] - sky.height[0]));
+        const tiny = island('tiny', Math.cos(angle) * distance, Math.sin(angle) * distance, radius, surfaceY,
+          { tinyGroup: 4, stackedOn: null, stackAbove: null, stackOffset: 0 });
+        if (islands.some(other => Math.hypot(tiny.x - other.x, tiny.z - other.z) < tiny.radius + other.radius + config.islandSpacing
+          && !(tiny.bottomY >= other.topY + config.verticalClearance || other.bottomY >= tiny.topY + config.verticalClearance))) continue;
+        islands.push(tiny);
+        tinyPlacementStats.placed++;
+        break;
+      }
+    }
+  }
   if (ELEMENTAL.enabled && (!ELEMENTAL.rollPerSeed || rand() < ELEMENTAL.rollChance)) {
     const outer = Math.max(...islands.map(entry => Math.hypot(entry.x, entry.z) + entry.radius));
     const distance = outer + Math.max(...Object.values(ELEMENTAL.radius)) + ELEMENTAL.separation;
@@ -462,6 +484,9 @@ function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
 // VOID_HOLE_MAX fully empty columns surrounded by solid columns gets the
 // terrain profile of a solid neighbour column.
 const VOID_HOLE_MAX = 12;
+// The upper tiny-island layer: this fraction of the tiny island count, with
+// surfaces this many blocks above the highest main island top.
+const SKY_LAYER = { fraction: 0.4, height: [30, 55], salt: 0x5a7c1e3b };
 const HOLE_FILL = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND, BLOCK.IRON_ORE, BLOCK.COPPER_ORE,
   BLOCK.TIN_ORE, BLOCK.SNOW, BLOCK.ASH, BLOCK.BASALT, BLOCK.PACKED_ICE, BLOCK.ICE, BLOCK.COBBLE, BLOCK.MAGMA]);
 function fillVoidHoles(world, islands) {
