@@ -25,7 +25,7 @@ import { MONKEY_ROLES, MONKEY_NAMES, MONKEY_FIELDS, defaultMonkeyConfig, monkeyF
   quarryCells, farmBox, QUARRY_OPTIONS, GATHERING_ROLES, SLOT_OPTIONS } from '../shared/monkeys.js';
 import { getRecipe } from '../shared/recipes.js';
 import { MONKEY_DUTY as D, ITEM_POP_SPEED, ITEM_PICKUP_DELAY } from '../shared/config.js';
-import { guardTick, guardPatrol, lookoutWatch } from './monkeyGuard.js';
+import { guardTick, guardPatrol, lookoutWatch, holdsWeapon } from './monkeyGuard.js';
 import { mergeInto, OUTPUT, INPUT, FUEL_SLOT, ALLOY_INPUTS, ALLOY_FUEL, ALLOY_OUTPUT, DEPOT_OUTPUTS } from './containers.js';
 import { S2C } from '../shared/protocol.js';
 import { MonkeyTaming } from './monkeyTaming.js';
@@ -235,7 +235,8 @@ export class MonkeyWorkers {
     const inv=player.inventory;
     const slots=msg.grid==='player'?inv.slots:msg.grid==='monkey'?m.inventory.slots:msg.grid==='gear'?m.gear:null;
     if(!slots||msg.slot<0||msg.slot>=slots.length)return;
-    // Only hammers go in the tool slot (and swords, later); armor in the armor slot.
+    // The tool slot takes any tool or weapon (hammer, sword, axe, bow,
+    // crossbow, spyglass...); the armor slot takes armor.
     const accepts=msg.grid!=='gear'?()=>true:msg.slot===TOOL?item=>!!getItemDef(item).tool:item=>!!getItemDef(item).armorPoints;
     let moved=false;
     if(msg.shift) {
@@ -546,7 +547,17 @@ export class MonkeyWorkers {
     m.climbing=false;
     // Guards fight every tick (aiming, swinging, chasing); out of a fight
     // they patrol on think ticks like any other role.
-    const fighting=m.team!==null&&!m.baby&&m.config.role==='guard'&&guardTick(this,m,tick);
+    // Any other tamed monkey holding a weapon fights back when attacked,
+    // then goes back to work from where it was hit.
+    let fighting=false;
+    if(m.team!==null&&!m.baby) {
+      if(m.config.role==='guard')fighting=guardTick(this,m,tick);
+      else if(holdsWeapon(m)&&(m.provoker||m.defendFrom)) {
+        m.defendFrom??=this.cellOf(m);
+        fighting=guardTick(this,m,tick,[m.defendFrom],true);
+        if(!fighting){m.defendFrom=null;m.path=[];m.pathKey=null;}
+      } else m.provoker=null;
+    }
     const moved=m.path[0]?.climb?this.climbStep(m,m.path[0]):stepMobPath(m,this.game.world,fighting?C.speed*1.35:C.speed);
     if(m.path.length&&moved<0.005) {
       if(++m.stuck>=C.stuckTicks){m.path=[];m.pathKey=null;m.stuck=0;}

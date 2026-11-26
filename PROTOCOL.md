@@ -1190,7 +1190,7 @@ Your team's quest book (`shared/quests.js` holds the chapters and quests).
 
 ### `damage`
 
-A player, cow, dragon, Crawler, Void Eel or Wise Monkey took damage (a punch, an arrow, a bite, fire, Thorns or a fall). Broadcast to every
+A player, cow, dragon, Crawler, Void Eel, working monkey or Sky Merchant took damage (a punch, an arrow, a bite, fire, Thorns or a fall). Broadcast to every
 match player. Clients flash the
 target red, or shake the screen if they are the target.
 
@@ -1646,9 +1646,10 @@ shortcuts through that API. Browser/OS permissions still govern key capture.
   Stones, copper and tin, bronze alloying and gear, iron locations, pumps and
   pipes, boilers, and steam crushers. Each advances when the team obtains,
   crafts or places the relevant items. Other teams get a dismissive line.
-- A Wise Monkey has `NPC.wiseMonkey.hp` HP, takes damage from anyone's punches
-  and arrows (`damage`), never fights back, and once killed is gone for the
-  match (`entityDespawn`), taking its team's hints with it.
+- A Wise Monkey can't be hurt or killed (`hp: null`) and never fights back.
+  Its shrine's floor and throne are shrine bricks (block 162), which nothing
+  can break, so it can't be dug out from under either. Right clicking it also
+  opens its team's quest book (`quests`).
 - Ancient Monkeys cannot be damaged yet, only make sounds (`speak` with
   `sound`), and alternate sitting with standing (a chest beat), strolling and
   looking around within `NPC.ancientMonkey.walkRadius` of their seat. Their

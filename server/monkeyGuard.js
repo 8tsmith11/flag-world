@@ -38,25 +38,32 @@ function face(m, p) {
   m.state.yaw = Math.atan2(-(p.x - m.state.x), -(p.z - m.state.z));
 }
 
+// Any tamed monkey holding one of these fights back when attacked.
+export const WEAPON_TOOLS = new Set(['sword', 'windAxe', 'iceSword', 'bow', 'crossbow']);
+export function holdsWeapon(m) { return WEAPON_TOOLS.has(getItemDef(m.gear[0]?.item).tool); }
+
 // A target the guard may fight: hostile, near enough to its route, and (for
 // a new one) within detection range and in sight.
-function eligible(workers, m, t, fresh) {
+function eligible(workers, m, t, fresh, route = m.config.waypoints) {
   if (!t || t === m || !hostileKind(m.team, t)) return false;
-  if (routeDistance(m.config.waypoints, t.state) > G.pursuit) return false;
+  if (routeDistance(route, t.state) > G.pursuit) return false;
   if (!fresh) return true;
   return distance(t.state, m.state) <= G.range && canSee(workers.game.world, eye(m), t);
 }
 
-function findThreat(workers, m) {
+function findThreat(workers, m, route, selfDefense) {
   // Whoever just hit it comes first.
-  if (m.provoker && eligible(workers, m, m.provoker, false) && distance(m.provoker.state, m.state) <= G.range * 1.5) {
+  if (m.provoker && eligible(workers, m, m.provoker, false, route) && distance(m.provoker.state, m.state) <= G.range * 1.5) {
     const t = m.provoker; m.provoker = null; return t;
   }
+  m.provoker = null;
+  // A worker defending itself only fights whoever attacked it.
+  if (selfDefense) return null;
   let best = null, bestDistance = Infinity;
   for (const t of hostileCandidates(workers.game)) {
     const d = distance(t.state, m.state);
     if (d >= bestDistance || d > G.range) continue;
-    if (eligible(workers, m, t, true)) { best = t; bestDistance = d; }
+    if (eligible(workers, m, t, true, route)) { best = t; bestDistance = d; }
   }
   return best;
 }
@@ -87,21 +94,22 @@ function shoot(workers, m, t, weapon) {
 }
 
 // One tick of a guard's fighting. Returns true while it is fighting (its
-// path is then a chase, or empty while it shoots or swings).
-export function guardTick(workers, m, tick) {
-  const route = m.config.waypoints;
+// path is then a chase, or empty while it shoots or swings). With
+// selfDefense (any other armed monkey that was attacked), `route` is just
+// where it was hit, and it only fights its attacker.
+export function guardTick(workers, m, tick, route = m.config.waypoints, selfDefense = false) {
   if (!route.length) { m.target = null; return false; }
   const world = workers.game.world;
   let t = m.target;
   // Too far from its route itself: give up and go back.
   if (t && routeDistance(route, m.state) > G.pursuit) t = null;
-  if (t && !eligible(workers, m, t, false)) t = null;
+  if (t && !eligible(workers, m, t, false, route)) t = null;
   if (t) {
     if (canSee(world, eye(m), t)) m.lastSeen = tick;
     else if (tick - (m.lastSeen ?? tick) > LOSE_SIGHT_TICKS) t = null;
   }
-  if (!t && (m.provoker || tick % G.retargetTicks === m.id % G.retargetTicks)) {
-    t = findThreat(workers, m);
+  if (!t && (m.provoker || (!selfDefense && tick % G.retargetTicks === m.id % G.retargetTicks))) {
+    t = findThreat(workers, m, route, selfDefense);
     if (t) m.lastSeen = tick;
   }
   if (t !== m.target) { m.drawTicks = 0; if (!t && m.pathKey === 'chase') { m.path = []; m.pathKey = null; } }

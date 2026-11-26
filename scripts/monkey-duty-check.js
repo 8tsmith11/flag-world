@@ -201,6 +201,58 @@ const container = (p, c, id) => { world.setBlock(p.x, Y + 1, p.z, id); world.til
   game.npcs.delete(inputCourier.id);
 }
 
+// ---- Any weapon in the tool slot; armed workers fight back ----
+{
+  const w = monkey(40, 10, { role: 'idle' });
+  place(at(41, 10), host);
+  for (const item of [ITEM.WOOD_SWORD, ITEM.IRON_SWORD, ITEM.BRONZE_SWORD, ITEM.WIND_AXE, ITEM.ICE_SWORD, ITEM.BOW, ITEM.CROSSBOW]) {
+    host.monkeyViewing = w.id;
+    host.inventory.slots[0] = { item, count: 1 };
+    game.monkeys.action(host, { id: w.id, action: 'inventory', grid: 'player', slot: 0, button: 'left', shift: true });
+    assert.equal(w.gear[0]?.item, item, `${getItemDef(item).name} did not go into the tool slot`);
+    w.gear[0] = null;
+  }
+  host.monkeyViewing = null;
+  // A courier with a sword, hit by an enemy, hits back and then stops.
+  const c = monkey(40, 14, { role: 'idle' });
+  c.gear[0] = { item: ITEM.IRON_SWORD, count: 1 };
+  place(at(42, 14), enemy); enemy.hp = 20;
+  game.hurt(c, 1, enemy);
+  assert.ok(run(TICK_RATE * 6, () => enemy.hp < 20), 'an armed worker did not fight back');
+  place(at(44, 44), enemy);
+  run(TICK_RATE * 8);
+  assert.equal(c.target, null, 'the worker kept fighting after its attacker left');
+  // Unarmed, it doesn't.
+  const u = monkey(40, 18, { role: 'idle' });
+  place(at(42, 18), enemy); enemy.hp = 20;
+  game.hurt(u, 1, enemy);
+  run(TICK_RATE * 4);
+  assert.equal(enemy.hp, 20, 'an unarmed worker attacked');
+  place(at(44, 44), enemy);
+  for (const m of [w, c, u]) game.npcs.delete(m.id);
+}
+
+// ---- Wise Monkeys: unkillable, on unbreakable shrine bricks ----
+{
+  const wise = [...game.npcs.values()].find((n) => n.npc === 'wiseMonkey');
+  assert.ok(wise, 'no Wise Monkey');
+  game.hurt(wise, 1e9, enemy);
+  assert.equal(wise.dead, false, 'the Wise Monkey died');
+  const below = world.getBlock(Math.floor(wise.state.x), Math.floor(wise.state.y) - 1, Math.floor(wise.state.z));
+  assert.equal(below, BLOCK.SHRINE_BRICKS, 'the Wise Monkey does not sit on shrine bricks');
+  const site = world.structures.find((s) => s.kind === 'monkeyShrine');
+  for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++)
+    assert.equal(world.getBlock(site.x + dx, site.y, site.z + dz), BLOCK.SHRINE_BRICKS, 'shrine floor is not shrine bricks');
+  const { canBreak } = await import('../shared/blocks.js');
+  assert.ok(!canBreak(BLOCK.SHRINE_BRICKS, 1e9), 'shrine bricks can be broken');
+  enemy.inventory.slots[0] = { item: ITEM.IRON_HAMMER, count: 1 }; enemy.selected = 0;
+  const p = { x: Math.floor(wise.state.x), y: Math.floor(wise.state.y) - 1, z: Math.floor(wise.state.z) };
+  Object.assign(enemy.state, { x: p.x + 1.5, y: p.y + 1, z: p.z + 0.5 });
+  for (let i = 0; i < 400; i++) game.stepBreaking(enemy, p);
+  assert.equal(world.getBlock(p.x, p.y, p.z), BLOCK.SHRINE_BRICKS, 'the throne was broken');
+  place(at(44, 44), enemy);
+}
+
 // ---- Alloy furnace: mixed copper and tin forms ----
 {
   const run5 = (alloy) => { for (let i = 0; i <= METALS.alloy.seconds * TICK_RATE; i++) alloy.tick(); };
@@ -224,5 +276,6 @@ const container = (p, c, id) => { world.setBlock(p.x, Y + 1, p.z, id); world.til
 }
 
 console.log('OK: guard patrol, melee and pursuit, bow guard with line of sight, lookout reports and spyglass names,',
+  'every weapon in the tool slot, armed workers fight back, unkillable Wise Monkey on unbreakable shrine bricks,',
   'craftsman capacity and waiting, collect drops off, fuel/input destination slots, mixed alloy forms');
 process.exit(0);

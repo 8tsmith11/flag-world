@@ -30,7 +30,8 @@ export const NPC_DEFS = {
     behavior: 'worker', voice: 'ancientMonkey', dialogue: null,
   },
   [NPC_KIND.WISE_MONKEY]: {
-    model: 'orangutan', box: NPC.wiseMonkey.box, hp: NPC.wiseMonkey.hp,
+    // Can't be hurt or killed (hp null), and sits on unbreakable shrine bricks.
+    model: 'orangutan', box: NPC.wiseMonkey.box, hp: null,
     behavior: 'seated', voice: 'wiseMonkey', dialogue: 'wiseMonkey', gravity: true,
   },
   // LATER UPDATE: the Ancient Monkeys cannot be damaged (hp: null) and have

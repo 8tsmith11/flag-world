@@ -128,6 +128,23 @@ function depotTexture(top = false) {
   return texture;
 }
 
+// Shrine bricks: large weathered sandstone blocks with gold-inlaid seams.
+function shrineBrickTexture() {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+  const c = canvas.getContext('2d');
+  c.fillStyle = '#6e6450'; c.fillRect(0, 0, 64, 64);
+  for (let row = 0; row < 2; row++) for (let col = -1; col < 2; col++) {
+    const x = col * 32 + (row ? 16 : 0) + 2, y = row * 32 + 2;
+    c.fillStyle = (row + col) % 2 ? '#a89a7c' : '#9d9074'; c.fillRect(x, y, 28, 28);
+    c.fillStyle = '#b8ab8c'; c.fillRect(x, y, 28, 3);
+    c.fillStyle = '#857a62'; c.fillRect(x, y + 25, 28, 3);
+  }
+  c.fillStyle = '#d6b04a';
+  c.fillRect(0, 31, 64, 2); c.fillRect(31, 33, 2, 31); c.fillRect(15, 0, 2, 31); c.fillRect(47, 0, 2, 31);
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function basaltTempleTexture(chiseled = false) {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
   const c = canvas.getContext('2d');
@@ -275,6 +292,7 @@ function blockAtlas(renderer) {
   sources.goblinBricks = goblinBrickTexture();
   sources.reinforcedWall = reinforcedWallTexture();
   sources.depotSide = depotTexture(); sources.depotTop = depotTexture(true);
+  sources.shrineBricks = shrineBrickTexture();
   const torchCanvas=document.createElement('canvas');torchCanvas.width=torchCanvas.height=32;
   const tc=torchCanvas.getContext('2d');tc.fillStyle='#9a6837';tc.fillRect(0,0,32,32);
   tc.fillStyle='#d19a52';for(let x=0;x<32;x+=8)tc.fillRect(x,0,2,32);

@@ -2050,7 +2050,8 @@ export class Game {
     }
   }
 
-  // A Wise Monkey dies for the rest of the match, and its team's hints with it.
+  // Damage to an NPC that can be hurt: working monkeys and Sky Merchants
+  // (Wise and Ancient Monkeys can't be).
   hurtNpc(npc, amount, attacker) {
     // LATER UPDATE: Ancient Monkeys are not damageable yet (see shared/npcs.js).
     if (npc.dead || !npc.damageable) return;

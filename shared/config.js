@@ -669,7 +669,7 @@ export const VEGETATION = {
 // chest beat and stroll inside walkRadius of their seat.
 export const NPC = {
   talkReach: 6, talkCooldown: 1.2, lookRange: 14, lookLimit: 1.1, lookStep: 0.05,
-  wiseMonkey: { hp: 160, box: { halfW: 0.95, height: 2.4 } },
+  wiseMonkey: { box: { halfW: 0.95, height: 2.4 } },
   ancientMonkey: { box: { halfW: 1.5, height: 3.6 }, sitTime: [25, 60], standTime: 2.8,
     lookTime: [1.8, 3.5], walkSteps: [1, 3], walkRadius: 3.5, walkSpeed: 1.2, arriveDistance: 0.25,
     groundSearch: 3 },
@@ -708,7 +708,7 @@ export const STORM_CLOUD = {
 
 // New block and item ids. Never renumber or reuse.
 export const COMMERCE_IDS = {
-  blocks: { reinforcedWall: 160, merchantDepot: 161 },
+  blocks: { reinforcedWall: 160, merchantDepot: 161, shrineBricks: 162 },
   items: { goldCoin: 330, spyglass: 331 },
 };
 

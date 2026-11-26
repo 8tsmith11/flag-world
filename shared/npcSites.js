@@ -74,10 +74,12 @@ function placeShrine(world, terrain, seed) {
   const cell = (depth, side) => [x + fx * depth - fz * side, z + fz * depth + fx * side];
   const set = (depth, side, y, id) => { const [cx, cz] = cell(depth, side); world.setBlock(cx, y, cz, id); };
 
+  // The floor and the throne are unbreakable shrine bricks, so the Wise
+  // Monkey can never be dug out from under. (The roll stays so the rest of
+  // the shrine's random stream is unchanged.)
   for (let dz = -h; dz <= h; dz++) for (let dx = -h; dx <= h; dx++) {
-    const roll = random();
-    world.setBlock(x + dx, floorY, z + dz, roll < 0.15 ? BLOCK.MOSSY_STONE_BRICKS
-      : roll < 0.25 ? BLOCK.CRACKED_STONE_BRICKS : BLOCK.STONE_BRICKS);
+    random();
+    world.setBlock(x + dx, floorY, z + dz, BLOCK.SHRINE_BRICKS);
   }
   for (const dx of [-h, h]) for (const dz of [-h, h]) {
     for (let y = floorY + 1; y < top; y++) world.setBlock(x + dx, y, z + dz, BLOCK.WOOD);
@@ -93,13 +95,13 @@ function placeShrine(world, terrain, seed) {
   }
   // The large chair against the back: a two-deep seat, arms and a tall back.
   for (const side of [-1, 0, 1]) {
-    for (const depth of [-1, -2]) set(depth, side, floorY + 1, BLOCK.PLANKS);
-    for (let y = floorY + 1; y <= floorY + 4; y++) set(-3, side, y, side === 0 && y === floorY + 4 ? BLOCK.PLANKS : BLOCK.WOOD);
+    for (const depth of [-1, -2]) set(depth, side, floorY + 1, BLOCK.SHRINE_BRICKS);
+    for (let y = floorY + 1; y <= floorY + 4; y++) set(-3, side, y, BLOCK.SHRINE_BRICKS);
   }
-  set(-3, 0, floorY + 5, BLOCK.WOOD);
+  set(-3, 0, floorY + 5, BLOCK.SHRINE_BRICKS);
   for (const side of [-2, 2]) for (const depth of [-1, -2]) {
-    set(depth, side, floorY + 1, BLOCK.PLANKS);
-    set(depth, side, floorY + 2, BLOCK.WOOD);
+    set(depth, side, floorY + 1, BLOCK.SHRINE_BRICKS);
+    set(depth, side, floorY + 2, BLOCK.SHRINE_BRICKS);
   }
   // Torches beside each pillar; attachGeneratedTorches turns them to face it.
   for (const side of [-2, 2]) set(3, side, floorY + 3, BLOCK.TORCH);

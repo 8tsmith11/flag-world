@@ -102,6 +102,8 @@ export const BLOCK = {
   // Commerce update (COMMERCE_IDS in config.js).
   REINFORCED_WALL: COMMERCE_IDS.blocks.reinforcedWall,
   MERCHANT_DEPOT: COMMERCE_IDS.blocks.merchantDepot,
+  // The Wise Monkey's shrine floor and throne: nothing breaks it.
+  SHRINE_BRICKS: COMMERCE_IDS.blocks.shrineBricks,
 };
 
 export function isWater(id) {
@@ -308,6 +310,9 @@ define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: METALS.h
 // Stone bricks bound with iron straps: same hammer, four times the work.
 define(BLOCK.REINFORCED_WALL, 'reinforced wall', { color: 0x6f7378, hardness: REINFORCED_WALL.hardness,
   breakTime: REINFORCED_WALL.breakTime, blastResistance: REINFORCED_WALL.blastResistance });
+// Wise Monkey shrine floors and thrones, so he can't be dug out from under.
+define(BLOCK.SHRINE_BRICKS, 'shrine bricks', { color: 0x9a8f78, breakable: false, hardness: Infinity, drops: null,
+  blastResistance: Infinity });
 // Where the Sky Merchant's airship docks (one per team). A container: items
 // put in its selling slots are sold while he's docked; coins come out of
 // the coin slots (server/containers.js, server/merchants.js).

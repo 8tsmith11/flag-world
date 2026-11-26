@@ -135,6 +135,10 @@ including the host, plays by opening `http://<host-ip>:3000`.
   Completion only reads team progress (`TeamProgress`: obtained, crafted,
   placed, and `event(team, key)` milestones), so instrument new mechanics with
   an event rather than special cases. Rewards stay small and are per team.
+- Wise Monkeys can't be damaged (`hp: null`); their shrine floor and throne
+  are `BLOCK.SHRINE_BRICKS` (unbreakable) so they can't be dug out. Any tamed
+  adult monkey with a weapon in its tool slot fights back when attacked
+  (`holdsWeapon`, self-defense through `guardTick`).
 - Machine screens share `public/js/machinePanels.js`; containers report a
   `status` string in `view()` explaining why they aren't working.
 - `TeamProgress`, quest books, depots, baby purchases and merchant stock are
