@@ -108,7 +108,25 @@ for (const [id, material, color] of HOES) defineItem(id, `${material} hoe`, { ma
 defineItem(ITEM.WHEAT_SEEDS, 'wheat seeds', { places: 'crop', crop: 'wheat', color: 0xc9b163, icon: '/textures/wheat-seeds.svg' });
 defineItem(ITEM.WHEAT, 'wheat', { color: 0xd8b44a, icon: '/textures/wheat.svg' });
 defineItem(ITEM.BREAD, 'bread', { color: 0xb5793a, icon: '/textures/bread.svg', food: 5 });
+// The Sky Merchant's currency (shared/merchant.js).
+defineItem(ITEM.GOLD_COIN, 'gold coin', { color: 0xf2c230, icon: '/textures/gold-coin.svg' });
+// Hold right click to look through it (zoom, farther sight, enemy names).
+// In a Lookout monkey's tool slot it extends its sight and names what it sees.
+defineItem(ITEM.SPYGLASS, 'spyglass', { maxStack: 1, tool: 'spyglass', color: 0xb8793e, icon: '/textures/spyglass.svg' });
 defineItem(ITEM.RIFT_ORB, 'rift orb', { maxStack: RIFT_ORB.maxStack, shape: 'rift', color: 0xa66aff });
+
+// Extra tooltip lines (how to use it) for items that need explaining.
+export const ITEM_TIPS = {
+  [ITEM.GOLD_COIN]: ['Currency of the Sky Merchant', 'Earn it by selling goods to him or through your Merchant Depot'],
+  [ITEM.SPYGLASS]: ['Hold right click to look through it: zoom, see farther, read enemy names',
+    'You cannot attack while looking through it', 'Try giving this to a Lookout monkey!'],
+  [BLOCK.MERCHANT_DEPOT]: ['Where the Sky Merchant\'s airship docks each morning (one per team)',
+    'Place it on your island\'s far edge, the side facing away from the center island',
+    'Leave open sky in front of it: the airship flies in from the far side and docks there',
+    'Put goods in its selling slots to sell them automatically while he is docked'],
+  [BLOCK.REINFORCED_WALL]: ['Stone bricks bound with iron', 'Needs an iron hammer; takes four times as long to break as stone bricks',
+    'Resists explosions'],
+};
 
 const blockItems = new Map();
 

@@ -111,6 +111,10 @@ export class InventoryScreen {
       this.cursorEl.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
     });
 
+    for (const [id, container] of [['sort-inventory', false], ['sort-chest', true]]) {
+      document.getElementById(id).addEventListener('click', () => this.conn.send({ type: C2S.INVENTORY_SORT, container }));
+    }
+
     this.preview = null;
   }
 

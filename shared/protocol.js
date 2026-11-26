@@ -20,6 +20,9 @@ export const C2S = {
   CREATIVE_ACTION: 'creativeAction', // {action,value?}
   TALK: 'talk', // {id}: right click on an NPC
   MONKEY_ACTION: 'monkeyAction', // {id,action,...}: GUI games, configuration, inventory slots, close
+  INVENTORY_SORT: 'inventorySort', // {container}: sort the main grid, or the open chest
+  MERCHANT_ACTION: 'merchantAction', // {action,offer?,count?}: trade with your team's Sky Merchant
+  QUEST_ACTION: 'questAction', // {action,quest?}: open the quest book, claim a reward, request a depot
 };
 
 // Server -> client
@@ -59,6 +62,10 @@ export const S2C = {
   DAY_TIME: 'dayTime',
   SPEAK: 'speak', // {id,name,voice,text,sound}: private NPC line with a subtitle
   MONKEY: 'monkey', // Private taming/configuration/inventory view; Simon uses world movement
+  NOTICE: 'notice', // {text,kind}: private (or team-only) message in the middle of the screen
+  MERCHANT: 'merchant', // {open,...}: the trade screen for your team's Sky Merchant
+  MERCHANTS: 'merchants', // {merchants}: each team's depot and whether its merchant is docked
+  QUESTS: 'quests', // {completed,claimed,depot,...}: your team's quest book
 };
 
 // Where a flag is, in FlagState.
@@ -121,6 +128,8 @@ export const ENTITY_TYPE = {
   GOBLIN_BRUTE: 'goblinBrute',
   GOBLIN_KING: 'goblinKing',
   GOBLIN_TOTEM: 'goblinTotem',
+  // The Sky Merchant's airship (the merchant himself is an NPC).
+  AIRSHIP: 'airship',
 };
 
 // Goblin worldgen plans remain server-side. Fortress poison shooters use the

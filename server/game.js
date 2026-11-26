@@ -35,7 +35,7 @@ import { getRecipe, ANVIL_REROLL_COST } from '../shared/recipes.js';
 import { canHaveMods } from '../shared/modifiers.js';
 import { FROST } from '../shared/tools.js';
 import { Chest, createContainer } from './containers.js';
-import { clickSlot } from './inventory.js';
+import { clickSlot, sortSlots } from './inventory.js';
 import { Arrow } from './arrow.js';
 import { RiftOrbProjectile } from './riftOrb.js';
 import { Cow, Herd, COW_BOX } from './cow.js';
@@ -68,6 +68,7 @@ import { FluidSystem, fluidFace } from './fluids.js';
 import { configurableFluidFaces, chosenPipeFace } from '../shared/fluidFaces.js';
 import { EntityInterest } from './entityInterest.js';
 import { MonkeyWorkers, WorkMonkey } from './monkeyWorkers.js';
+import { teamArrowTargets } from './hostility.js';
 import { ChunkLoading } from './chunkLoading.js';
 import { TurretController } from './turrets.js';
 import { turretType } from '../shared/turrets.js';
@@ -277,6 +278,9 @@ export class Game {
         break;
       case C2S.CRAFT:
         if (session.player) this.craft(session.player, msg);
+        break;
+      case C2S.INVENTORY_SORT:
+        if (session.player) this.sortInventory(session.player, msg);
         break;
       case C2S.ANVIL_REROLL:
         if (session.player) this.anvilReroll(session.player, msg);
@@ -1349,6 +1353,17 @@ export class Game {
     }
   }
 
+  // The Sort button: the main grid (hotbar, armor and accessory stay put), or
+  // the open chest.
+  sortInventory(player, msg) {
+    if (player.dead) return;
+    if (msg.container) {
+      const container = this.viewedContainer(player);
+      if (container?.kind !== 'chest' || !sortSlots(container.slots)) return;
+      container.dirty = true;
+    } else if (sortSlots(player.inventory.slots, HOTBAR_SIZE)) player.inventoryDirty = true;
+  }
+
   // Right click on a chest or furnace: start sending its state to this player.
   openContainer(player, msg) {
     const pos = parseBlockPos(this.world, msg);
@@ -1603,9 +1618,9 @@ export class Game {
           ? [...players, ...cows, ...dragons, ...mobs].filter(t => !isGoblin(t))
           : arrow.shooter.goblin
           ? [...players, ...dragons, ...mobs.filter(m => !isGoblin(m) && (m instanceof Crawler || m instanceof VoidEel))]
-          : arrow.shooter.turret
-          ? [...players.filter((p) => p.team !== arrow.shooter.team),
-            ...dragons, ...mobs.filter((m) => m instanceof Crawler || m instanceof VoidEel || isGoblin(m))]
+          // Turrets and monkeys only hit what is hostile to their team.
+          : arrow.shooter.turret || arrow.shooter.teamShooter
+          ? teamArrowTargets(arrow.shooter.team, [players, dragons, mobs, npcs])
           : [...players.filter((p) => p.team !== arrow.shooter.team), ...cows, ...dragons, ...mobs, ...npcs,
             ...(this.boss?.status === 'active' ? [this.boss] : [])];
       const result = arrow.step(this.world, targets);

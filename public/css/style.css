@@ -1228,3 +1228,7 @@ body.loading-world #status { font-size: 1.65em; }
 .monkey-cups { position:relative; width:288px; height:150px; margin:24px auto; }
 .monkey-cup { position:absolute; top:0; left:0; width:80px; height:95px; border-radius:12px 12px 28px 28px; background:#9d6039; transition:transform .35s; font-size:26px; }
 .monkey-ball { position:absolute; top:110px; width:18px; height:18px; background:#ffc84c; border-radius:50%; }
+
+/* Sort buttons beside the inventory and chest headings. */
+.grid-heading { display: flex; align-items: center; gap: 10px; }
+.sort-button { font-size: 0.65em; padding: 3px 10px; cursor: pointer; }

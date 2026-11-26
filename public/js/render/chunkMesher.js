@@ -538,6 +538,16 @@ export function createChunkMesher(THREE) {
             continue;
           }
 
+          if (id === BLOCK.REINFORCED_WALL || id === BLOCK.MERCHANT_DEPOT) {
+            for (const face of FACES) {
+              const neighbour = meshBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
+              if (neighbour === id || !getBlockDef(neighbour).transparent) continue;
+              const tile = id === BLOCK.REINFORCED_WALL ? 'reinforcedWall' : face.dir[1] ? 'depotTop' : 'depotSide';
+              pushFace(textured, face, x, y, z, WHITE, face.shade * j, tile);
+            }
+            continue;
+          }
+
           if (id === BLOCK.QUARRY_STONE) {
             for (const face of FACES) {
               const neighbour = meshBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);

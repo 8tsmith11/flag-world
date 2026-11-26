@@ -5,7 +5,7 @@
 // the inventory screen or a workbench) or 'workbench' (only at a workbench).
 // `id` is what the client sends to craft it.
 
-import { LIGHTING, METALS, FLUID, ELEMENTAL } from './config.js';
+import { LIGHTING, METALS, FLUID, ELEMENTAL, REINFORCED_WALL, SPYGLASS } from './config.js';
 import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { creativeItemIds, getItemDef } from './items.js';
@@ -60,6 +60,10 @@ export const RECIPES = [
   { id: 'iron_hoe', station: 'workbench', output: ITEM.IRON_HOE, count: 1, inputs: needs([ITEM.IRON_INGOT, 2], [BLOCK.WOOD, 1]) },
   { id: 'bread', station: null, output: ITEM.BREAD, count: 1, inputs: needs([ITEM.WHEAT, 3]) },
   { id: 'glider', station: 'workbench', output: ITEM.GLIDER, count: 1, inputs: needs([ITEM.LEATHER, 3], [BLOCK.WOOD, 2]) },
+  { id: 'reinforced_wall', station: 'workbench', output: BLOCK.REINFORCED_WALL, count: REINFORCED_WALL.craftCount,
+    inputs: needs([ITEM.IRON_INGOT, REINFORCED_WALL.craftIron], [BLOCK.STONE_BRICKS, REINFORCED_WALL.craftBricks]) },
+  { id: 'spyglass', station: 'workbench', output: ITEM.SPYGLASS, count: 1,
+    inputs: needs([ITEM.BRONZE_INGOT, SPYGLASS.craftBronze], [BLOCK.GLASS, SPYGLASS.craftGlass]) },
 ];
 
 // Server checks creative permission before accepting these ids. The client

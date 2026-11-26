@@ -1,7 +1,7 @@
 // Small DOM icons for items in the hotbar and inventory screen: blocks are a
 // shaded square of their color, tools are drawn from simple shapes.
 
-import { getItemDef } from '/shared/items.js';
+import { getItemDef, ITEM_TIPS } from '/shared/items.js';
 import { BLOCK, getBlockDef } from '/shared/blocks.js';
 import { stackName, modLines } from '/shared/modifiers.js';
 import { ITEM } from '/shared/itemIds.js';
@@ -102,6 +102,7 @@ function tooltipDetails(stack) {
   if (stack.item === ITEM.WHEAT) effects.push('Feed to cows to breed them', 'Craft 3 into bread');
   if (stack.item === ITEM.GLIDER) effects.push('Hold right click in the air to glide');
   if (stack.item === ITEM.ROPE_BUNDLE) effects.push(`Hangs up to ${ROPE_LENGTH} blocks of climbable rope`);
+  if (ITEM_TIPS[stack.item]) effects.push(...ITEM_TIPS[stack.item]);
   return { name: stackName(stack, def.name), stats, effects, mods: modLines(stack) };
 }
 

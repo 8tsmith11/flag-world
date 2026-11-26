@@ -1,7 +1,7 @@
 // Ids of items that aren't blocks (256 and up; 0-255 are the blocks). Kept
 // apart from items.js so blocks.js can name them without a circular import.
 // Never renumber.
-import { METALS, FLUID, ELEMENTAL } from './config.js';
+import { METALS, FLUID, ELEMENTAL, COMMERCE_IDS } from './config.js';
 
 export const ITEM = {
   WOOD_HAMMER: 256,
@@ -77,4 +77,7 @@ export const ITEM = {
   STONE_HOE: 327,
   IRON_HOE: 328,
   BREAD: 329,
+  // Commerce update (COMMERCE_IDS in config.js).
+  GOLD_COIN: COMMERCE_IDS.items.goldCoin,
+  SPYGLASS: COMMERCE_IDS.items.spyglass,
 };

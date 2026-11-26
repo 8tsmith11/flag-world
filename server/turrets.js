@@ -3,7 +3,7 @@ import { turretType } from '../shared/turrets.js';
 import { ballisticAim, ballisticClear } from '../shared/ballistics.js';
 import { playerBoxOf } from '../shared/physics.js';
 import { S2C } from '../shared/protocol.js';
-import { huntable } from './provocation.js';
+import { hostileCandidates, isHostileTo } from './hostility.js';
 import { Arrow } from './arrow.js';
 
 const keyOf = (x, y, z) => `${x},${y},${z}`;
@@ -33,11 +33,11 @@ export class TurretController {
 
   rebuildGrid(tick) {
     this.grid.clear();
-    const targetable = [...this.game.players.values(), ...(this.game.mobs.activeValues?.() ?? this.game.mobs.values()),
-      ...(this.game.dragons.activeValues?.() ?? this.game.dragons.values())];
     const cell = TURRET.spatialCell;
-    for (const target of targetable) {
-      if (!huntable(target)) continue;
+    // Everyone who could be hostile to some team; candidates() keeps the
+    // ones hostile to the turret's own (server/hostility.js).
+    for (const target of hostileCandidates(this.game)) {
+      if (target.dead || !target.state) continue;
       const { x, z } = target.state;
       const key = `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
       if (!this.grid.has(key)) this.grid.set(key, []);
@@ -52,10 +52,9 @@ export class TurretController {
     const result = [];
     for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
       for (const target of this.grid.get(`${cx + dx},${cz + dz}`) ?? []) {
-        if (!huntable(target)) continue;
-        // Enemy players, hostile mobs and goblins (which have no team).
-        if (target.team === turret.team || (!target.goblin && target.type !== 'crawler'
-          && target.type !== 'voidEel' && target.type !== 'dragon' && target.team === undefined)) continue;
+        // Enemy players and monkeys, goblins and hostile creatures; never a
+        // teammate, their monkeys or anything friendly.
+        if (!isHostileTo(turret.team, target)) continue;
         const s = target.state;
         const distance = Math.hypot(s.x - turret.x - 0.5, s.y - turret.y - 1.5, s.z - turret.z - 0.5);
         if (distance <= range) result.push({ target, distance });

@@ -70,6 +70,36 @@ export function clickSlot(slots, index, holder, button, { accepts = () => true, 
   return true;
 }
 
+// Sorts slots[from..to-1] in place: partial stacks of the same item merge
+// (up to its max stack), identical items end up together, and the order is
+// always the same (gear first, then blocks, then other items, each by id).
+// Stacks with modifiers stay whole and never merge. Nothing is lost or made:
+// the same items in the same totals come back. Returns whether anything moved.
+export function sortSlots(slots, from = 0, to = slots.length) {
+  const before = JSON.stringify(slots.slice(from, to));
+  const totals = new Map(), modded = [];
+  for (let i = from; i < to; i++) {
+    const stack = slots[i];
+    if (!stack) continue;
+    if (stack.mods?.length) modded.push(stack);
+    else totals.set(stack.item, (totals.get(stack.item) ?? 0) + stack.count);
+  }
+  const group = (item) => {
+    const def = getItemDef(item);
+    return def.tool || def.armorPoints || def.accessory ? 0 : item < 256 ? 1 : 2;
+  };
+  const out = [];
+  for (const [item, total] of totals) {
+    const max = maxStack(item);
+    for (let left = total; left > 0; left -= max) out.push({ item, count: Math.min(max, left) });
+  }
+  out.push(...modded);
+  out.sort((a, b) => group(a.item) - group(b.item) || a.item - b.item
+    || (a.mods?.length ? 1 : 0) - (b.mods?.length ? 1 : 0) || b.count - a.count);
+  for (let i = from; i < to; i++) slots[i] = out[i - from] ?? null;
+  return JSON.stringify(slots.slice(from, to)) !== before;
+}
+
 export class Inventory {
   constructor(size = INVENTORY_SIZE) {
     this.slots = new Array(size).fill(null);

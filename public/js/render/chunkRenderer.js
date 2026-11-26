@@ -83,6 +83,51 @@ function stoneBrickTexture(variant = 'plain') {
   return texture;
 }
 
+// Stone bricks bound by two iron straps with rivets (reinforced wall).
+function reinforcedWallTexture() {
+  const texture = stoneBrickTexture(), canvas = texture.image, ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(60,64,70,0.25)'; ctx.fillRect(0, 0, 64, 64);
+  for (const y of [9, 41]) {
+    ctx.fillStyle = '#3e4247'; ctx.fillRect(0, y, 64, 14);
+    ctx.fillStyle = '#8d939a'; ctx.fillRect(0, y + 1, 64, 11);
+    ctx.fillStyle = '#b9bfc5'; ctx.fillRect(0, y + 1, 64, 2);
+    ctx.fillStyle = '#5c6167'; ctx.fillRect(0, y + 10, 64, 2);
+    for (const x of [6, 26, 46]) {
+      ctx.fillStyle = '#2f3236'; ctx.fillRect(x, y + 4, 5, 5);
+      ctx.fillStyle = '#d6dbe0'; ctx.fillRect(x + 1, y + 4, 2, 2);
+    }
+  }
+  ctx.fillStyle = '#7b4a2a'; ctx.fillRect(56, 23, 2, 3); ctx.fillRect(12, 55, 3, 2);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+// Merchant depot: a banded purple-and-wood crate with a gold coin emblem on
+// the sides and a hatch on top.
+function depotTexture(top = false) {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+  const c = canvas.getContext('2d');
+  c.fillStyle = '#4a2d14'; c.fillRect(0, 0, 64, 64);
+  c.fillStyle = '#8b5a2b'; c.fillRect(3, 3, 58, 58);
+  c.fillStyle = '#a8733c';
+  for (let y = 5; y < 61; y += 12) c.fillRect(3, y, 58, 6);
+  c.fillStyle = '#6b3d86'; c.fillRect(0, 0, 64, 5); c.fillRect(0, 59, 64, 5); c.fillRect(0, 0, 5, 64); c.fillRect(59, 0, 5, 64);
+  c.fillStyle = '#b67ad6'; c.fillRect(0, 0, 64, 2); c.fillRect(0, 0, 2, 64);
+  if (top) {
+    c.fillStyle = '#3b2410'; c.fillRect(18, 18, 28, 28);
+    c.fillStyle = '#6b3d86'; c.fillRect(20, 20, 24, 24);
+    c.fillStyle = '#f2c230'; c.fillRect(29, 29, 6, 6);
+  } else {
+    c.fillStyle = '#9a6a0c'; c.beginPath(); c.arc(32, 32, 13, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#f2c230'; c.beginPath(); c.arc(32, 32, 11, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#c8920f'; c.fillRect(29, 24, 6, 16);
+    c.fillStyle = '#fff1a6'; c.fillRect(25, 25, 3, 3);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function basaltTempleTexture(chiseled = false) {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
   const c = canvas.getContext('2d');
@@ -228,6 +273,8 @@ function blockAtlas(renderer) {
     crackedBricks: stoneBrickTexture('cracked'), basaltBricks: basaltTempleTexture(), chiseledBasalt: basaltTempleTexture(true), planks: patternedTexture('planks'),
     woodSides: patternedTexture('woodSides'), woodEnds: patternedTexture('woodEnds'), quarry: patternedTexture('quarry') };
   sources.goblinBricks = goblinBrickTexture();
+  sources.reinforcedWall = reinforcedWallTexture();
+  sources.depotSide = depotTexture(); sources.depotTop = depotTexture(true);
   const torchCanvas=document.createElement('canvas');torchCanvas.width=torchCanvas.height=32;
   const tc=torchCanvas.getContext('2d');tc.fillStyle='#9a6837';tc.fillRect(0,0,32,32);
   tc.fillStyle='#d19a52';for(let x=0;x<32;x+=8)tc.fillRect(x,0,2,32);

@@ -703,3 +703,62 @@ export const STORM_CLOUD = {
   flashInterval: [3, 11], flashPulses: [1, 3], flashOpacity: 0.55, flashSize: 14,
   thunderInterval: [10, 26], thunderDelay: [0.4, 2.5],
 };
+
+// ---- Commerce, automation and defense update ----
+
+// New block and item ids. Never renumber or reuse.
+export const COMMERCE_IDS = {
+  blocks: { reinforcedWall: 160, merchantDepot: 161 },
+  items: { goldCoin: 330, spyglass: 331 },
+};
+
+// Reinforced walls: 1 iron ingot + 10 stone bricks make 10. Stone bricks need
+// an iron hammer (hardness 5) and take 1.5 s by hand speed; reinforced walls
+// need the same hammer and take four times as long. blastResistance is how
+// many times harder an explosion has to hit it than plain stone (1); no
+// explosion in the game breaks blocks yet, so it is data for when one does.
+export const REINFORCED_WALL = { hardness: 5, breakTime: 6, blastResistance: 6, craftCount: 10,
+  craftBricks: 10, craftIron: 1, stoneBrickBlastResistance: 3 };
+
+// Spyglass: hold right click to look through it. fov is the zoomed field of
+// view (degrees), viewScale how much farther fog and the far plane reach,
+// nametagRange how far an observed player's name can be read, and
+// nametagCone (radians) how close to the crosshair they must be.
+export const SPYGLASS = { fov: 18, viewScale: 1.6, nametagRange: 260, nametagCone: 0.06, craftBronze: 2, craftGlass: 1 };
+
+// Guard, lookout and craftsman monkeys, babies and bows. Ranges in blocks.
+//   guard: detection range around itself, how far from its patrol route it
+//     may chase (pursuit), melee reach, and bow range and draw time.
+//   lookout: detection range without and with a spyglass, and how long
+//     before the same target is reported again.
+//   baby: seconds to grow up; babies are smaller and can't work or fight.
+export const MONKEY_DUTY = {
+  maxWaypoints: 8, waypointColor: 0x30d158, postColor: 0x64d2ff, workbenchColor: 0xd9a066,
+  guard: { range: 14, pursuit: 18, meleeReach: 2.4, bowRange: 22, bowDrawSeconds: 1.2,
+    arrowSpeed: 24, arrowDamage: 4, patrolPause: 2, arriveDistance: 1.5, retargetTicks: 10 },
+  lookout: { range: 40, spyglassRange: 80, cooldownSeconds: 30, scanTicks: 10 },
+  craftsman: { craftTicks: 10, maxSets: 64 },
+  baby: { growSeconds: 1200, scale: 0.6 },
+  // Wild monkeys in the central island's big trees: a chance per tall tree
+  // and a cap, so team and tiny islands stay the main source.
+  centralTrees: { chance: 0.04, max: 3, minHeight: 9 },
+};
+
+// The Sky Merchant: daily visits by airship to each team's Merchant Depot.
+// Times are fractions of the day (0 sunrise, 0.5 sunset). The airship flies
+// in from approachDistance blocks out along the dock direction (the side of
+// the island facing away from the center island), docks for the day and
+// leaves at departTime. Dock geometry is in shared/merchant.js.
+export const MERCHANT = {
+  arriveTime: 0.02, departTime: 0.46, flightSeconds: 30, approachDistance: 140, approachRise: 24,
+  hp: 40, box: { halfW: 0.45, height: 2.1 }, talkReach: 6, walkSeconds: 2,
+  // Depot automation: one item sold every sellTicks while the merchant is docked.
+  sellTicks: 5, depotInput: 9, depotOutput: 9,
+  // Baby monkeys: the first costs babyBase coins, each one after costs
+  // babyGrowth times the last (rounded), per team for the whole match.
+  babyBase: 48, babyGrowth: 1.5,
+  // Requested crafted goods, chosen from the seed: how many, and how much
+  // more than their materials' value they pay (capped below the cost of
+  // buying those materials back).
+  requests: 3, requestPremium: 1.6,
+};

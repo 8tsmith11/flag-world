@@ -26,7 +26,8 @@
 //   tileEntity   - name of the tile entity type attached when placed
 //                  ('furnace', 'alloyFurnace', 'chest', 'anvil', 'tank', 'boiler', 'crusher')
 
-import { SAPLING_DROP_CHANCE, FARMING, TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS, METALS, FLUID, ELEMENTAL, FIRE_TEMPLE } from './config.js';
+import { SAPLING_DROP_CHANCE, FARMING, TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS, METALS, FLUID, ELEMENTAL, FIRE_TEMPLE,
+  COMMERCE_IDS, REINFORCED_WALL } from './config.js';
 import { ITEM } from './itemIds.js';
 
 export const BLOCK = {
@@ -98,6 +99,9 @@ export const BLOCK = {
   CHISELED_BASALT: ELEMENTAL.blockIds.chiseledBasalt,
   FIRE_PORTAL: ELEMENTAL.blockIds.firePortal,
   OBSIDIAN: ELEMENTAL.blockIds.obsidian,
+  // Commerce update (COMMERCE_IDS in config.js).
+  REINFORCED_WALL: COMMERCE_IDS.blocks.reinforcedWall,
+  MERCHANT_DEPOT: COMMERCE_IDS.blocks.merchantDepot,
 };
 
 export function isWater(id) {
@@ -242,6 +246,8 @@ function define(id, name, props) {
     support: null,
     emission: 0,
     blocksAttack: true,
+    // How many times harder than plain stone an explosion must hit it.
+    blastResistance: 1,
     lightOpaque: props.solid !== false && !props.transparent,
     ...props,
   };
@@ -297,7 +303,16 @@ define(BLOCK.STONE, 'stone', { color: 0x8a8a8a, hardness: 2, breakTime: 1.5 });
 define(BLOCK.GOBLIN_BRICKS, 'goblin bricks', { color: 0x657258, hardness: GOBLIN_GEN.brickHardness, breakTime: GOBLIN_GEN.brickBreakTime });
 for (const id of FACED[BLOCK.POISON_TRAP]) define(id, 'hidden poison shooter', { color: 0x657258, hardness: GOBLIN_GEN.brickHardness, breakTime: GOBLIN_GEN.brickBreakTime, drops: BLOCK.GOBLIN_BRICKS });
 define(BLOCK.QUARRY_STONE, 'quarry stone', { color: 0x343b42, hardness: 8, breakTime: 4 });
-define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: METALS.hardness.ironTierBlocks, breakTime: 1.5 });
+define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: METALS.hardness.ironTierBlocks, breakTime: 1.5,
+  blastResistance: REINFORCED_WALL.stoneBrickBlastResistance });
+// Stone bricks bound with iron straps: same hammer, four times the work.
+define(BLOCK.REINFORCED_WALL, 'reinforced wall', { color: 0x6f7378, hardness: REINFORCED_WALL.hardness,
+  breakTime: REINFORCED_WALL.breakTime, blastResistance: REINFORCED_WALL.blastResistance });
+// Where the Sky Merchant's airship docks (one per team). A container: items
+// put in its selling slots are sold while he's docked; coins come out of
+// the coin slots (server/containers.js, server/merchants.js).
+define(BLOCK.MERCHANT_DEPOT, 'merchant depot', { color: 0x8a5a9e, hardness: 2, breakTime: 2,
+  tileEntity: 'depot', icon: '/textures/merchant-depot.svg' });
 define(BLOCK.MOSSY_STONE_BRICKS, 'mossy stone bricks', { color: 0x778a70, hardness: METALS.hardness.ironTierBlocks, breakTime: 1.5 });
 define(BLOCK.CRACKED_STONE_BRICKS, 'cracked stone bricks', { color: 0x858480, hardness: METALS.hardness.ironTierBlocks, breakTime: 1.5 });
 define(BLOCK.WATER, 'water', { solid: false, transparent: true, color: 0x3a6fd8, breakable: false, hardness: 0 });
