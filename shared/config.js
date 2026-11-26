@@ -388,6 +388,9 @@ export const FLUID = {
   pipeCapacity: 50, tankCapacity: 4000, transferPerSecond: 50,
   pumpPerSecond: 50, boilerPerSecond: 10, crusherPerSecond: 5,
   boilerWaterBuffer: 50, boilerSteamBuffer: 50,
+  // The crusher keeps its own small steam store, filled from its pipes at up
+  // to crusherFillPerSecond and spent as it crushes.
+  crusherSteamBuffer: 20, crusherFillPerSecond: 10,
   boilerFuelSeconds: { charcoal: 40, wood: 10 },
   crusherSeconds: 2, crusherOreDust: 2, crusherStoneOutput: 1, networkSendTicks: 4,
   epsilon: 1e-7,
@@ -817,8 +820,13 @@ export const SPIKES = { hardness: 3, breakTime: 3, blastResistance: 2, contactDa
 // mechanism, then kept: retracted sections are stored inside it and laid
 // again for free; broken sections drop their planks and must be paid for
 // again. Steam is paid once per state change: starting to extend or retract
-// takes steamPerSection * length from the connected pipes, boilers and tanks
-// all at once (or the move doesn't start); after that the bridge moves one
-// section every sectionSeconds whatever happens to the steam supply.
+// takes steamPerSection * length all at once, first from the mechanism's own
+// steam store (steamStorage, filled from its pipes at up to fillPerSecond
+// whenever it isn't full) and then from the connected pipes, boilers and
+// tanks; without that much the move doesn't start. After that the bridge
+// moves one section every sectionSeconds whatever happens to the steam.
+// An obstructed first section makes it jog (jogSeconds); hitting an
+// obstruction partway sends it back to where that move began.
 export const DRAWBRIDGE = { maxLength: 16, defaultLength: 6, sectionPlanks: 3, steamPerSection: 4, sectionSeconds: 0.4,
+  steamStorage: 96, fillPerSecond: 20, jogSeconds: 0.7,
   hardness: 3, breakTime: 2, deckHardness: 1, deckBreakTime: 1.2, craftBronze: 4, craftIron: 2, craftPipe: 1 };

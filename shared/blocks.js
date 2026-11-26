@@ -351,7 +351,7 @@ define(BLOCK.SPIKE_BARRICADE, 'iron spike barricade', { color: 0x7d8288, hardnes
 // built from.
 define(BLOCK.DRAWBRIDGE, 'drawbridge', { color: 0x6b5a3e, transparent: true, hardness: DRAWBRIDGE.hardness, breakTime: DRAWBRIDGE.breakTime,
   tileEntity: 'drawbridge', shape: 'drawbridge', icon: '/textures/drawbridge.svg' });
-define(BLOCK.BRIDGE_DECK, 'bridge deck', { color: 0x9a6f3c, hardness: DRAWBRIDGE.deckHardness, breakTime: DRAWBRIDGE.deckBreakTime,
+define(BLOCK.BRIDGE_DECK, 'bridge deck', { color: 0x9a6f3c, transparent: true, hardness: DRAWBRIDGE.deckHardness, breakTime: DRAWBRIDGE.deckBreakTime,
   drops: BLOCK.PLANKS, dropCount: DRAWBRIDGE.sectionPlanks, shape: 'bridgeDeck', icon: '/textures/bridge-deck.svg' });
 define(BLOCK.SHRINE_BRICKS, 'shrine bricks', { color: 0x9a8f78, breakable: false, hardness: Infinity, drops: null,
   blastResistance: Infinity });

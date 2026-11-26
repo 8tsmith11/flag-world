@@ -93,23 +93,24 @@ export class Boiler extends MachineBase {
 export class Crusher extends MachineBase {
   constructor() {
     super('crusher', 2, [{ accepts: item => item in CRUSHING }, { takeOnly:true }]);
-    this.progress=0;this.received=0;this.lastReceived=0;
+    // steam: its own store (FLUID.crusherSteamBuffer), filled from the pipes;
+    // lastReceived: steam spent last tick (the rate it is running at).
+    this.progress=0;this.steam=0;this.lastReceived=0;
   }
   recipe() { return CRUSHING[this.slots[0]?.item] ?? null; }
   canWork() {
     const r=this.recipe(),out=this.slots[1];
     return !!r && (!out || (out.item===r.item && out.count+r.count<=maxStack(r.item)));
   }
-  demand(fluid) { return fluid==='steam'&&this.canWork()?FLUID.crusherPerSecond/TICK_RATE:0; }
-  accept(fluid,amount) { if(fluid==='steam')this.received+=amount; }
+  demand(fluid) { return fluid==='steam'?Math.max(0,Math.min(FLUID.crusherFillPerSecond/TICK_RATE,FLUID.crusherSteamBuffer-this.steam)):0; }
+  accept(fluid,amount) { if(fluid==='steam'){this.steam+=amount;this.dirty=true;} }
   tick() {
     const before=this.progress,priorReceived=this.lastReceived;
-    this.lastReceived=this.received;
-    if(!this.canWork()){this.received=0;this.progress=0;
+    if(!this.canWork()){this.lastReceived=0;this.progress=0;
       this.dirty ||= before!==0||priorReceived!==this.lastReceived;return this.dirty;}
-    this.progress+=this.received/(FLUID.crusherPerSecond/TICK_RATE)
-      /(FLUID.crusherSeconds*TICK_RATE);
-    this.received=0;
+    const need=FLUID.crusherPerSecond/TICK_RATE,use=Math.min(this.steam,need);
+    this.steam-=use;this.lastReceived=use;
+    this.progress+=use/need/(FLUID.crusherSeconds*TICK_RATE);
     if(this.progress>=1-1e-9) {
       this.progress=0;
       const input=this.slots[0],r=this.recipe();
@@ -126,10 +127,10 @@ export class Crusher extends MachineBase {
     if(!r)return 'Invalid recipe: that can\'t be crushed';
     if(out&&(out.item!==r.item||out.count+r.count>maxStack(r.item)))return 'Output full: take out the output';
     const needed=FLUID.crusherPerSecond/TICK_RATE;
-    if(this.lastReceived<=1e-9)return 'Insufficient steam: connect a boiler with a bronze pipe';
+    if(this.lastReceived<=1e-9)return 'Insufficient steam: connect a boiler with a bronze pipe (it stores a little itself)';
     if(this.lastReceived+1e-9<needed)return 'Insufficient steam: running slowly';
     return 'Operating';
   }
   view() { return { ...super.view(), progress:this.progress, steamReceived:this.lastReceived*TICK_RATE,
-    steamNeeded:FLUID.crusherPerSecond, status:this.status() }; }
+    steamNeeded:FLUID.crusherPerSecond, steamStored:this.steam, steamCapacity:FLUID.crusherSteamBuffer, status:this.status() }; }
 }

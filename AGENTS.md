@@ -170,9 +170,12 @@ including the host, plays by opening `http://<host-ip>:3000`.
   (four body diagonals, eight points) is `shared/spikeGeometry.js`.
 - Drawbridges (`server/drawbridge.js`) are steam containers driven only
   through `Drawbridge.command(game, node, action, value)` (the UI's
-  `machineAction` today; levers or plates later). A move's steam is paid in
-  full up front (`FluidSystem.draw`), then it runs to the end without steam;
-  it takes no command while moving. Sections are paid for once
+  `machineAction` today; levers or plates later). Steam machines keep their
+  own steam store (boiler, crusher, drawbridge). A move's steam is paid in
+  full up front (store first, then `FluidSystem.draw`), then it runs to the
+  end without steam; it takes no command while moving. A blocked first
+  section only jogs (`drawbridgeJog`); an obstruction partway sends it back
+  to where the move began. Sections are paid for once
   and conserved: never add a path that creates or deletes deck sections
   without going through `stored` or dropping their planks.
 - New block shapes for these live in `public/js/render/defenseParts.js`
@@ -369,6 +372,7 @@ public/
       depotRenderer.js       Lantern signs over Merchant Depots (lit while docked)
       defenseParts.js        Box models for barrels, spikes, drawbridges and bridge deck
       explosionEffects.js    Explosion fireballs, smoke and debris, fuse sparks, grenade beeps
+      drawbridgeEffects.js   An obstructed drawbridge's jog (a section sliding out and back)
       monkeyModels.js        Orangutan and gorilla NPC models on one rig; pose blending and idle animation
       stormEffects.js        Storm cloud flashes (additive sprites) and thunder
 scripts/

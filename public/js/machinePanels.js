@@ -100,8 +100,8 @@ const MACHINES = {
       { index: 1, label: 'Output', ghost: ITEM.IRON_DUST, tip: 'Take the dust or sand from here', output: true },
     ],
     inputs: [0], outputs: [1],
-    gauges: (v) => [['Steam', v.steamReceived, v.steamNeeded, '#d8dde2', '/s']],
-    needs: () => `Needs ${FLUID.crusherPerSecond} steam a second from a boiler, through bronze pipes. Each crush takes ${FLUID.crusherSeconds} s at full steam; less steam runs slower.`,
+    gauges: (v) => [['Steam stored', v.steamStored ?? 0, v.steamCapacity ?? FLUID.crusherSteamBuffer, '#b8c4cc'], ['Steam use', v.steamReceived, v.steamNeeded, '#d8dde2', '/s']],
+    needs: () => `Needs ${FLUID.crusherPerSecond} steam a second from a boiler, through bronze pipes. It keeps up to ${FLUID.crusherSteamBuffer} steam in its own store, topped up from the pipes. Each crush takes ${FLUID.crusherSeconds} s at full steam; less steam runs slower.`,
     recipes: () => Object.entries(CRUSHING).map(([input, out]) => recipeLine([{ item: Number(input), count: 1 }], [{ item: out.item, count: out.count }])),
   },
   tank: {
@@ -252,9 +252,10 @@ export class MachineView {
     this.status = el('p', 'machine-status'); this.root.append(this.status);
     this.extra = null; this.flame = null;
     this.root.append(el('h3', '', 'Needs'), el('p', 'machine-needs',
-      `Steam from a boiler through bronze pipes (tanks store more). Each extend or retract costs ${DRAWBRIDGE.steamPerSection} steam per block of length, taken all at once from the connected pipes, boilers and tanks when you press the button; without enough it won't start. Once moving it finishes on its own (a section every ${DRAWBRIDGE.sectionSeconds} s) even if the steam runs out, and takes no new orders until it stops. ${DRAWBRIDGE.sectionPlanks} planks build each section once; a broken section drops its planks and needs new ones. It stops early rather than build into blocks or anyone standing in the way.`));
+      `Steam from a boiler through bronze pipes. It keeps up to ${DRAWBRIDGE.steamStorage} steam in its own store, topped up from the pipes. Each extend or retract costs ${DRAWBRIDGE.steamPerSection} steam per block of length, taken all at once when you press the button (from its store first, then the pipes, boilers and tanks); without enough it won't start. Once moving it finishes on its own (a section every ${DRAWBRIDGE.sectionSeconds} s) even if the steam runs out, and takes no new orders until it stops. ${DRAWBRIDGE.sectionPlanks} planks build each section once; a broken section drops its planks and needs new ones. If its first section is blocked it only jogs; if it hits something partway it goes back to where it started.`));
     this.setView({ slots: [null], dir: 0, length: DRAWBRIDGE.defaultLength, extended: 0, stored: 0, progress: 0, moving: false,
-      steamAvailable: 0, steamCost: DRAWBRIDGE.steamPerSection * DRAWBRIDGE.defaultLength, planks: 0, required: 0, target: 'retracted', status: '' });
+      steamAvailable: 0, steamStored: 0, steamStorage: DRAWBRIDGE.steamStorage, steamCost: DRAWBRIDGE.steamPerSection * DRAWBRIDGE.defaultLength,
+      planks: 0, required: 0, target: 'retracted', status: '' });
   }
 
   setDrawbridge(view) {
@@ -277,13 +278,16 @@ export class MachineView {
     const fraction = Math.min(1, (view.extended + (moving ? (view.target === 'extended' ? 1 : -1) * view.progress : 0)) / Math.max(1, view.length));
     this.arrow.firstChild.style.width = `${fraction * 100}%`;
     this.extensionText.textContent = `${view.extended} of ${view.length} sections out, facing ${DIRECTIONS[view.dir].toLowerCase()}`;
-    this.gauges.replaceChildren((() => {
+    const gaugeOf = (label, value, max, color) => {
       const g = el('div', 'machine-gauge'), bar = el('div', 'machine-gauge-bar'), fill = el('div', 'fill');
-      fill.style.width = `${Math.min(100, view.steamAvailable / Math.max(1, view.steamCost) * 100)}%`; fill.style.background = enough ? '#d8dde2' : '#ffb37a';
-      bar.append(fill);
-      g.append(el('span', '', `Steam available: ${Math.floor(view.steamAvailable)} · each move costs ${view.steamCost} (${DRAWBRIDGE.steamPerSection} × ${view.length})`), bar);
+      fill.style.width = `${Math.min(100, value / Math.max(1, max) * 100)}%`; fill.style.background = color;
+      bar.append(fill); g.append(el('span', '', label), bar);
       return g;
-    })());
+    };
+    this.gauges.replaceChildren(
+      gaugeOf(`Steam stored: ${Math.floor(view.steamStored ?? 0)} / ${view.steamStorage ?? DRAWBRIDGE.steamStorage}`, view.steamStored ?? 0, view.steamStorage ?? DRAWBRIDGE.steamStorage, '#b8c4cc'),
+      gaugeOf(`Steam available (store and pipes): ${Math.floor(view.steamAvailable)} · each move costs ${view.steamCost} (${DRAWBRIDGE.steamPerSection} × ${view.length})`,
+        view.steamAvailable, view.steamCost, enough ? '#d8dde2' : '#ffb37a'));
     this.message.textContent = view.message ?? '';
   }
 
@@ -296,7 +300,7 @@ export class MachineView {
       this.setDrawbridge(view);
       const status = view.status ?? '';
       this.status.textContent = status ? `Status: ${status}` : '';
-      this.status.className = `machine-status ${/^(Extended|Extending|Retracting)/.test(status) ? 'ok' : /^Retracted/.test(status) ? 'idle' : 'warn'}`;
+      this.status.className = `machine-status ${/^(Extended|Extending|Retracting)$/.test(status) ? 'ok' : /^Retracted/.test(status) ? 'idle' : 'warn'}`;
       return;
     }
     this.cells.forEach((cell, i) => {

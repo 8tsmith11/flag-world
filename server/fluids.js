@@ -1,7 +1,7 @@
 // Authoritative fluid graph. Topology is rebuilt only after edits to fluid
 // blocks or ports; transfers use the cached pipe components each fixed tick.
 import { BLOCK, fluidKind } from '../shared/blocks.js';
-import { FLUID, TICK_RATE } from '../shared/config.js';
+import { FLUID, TICK_RATE, DRAWBRIDGE } from '../shared/config.js';
 import { S2C } from '../shared/protocol.js';
 import { FLUID_FACES, fluidFace, oppositeFluidFace } from '../shared/fluidFaces.js';
 
@@ -144,7 +144,7 @@ export class FluidSystem {
   canSink(port,fluid) {
     if(port.mode===FLUID.faceInput)return false;
     return port.node.kind==='tank'||port.node.kind==='boiler'&&fluid==='water'
-      ||port.node.kind==='crusher'&&fluid==='steam';
+      ||(port.node.kind==='crusher'||port.node.kind==='drawbridge')&&fluid==='steam';
   }
   tick(tick) {
     this.outputBudget=new Map();this.inputBudget=new Map();
@@ -154,7 +154,8 @@ export class FluidSystem {
         this.outputBudget.set(node,FLUID.boilerPerSecond/TICK_RATE);
         this.inputBudget.set(node,FLUID.boilerPerSecond/TICK_RATE);
       }
-      if(node.kind==='crusher')this.inputBudget.set(node,FLUID.crusherPerSecond/TICK_RATE);
+      if(node.kind==='crusher')this.inputBudget.set(node,FLUID.crusherFillPerSecond/TICK_RATE);
+      if(node.kind==='drawbridge')this.inputBudget.set(node,DRAWBRIDGE.fillPerSecond/TICK_RATE);
     }
     for(const network of this.networks) {
       if(!network.pipes.every(p=>this.active(p)))continue;

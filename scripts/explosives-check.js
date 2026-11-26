@@ -384,8 +384,10 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   world.setBlock(mx, Y - 2, mz, BLOCK.FLUID_TANK);
   const tank = () => game.fluids.nodes.get(`${mx},${Y - 2},${mz}`).tank;
   const pipe = () => game.fluids.networks.find((n) => n.pipeKeys.has(`${mx},${Y - 1},${mz}`));
-  const steam = () => (tank().amount ?? 0) + (pipe()?.amount ?? 0);
-  const fill = (amount = 4000) => { tank().fluid = amount ? 'steam' : null; tank().amount = amount; const n = pipe(); if (n) { n.amount = 0; n.fluid = null; } };
+  let bridge = null;
+  // All the steam there is: tank, pipe and the drawbridge's own store.
+  const steam = () => (tank().amount ?? 0) + (pipe()?.amount ?? 0) + (bridge?.steam ?? 0);
+  const fill = (amount = 4000) => { tank().fluid = amount ? 'steam' : null; tank().amount = amount; const n = pipe(); if (n) { n.amount = 0; n.fluid = null; } if (bridge) bridge.steam = 0; };
   fill();
   for (let x = mx + L + 1; x <= mx + L + 6; x++) for (let z = mz - 2; z <= mz + 2; z++) world.setBlock(x, Y, z, BLOCK.STONE);
   // Placed by the host, looking east: owned by their team, extending east.
@@ -394,7 +396,7 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   host.inventory.slots[host.selected] = { item: BLOCK.DRAWBRIDGE, count: 1 };
   game.stepPlace(host, { x: mx, y: Y, z: mz, nx: 1, ny: 0, nz: 0 }, host.selected);
   assert.equal(world.getBlock(mx, Y, mz), BLOCK.DRAWBRIDGE, 'the drawbridge was not placed');
-  const bridge = world.tileEntities.get(key);
+  bridge = world.tileEntities.get(key);
   assert.ok(bridge?.kind === 'drawbridge' && bridge.team === host.team, 'the drawbridge has no owner');
   assert.deepEqual(FACING_DIRS[bridge.dir], [1, 0], 'the drawbridge does not face the way it was placed');
   run(2);
@@ -414,8 +416,18 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   assert.equal(view.length, L);
   assert.equal(view.required, L * DB.sectionPlanks, 'wrong materials shown for the length');
   assert.equal(view.steamCost, L * DB.steamPerSection, 'the cost is not proportional to the length');
-  run(1);
-  assert.ok(Math.abs(bridge.view().steamAvailable - 4000) < 1, 'the steam on hand is not shown');
+  // Its own store fills from the pipes and stops at its capacity; nothing is lost.
+  run(Math.ceil(DB.steamStorage / DB.fillPerSecond * TICK_RATE) + 10);
+  assert.ok(Math.abs(bridge.steam - DB.steamStorage) < 1e-6, `the drawbridge's store holds ${bridge.steam}`);
+  assert.ok(Math.abs(steam() - 4000) < 1e-6, 'filling the store lost or made steam');
+  assert.ok(Math.abs(bridge.view().steamAvailable - 4000) < 1 && bridge.view().steamStored === bridge.steam, 'the steam on hand is not shown');
+  // A move paid from the store alone, with the pipes cut off: tank emptied.
+  { const before = bridge.steam; tank().amount = 0; tank().fluid = null; const n = pipe(); if (n) { n.amount = 0; n.fluid = null; }
+    bridge.slots[0] = { item: BLOCK.PLANKS, count: L * DB.sectionPlanks };
+    assert.ok(!action(host, 'extend').message, 'the store could not pay for a move');
+    assert.equal(bridge.steam, before - L * DB.steamPerSection); run(whole); assert.equal(deck(), L);
+    fill(); bridge.steam = L * DB.steamPerSection; action(host, 'retract'); run(whole); assert.equal(deck(), 0);
+    bridge.slots[0] = null; bridge.stored = 0; }
   // Not enough steam: nothing starts and nothing is taken.
   fill(L * DB.steamPerSection - 1);
   bridge.slots[0] = { item: BLOCK.PLANKS, count: 9 };
@@ -482,7 +494,7 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   world.setBlock(mx, Y - 2, mz, BLOCK.BOILER);
   const { createContainer } = await import('../server/containers.js');
   const boiler = createContainer('boiler'); world.tileEntities.set(`${mx},${Y - 2},${mz}`, boiler); game.fluids.attach(mx, Y - 2, mz, boiler);
-  boiler.steam = 40; { const n = pipe(); if (n) { n.amount = 0; n.fluid = null; } }
+  boiler.steam = 40; bridge.steam = 0; { const n = pipe(); if (n) { n.amount = 0; n.fluid = null; } }
   action(host, 'extend');
   assert.ok(bridge.moving, 'steam in a boiler did not pay for a move');
   assert.equal(boiler.steam, 40 - L * DB.steamPerSection);
@@ -504,17 +516,42 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   bridge.slots[0] = { item: BLOCK.PLANKS, count: DB.sectionPlanks };
   fill(); action(host, 'retract'); run(whole); fill(); action(host, 'extend'); run(whole);
   assert.equal(deck(), L, 'new planks did not replace the broken section');
-  // Obstructions: a block in the way stops it (and stays); so does someone standing there.
+  // Obstructions. Blocked at the very first section: it only jogs (everyone
+  // sees it), takes no steam and lays nothing.
   fill(); action(host, 'retract'); run(whole);
+  world.setBlock(mx + 1, Y, mz, BLOCK.STONE);
+  fill(); sent.clear();
+  view = action(host, 'extend');
+  assert.match(view.message ?? '', /Obstructed/);
+  for (const id of [1, 2, 3]) assert.ok(messages(id, S2C.DRAWBRIDGE_JOG).some((m) => m.x === mx && m.z === mz && m.dir === bridge.dir), `player ${id} did not see the jog`);
+  assert.equal(steam(), 4000, 'a jog took steam'); assert.equal(deck(), 0); assert.ok(!bridge.moving);
+  assert.equal(world.getBlock(mx + 1, Y, mz), BLOCK.STONE);
+  world.setBlock(mx + 1, Y, mz, BLOCK.AIR);
+  // Blocked partway: it goes back to where it began (once paid, no more
+  // steam), leaving the block alone; the same for someone standing there.
   world.setBlock(mx + 3, Y, mz, BLOCK.STONE);
-  fill(); action(host, 'extend'); run(whole);
-  assert.equal(deck(), 2); assert.equal(bridge.state, 'Obstructed'); assert.ok(!bridge.moving);
+  fill(); action(host, 'extend');
+  run(sectionTicks * 2 + 2);
+  assert.equal(deck(), 2); assert.ok(bridge.moving && /going back/.test(bridge.state), 'it did not turn back at the obstruction');
+  assert.match(action(host, 'extend').message ?? '', /already moving/);
+  run(whole);
+  assert.equal(deck(), 0, 'it did not go back to where it began'); assert.equal(bridge.state, 'Obstructed'); assert.ok(!bridge.moving);
+  assert.equal(4000 - steam(), L * DB.steamPerSection, 'going back cost more steam');
   assert.equal(world.getBlock(mx + 3, Y, mz), BLOCK.STONE, 'the bridge removed a block in its way');
+  assert.equal(bridge.stored, L, 'sections were lost going back');
   world.setBlock(mx + 3, Y, mz, BLOCK.AIR);
   park(enemy, 63 + 4, 30); enemy.state.y = Y; enemy.state.x = mx + 4.5;   // standing in cell 4
-  fill(); action(host, 'extend'); run(whole);
-  assert.equal(deck(), 3, 'the bridge was laid into a player'); assert.equal(bridge.state, 'Obstructed');
+  fill(); action(host, 'extend'); run(whole * 2);
+  assert.equal(deck(), 0, 'the bridge was laid into a player, or did not go back'); assert.equal(bridge.state, 'Obstructed');
   park(enemy, 60, 60);
+  // From part way out it goes back to that point, not all the way.
+  bridge.slots[0] = null; const spare = bridge.stored; bridge.stored = 3;
+  fill(); action(host, 'extend'); run(whole);
+  assert.equal(deck(), 3); assert.equal(bridge.state, 'Missing construction materials');
+  bridge.stored = spare - 3; world.setBlock(mx + 5, Y, mz, BLOCK.STONE);
+  fill(); action(host, 'extend'); run(whole * 2);
+  assert.equal(deck(), 3, 'it did not go back to where this move began');
+  world.setBlock(mx + 5, Y, mz, BLOCK.AIR);
   fill(); action(host, 'extend'); run(whole);
   assert.equal(deck(), L);
   // Another length and direction once retracted: 3 north, at a smaller cost.

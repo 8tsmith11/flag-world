@@ -68,6 +68,7 @@ export const S2C = {
   MERCHANTS: 'merchants', // {merchants}: each team's depot and whether its merchant is docked
   QUESTS: 'quests', // {completed,claimed,depot,...}: your team's quest book
   EXPLOSION: 'explosion', // {x,y,z,radius,kind}: a grenade or barrel went off
+  DRAWBRIDGE_JOG: 'drawbridgeJog', // {x,y,z,dir}: an obstructed drawbridge tried to move
 };
 
 // Where a flag is, in FlagState.

@@ -49,6 +49,7 @@ import { GrappleLine } from './render/grappleLine.js';
 import { TurretRenderer } from './render/turretRenderer.js';
 import { QuarryEffects } from './render/quarryEffects.js';
 import { ExplosionEffects } from './render/explosionEffects.js';
+import { DrawbridgeEffects } from './render/drawbridgeEffects.js';
 import { LobbyMusic } from './lobbyMusic.js';
 import { MatchFullscreen, enterFullscreen } from './fullscreen.js';
 import { downloadLobbyView } from './render/capture.js';
@@ -120,6 +121,7 @@ const audioSettings = new AudioSettings();
 const audioMixer = new AudioMixer(audioSettings);
 const sounds = new Sounds(audioMixer);
 const explosionEffects = new ExplosionEffects(scene, sounds);
+const drawbridgeEffects = new DrawbridgeEffects(scene, sounds, (x, y, z) => quarryEffects?.steam(x, y, z));
 entities.onGrenade = (id, position, fuse) => explosionEffects.grenade(id, position, fuse);
 const dialogue = new Dialogue(document.getElementById('subtitle'), audioSettings, audioMixer);
 const music=new LobbyMusic(audioSettings);
@@ -715,6 +717,7 @@ conn.on(S2C.BOSS_VICTORY, msg => {
 conn.on(S2C.EMBER_BURST, (msg) => portals.burst(msg.x, msg.y, msg.z));
 conn.on(S2C.QUARRY_PUFF, (msg) => quarryEffects?.puff(msg.x, msg.y, msg.z));
 conn.on(S2C.EXPLOSION, (msg) => { if (world) explosionEffects.explode(msg.x, msg.y, msg.z, msg.radius, msg.kind, camera.position); });
+conn.on(S2C.DRAWBRIDGE_JOG, (msg) => { if (world) drawbridgeEffects.jog(msg.x, msg.y, msg.z, msg.dir); });
 conn.on(S2C.STEAM_PUFF, (msg) => quarryEffects?.steam(msg.x,msg.y,msg.z));
 conn.on(S2C.CREATIVE, (msg) => {
   setCreative(msg.enabled);
@@ -1195,6 +1198,7 @@ function frame(now) {
   fluidRenderer?.update(dt);
   quarryEffects?.update(dt, camera.position, chunks.viewDistance);
   explosionEffects.update(dt);
+  drawbridgeEffects.update(dt);
   stormEffects?.update(dt, camera.position, mode === MODE.PLAY || mode === MODE.SPECTATE);
   portals.update(dt, camera);
   arenaEffects.update(dt, camera, !!world && inDragonArena(world, camera.position.x, camera.position.z));
