@@ -1,14 +1,18 @@
-// The Wise Monkey's quest book: chapters in a sidebar, each chapter's quests
-// as a graph of icons joined by lines (what follows from what), and the
-// selected quest's details: its goal and progress, its reward (claimed once
-// per team) and the knowledge entry explaining the mechanic. The Merchant
-// Depot button sits at the top.
+// The Wise Monkey's quest book: chapters in a sidebar (locked ones show what
+// unlocks them), each chapter's quests as a graph of icons in labelled
+// regions, joined by solid lines (prerequisites) and dashed lines (related),
+// and the selected quest's details: its goal and progress, its reward
+// (claimed once per team) and the knowledge entry explaining the mechanic.
+// The Merchant Depot button sits at the top.
+//
+// All state comes from the server's `quests` messages (the team's book, kept
+// in step for every member), never from local tracking.
 //
 // The graph pans by dragging, WASD or the arrow keys and zooms with the
 // mouse wheel. The mouse is free while the book is open, so none of those
 // reach the game (input.js only listens while the pointer is locked).
 import { C2S } from '/shared/protocol.js';
-import { CHAPTERS, QUESTS, questById } from '/shared/quests.js';
+import { CHAPTERS, QUESTS, questById, chapterById, chapterOpen, questAvailable } from '/shared/quests.js';
 import { getItemDef } from '/shared/items.js';
 import { itemIcon } from './itemIcon.js';
 
@@ -20,6 +24,9 @@ const EVENTS = {
   babyMonkey: 'Buy a baby monkey', lookoutSpotted: 'Have a Lookout monkey spot an enemy',
   monkeyCrafted: 'Have a Craftsman monkey craft something', 'kill:goblin': 'Defeat a goblin', 'kill:crawler': 'Defeat a Crawler',
   'kill:eel': 'Defeat a Void Eel', 'kill:dragon': 'Defeat a dragon', 'kill:player': 'Defeat an enemy player',
+  flagCaptured: 'Capture an enemy flag', 'meet:wiseMonkey': 'Talk to your Wise Monkey',
+  'meet:ancientWaterMonkey': 'Meet the Ancient Water Monkey', 'meet:ancientLightningMonkey': 'Meet the Ancient Lightning Monkey',
+  'meet:ancientFireMonkey': 'Meet the Ancient Fire Monkey',
 };
 const ROLE = (key) => key.startsWith('role:') ? `Give a monkey the ${key.slice(5)[0].toUpperCase()}${key.slice(6)} role` : null;
 const names = (ids) => ids.map((id) => getItemDef(id).name).join(', ');
@@ -52,7 +59,7 @@ export class QuestScreen {
     this.chapter = CHAPTERS[0].id;
     this.selected = null;
     this.view = { x: 0, y: 0, zoom: 1 };
-    this.state = { completed: new Set(), claimed: new Set(), revealed: new Set(), counts: {}, depot: { placed: false } };
+    this.state = { unlocked: new Set(), completed: new Set(), claimed: new Set(), revealed: new Set(), counts: {}, depot: { placed: false } };
     this.keys = new Set();
     this.screen = el('div', 'screen hidden'); this.screen.id = 'quests';
     const panel = el('div', 'panel card quest-panel');
@@ -71,10 +78,11 @@ export class QuestScreen {
     this.sidebar = el('nav', 'quest-chapters');
     this.graph = el('div', 'quest-graph');
     this.world = el('div', 'quest-world');
+    this.lock = el('div', 'quest-locked hidden');
     this.edges = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.edges.classList.add('quest-edges');
     this.world.append(this.edges);
-    this.graph.append(this.world, el('div', 'quest-graph-hint', 'Drag, WASD or arrow keys to move · wheel to zoom'));
+    this.graph.append(this.world, this.lock, el('div', 'quest-graph-hint', 'Drag, WASD or arrow keys to move · wheel to zoom'));
     this.details = el('aside', 'quest-details');
     body.append(this.sidebar, this.graph, this.details);
     panel.append(head, this.message, body);
@@ -114,12 +122,23 @@ export class QuestScreen {
 
   send(action, extra = {}) { this.conn.send({ type: C2S.QUEST_ACTION, action, ...extra }); }
 
+  // The team's book. `open` marks a reply to this player (opening the book
+  // or answering a button); other updates (a teammate's claim, a new
+  // completion) just refresh what's shown.
   receive(msg) {
-    this.state = { completed: new Set(msg.completed), claimed: new Set(msg.claimed), revealed: new Set(msg.revealed),
-      counts: msg.counts ?? {}, depot: msg.depot ?? { placed: false } };
-    this.message.textContent = msg.message ?? '';
+    if (!msg) return;
+    this.state = { unlocked: new Set(msg.unlocked ?? []), completed: new Set(msg.completed), claimed: new Set(msg.claimed),
+      revealed: new Set(msg.revealed), counts: msg.counts ?? {}, depot: msg.depot ?? { placed: false } };
+    if (msg.open) this.message.textContent = msg.message ?? '';
     if (msg.open && !this.open) { this.open = true; this.onOpen?.(); this.center(); }
     if (this.open) this.render();
+  }
+
+  // Forget the book (a new match, or leaving it).
+  reset() {
+    this.close(false);
+    this.state = { unlocked: new Set(), completed: new Set(), claimed: new Set(), revealed: new Set(), counts: {}, depot: { placed: false } };
+    this.chapter = CHAPTERS[0].id; this.selected = null;
   }
 
   // Per frame while open: keyboard panning.
@@ -132,18 +151,26 @@ export class QuestScreen {
   }
 
   quests() { return QUESTS.filter((q) => q.chapter === this.chapter); }
+  chapterOpen(c) { return chapterOpen(c, this.state.unlocked); }
+  // hidden ("???"), locked (prerequisites not done), todo, reward (done,
+  // unclaimed) or done.
   status(q) {
     if (!this.state.revealed.has(q.id)) return 'hidden';
-    if (!this.state.completed.has(q.id)) return 'todo';
-    return q.reward && !this.state.claimed.has(q.id) ? 'reward' : 'done';
+    if (this.state.completed.has(q.id)) return q.reward && !this.state.claimed.has(q.id) ? 'reward' : 'done';
+    return questAvailable(q, this.state.unlocked, this.state.completed) ? 'todo' : 'locked';
   }
 
+  // Fits the chapter's graph in view (never zooming in past 1).
   center() {
     const list = this.quests(), rect = this.graph.getBoundingClientRect();
+    this.centered = `${this.chapter}:${this.chapterOpen(chapterById.get(this.chapter))}`;
+    if (!list.length) return;
+    const w = rect.width || 600, h = rect.height || 400;
     const maxX = Math.max(...list.map((q) => q.x)), maxY = Math.max(...list.map((q) => q.y));
-    this.view.zoom = 1;
-    this.view.x = (rect.width || 600) / 2 - (maxX * CELL) / 2 - 32;
-    this.view.y = (rect.height || 400) / 2 - (maxY * CELL) / 2 - 32;
+    const spanX = maxX * CELL + 180, spanY = maxY * CELL + 200;
+    this.view.zoom = Math.max(0.4, Math.min(1, w / spanX, h / spanY));
+    this.view.x = w / 2 - (maxX * CELL / 2 + 32) * this.view.zoom;
+    this.view.y = h / 2 - (maxY * CELL / 2 + 32) * this.view.zoom;
     this.applyView();
   }
   applyView() {
@@ -151,40 +178,66 @@ export class QuestScreen {
   }
 
   render() {
-    // Sidebar: chapters with done/total and a dot for unclaimed rewards.
+    // Sidebar: every chapter. Open ones show done/total and a dot for
+    // unclaimed rewards; locked ones show what unlocks them.
     this.sidebar.replaceChildren(...CHAPTERS.map((c) => {
-      const list = QUESTS.filter((q) => q.chapter === c.id);
+      const list = QUESTS.filter((q) => q.chapter === c.id), open = this.chapterOpen(c);
       const done = list.filter((q) => this.state.completed.has(q.id)).length;
-      const reward = list.some((q) => this.status(q) === 'reward');
-      const b = el('button', `quest-chapter${c.id === this.chapter ? ' selected' : ''}`); b.type = 'button';
+      const reward = open && list.some((q) => this.status(q) === 'reward');
+      const b = el('button', `quest-chapter${c.id === this.chapter ? ' selected' : ''}${open ? '' : ' locked'}`); b.type = 'button';
       const icon = el('span', 'quest-chapter-icon'); icon.append(itemIcon(c.icon));
-      b.append(icon, el('span', 'quest-chapter-name', c.name), el('span', 'quest-chapter-count', `${done}/${list.length}`));
+      const text = el('span', 'quest-chapter-text');
+      text.append(el('span', 'quest-chapter-numeral', `Chapter ${c.numeral}`), el('span', 'quest-chapter-name', c.name));
+      if (!open) text.append(el('span', 'quest-chapter-unlock', c.unlock.text));
+      b.append(icon, text, el('span', 'quest-chapter-count', open ? `${done}/${list.length}` : '🔒'));
       if (reward) b.append(el('span', 'quest-dot'));
-      b.title = c.intro;
+      b.title = open ? c.intro : c.unlock.text;
       b.addEventListener('click', () => { this.chapter = c.id; this.selected = null; this.center(); this.render(); });
       return b;
     }));
-    // Graph: lines, then nodes.
-    const list = this.quests(), inChapter = new Set(list.map((q) => q.id));
+    const chapter = chapterById.get(this.chapter), open = this.chapterOpen(chapter);
+    // Re-fit when the chapter on screen unlocks while the book is open.
+    if (this.centered !== `${this.chapter}:${open}`) this.center();
+    // A locked chapter's graph is hidden behind what unlocks it.
+    this.world.classList.toggle('hidden', !open);
+    this.lock.classList.toggle('hidden', open);
+    if (!open) {
+      this.lock.replaceChildren(el('div', 'quest-locked-icon', '🔒'), el('h2', '', `Chapter ${chapter.numeral}: ${chapter.name}`),
+        el('p', '', chapter.unlock.text), el('p', 'hint', 'Your team keeps progress toward its quests in the meantime: anything already done counts the moment it unlocks.'));
+    }
+    // Regions, lines, then nodes.
+    const list = open ? this.quests() : [], inChapter = new Set(list.map((q) => q.id));
     const pos = (q) => ({ x: q.x * CELL + 32, y: q.y * CELL + 32 });
-    const maxX = Math.max(...list.map((q) => q.x)) + 1, maxY = Math.max(...list.map((q) => q.y)) + 1;
+    const maxX = Math.max(0, ...list.map((q) => q.x)) + 1, maxY = Math.max(0, ...list.map((q) => q.y)) + 1;
     this.edges.setAttribute('width', maxX * CELL); this.edges.setAttribute('height', maxY * CELL);
     this.edges.replaceChildren();
-    for (const q of list) for (const dep of q.deps ?? []) {
-      if (!inChapter.has(dep)) continue;
-      const a = pos(questById.get(dep)), b = pos(q);
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', a.x); line.setAttribute('y1', a.y); line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
-      line.setAttribute('class', this.state.completed.has(dep) ? 'done' : '');
-      this.edges.append(line);
+    for (const node of [...this.world.querySelectorAll('.quest-node, .quest-region')]) node.remove();
+    for (const r of open ? chapter.regions ?? [] : []) {
+      const box = el('div', 'quest-region');
+      box.style.left = `${r.x0 * CELL + 32 - 56}px`; box.style.top = `${r.y0 * CELL + 32 - 58}px`;
+      box.style.width = `${(r.x1 - r.x0) * CELL + 112}px`; box.style.height = `${(r.y1 - r.y0) * CELL + 110}px`;
+      box.append(el('span', 'quest-region-label', r.label));
+      this.world.append(box);
     }
-    for (const node of [...this.world.querySelectorAll('.quest-node')]) node.remove();
+    const line = (from, q, dashed) => {
+      const a = pos(from), b = pos(q);
+      const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      l.setAttribute('x1', a.x); l.setAttribute('y1', a.y); l.setAttribute('x2', b.x); l.setAttribute('y2', b.y);
+      const done = this.state.completed.has(from.id) && (!dashed || this.state.completed.has(q.id));
+      l.setAttribute('class', `${dashed ? 'link' : 'dep'}${done ? ' done' : ''}`);
+      this.edges.append(l);
+    };
+    for (const q of list) {
+      for (const dep of q.deps ?? []) if (inChapter.has(dep)) line(questById.get(dep), q, false);
+      for (const link of q.links ?? []) if (inChapter.has(link)) line(questById.get(link), q, true);
+    }
     for (const q of list) {
       const s = this.status(q), p = pos(q);
       const node = el('button', `quest-node ${s}${this.selected === q.id ? ' selected' : ''}`); node.type = 'button';
       node.style.left = `${p.x - 28}px`; node.style.top = `${p.y - 28}px`;
       if (s === 'hidden') node.append(el('span', 'quest-unknown', '?'));
       else node.append(itemIcon(q.icon));
+      if (s === 'locked') node.append(el('span', 'quest-node-lock', '🔒'));
       node.append(el('span', 'quest-node-label', s === 'hidden' ? '???' : q.title));
       node.addEventListener('click', () => { this.selected = q.id; this.render(); });
       this.world.append(node);
@@ -197,11 +250,13 @@ export class QuestScreen {
   }
 
   renderDetails() {
-    const q = questById.get(this.selected);
+    const chapter = chapterById.get(this.chapter);
+    const q = this.chapterOpen(chapter) ? questById.get(this.selected) : null;
     this.details.replaceChildren();
     if (!q) {
-      const c = CHAPTERS.find((ch) => ch.id === this.chapter);
-      this.details.append(el('h2', '', c.name), el('p', '', c.intro), el('p', 'hint', 'Select a quest to read about it. Green: done. Gold: reward waiting. Grey: not done yet. "???": not discovered yet.'));
+      this.details.append(el('h2', '', `Chapter ${chapter.numeral}: ${chapter.name}`), el('p', '', chapter.intro));
+      if (!this.chapterOpen(chapter)) this.details.append(el('p', 'quest-badge locked', 'Locked'), el('p', '', chapter.unlock.text));
+      else this.details.append(el('p', 'hint', 'Select a quest to read about it. Green: done. Gold: reward waiting. Grey: not done yet. Lock: do the quest before it first (solid line). Dashed lines join related quests. "???": not discovered yet.'));
       return;
     }
     const s = this.status(q);
@@ -212,14 +267,18 @@ export class QuestScreen {
     const head = el('div', 'quest-details-head');
     const icon = el('span', 'quest-details-icon'); icon.append(itemIcon(q.icon));
     head.append(icon, el('h2', '', q.title));
-    const badge = el('p', `quest-badge ${s}`, s === 'done' ? 'Complete' : s === 'reward' ? 'Complete: reward waiting' : 'Not done yet');
+    const badge = el('p', `quest-badge ${s}`, { done: 'Complete', reward: 'Complete: reward waiting', todo: 'Not done yet', locked: 'Needs an earlier quest' }[s]);
     this.details.append(head, badge);
     const goal = el('p', 'quest-goal');
     const counts = this.state.counts[q.id];
     goal.append(el('strong', '', 'Goal: '), document.createTextNode(describeGoal(q.goal) + (counts ? ` (${counts[0]}/${counts[1]})` : '')));
     this.details.append(goal);
-    const outside = (q.deps ?? []).filter((d) => questById.get(d).chapter !== q.chapter);
-    if (outside.length) this.details.append(el('p', 'hint', `Follows from: ${outside.map((d) => `${questById.get(d).title} (${CHAPTERS.find((c) => c.id === questById.get(d).chapter).name})`).join(', ')}`));
+    if (s === 'locked') {
+      const missing = (q.deps ?? []).filter((d) => !this.state.completed.has(d)).map((d) => questById.get(d).title);
+      this.details.append(el('p', 'hint', `First complete: ${missing.join(', ')}. Anything you do toward this quest already counts, and the crafting and items it describes work now.`));
+    }
+    const related = (q.links ?? []).map((id) => questById.get(id)).filter((r) => r && this.status(r) !== 'hidden');
+    if (related.length) this.details.append(el('p', 'hint', `Related: ${related.map((r) => r.title).join(', ')}`));
     if (q.reward) {
       const r = el('div', 'quest-reward');
       r.append(el('strong', '', 'Reward: '));

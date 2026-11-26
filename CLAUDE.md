@@ -132,9 +132,17 @@ including the host, plays by opening `http://<host-ip>:3000`.
   `server/monkeyWorkers.js`. New config fields must default when a saved
   config lacks them (`parseConfig`). Babies (`m.baby`, `growAt`) can't work.
 - Quests: data in `shared/quests.js`, team books in `server/quests.js`.
-  Completion only reads team progress (`TeamProgress`: obtained, crafted,
-  placed, and `event(team, key)` milestones), so instrument new mechanics with
-  an event rather than special cases. Rewards stay small and are per team.
+  Chapters are technological stages: a chapter with an `unlock` goal opens for
+  the whole team the first time its progress meets it (Chapter II: a bronze
+  ingot); add a stage by appending a chapter and giving quests its id. `deps`
+  are prerequisites (same chapter only, used sparingly); `links` are dashed,
+  never required. Completion only reads team progress (`TeamProgress`:
+  obtained, crafted, placed, and `event(team, key)` milestones), which is
+  always recorded, so quests complete retroactively when their chapter or
+  prerequisites open; instrument new mechanics with an event rather than
+  special cases. The book never gates crafting or items. Rewards stay small
+  and are claimed once per team. Members get the team's book in the join
+  message and a `quests` message whenever it changes (`QuestBook.sync`).
 - Wise Monkeys can't be damaged (`hp: null`); their shrine floor and throne
   are `BLOCK.SHRINE_BRICKS` (unbreakable) so they can't be dug out. Any tamed
   adult monkey with a weapon in its tool slot fights back when attacked
@@ -144,7 +152,8 @@ including the host, plays by opening `http://<host-ip>:3000`.
 - `TeamProgress`, quest books, depots, baby purchases and merchant stock are
   saved (`server/save.js`); ships and merchants are not (they fly in again).
 - Checks: `node scripts/commerce-check.js`, `node scripts/merchant-check.js`,
-  `node scripts/monkey-duty-check.js`, plus `npm run check`.
+  `node scripts/monkey-duty-check.js`, `node scripts/quest-check.js`, plus
+  `npm run check`.
 
 ## File layout
 

@@ -819,6 +819,7 @@ export class Game {
         ...this.mobs.values(), ...this.npcs.values()].map((e) => ({ ...e.describe(), loaded: this.chunkLoading.has(e.state.x, e.state.z) })),
         ...[...this.merchants.ships.values()].map((ship) => ship.describe())],
       merchants: this.merchants.message().merchants,
+      quests: this.quests.state(player.team),
       inventory: player.inventory,
       teamObtained: [...this.teamProgress.of(player.team).obtained],
       flags: [...this.flags.values()].map((f) => ({ ...f.describe(), ...f.snapshot() })),
@@ -2089,6 +2090,8 @@ export class Game {
     player.nextTalkTick = this.tick + Math.round(NPC.talkCooldown * TICK_RATE);
     if(npc instanceof WorkMonkey){this.monkeys.open(player,npc);return;}
     if (npc instanceof SkyMerchant) { this.merchants.talk(player, npc); return; }
+    // Meeting someone counts for the quest book (Wise and Ancient Monkeys).
+    if (npc.team === undefined || npc.team === null || npc.team === player.team) this.teamProgress.event(player.team, `meet:${npc.npc}`);
     // A team's own Wise Monkey opens its quest book as well as speaking.
     if (npc.npc === NPC_KIND.WISE_MONKEY && npc.team === player.team) this.quests.open(player);
     const line = npcLine(npc, player, { progress: this.teamProgress.of(player.team),
@@ -2387,6 +2390,7 @@ export class Game {
     flag.state = FLAG_STATE.CAPTURED;
     flag.carrier = null;
     console.log(`${player.name} captured team ${flag.team}'s flag`);
+    this.teamProgress.event(player.team, 'flagCaptured');
     this.flagEvent(flag, FLAG_EVENT.CAPTURED, player);
   }
 

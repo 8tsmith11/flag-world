@@ -1386,3 +1386,23 @@ body.scoped #hotbar, body.scoped #health { opacity: 0.35; }
 .depot-prices .requested .machine-note { color: #ffd884; }
 .quest-panel .quest-chapter { background: #2b323b; color: #dfe5ea; border: 1px solid #444c55; border-radius: 5px; }
 .quest-panel .quest-chapter:hover { background: #36404b; }
+/* Quest book chapters, regions and locks. */
+.quest-chapters { width: 220px; }
+.quest-chapter-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.quest-chapter-numeral { font-size: 0.72em; letter-spacing: 0.08em; text-transform: uppercase; color: #aeb8c0; }
+.quest-chapter-unlock { font-size: 0.75em; color: #ffd884; white-space: normal; line-height: 1.25; margin-top: 2px; }
+.quest-panel .quest-chapter.locked { opacity: 0.8; border-style: dashed; }
+.quest-panel .quest-chapter.locked .quest-chapter-icon { filter: grayscale(1) brightness(0.7); }
+.quest-region { position: absolute; border: 1px solid #ffffff1f; background: #ffffff08; border-radius: 14px; pointer-events: none; }
+.quest-region-label { position: absolute; top: 4px; left: 10px; padding: 0 5px; border-radius: 4px; background: #222a34; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #9aa7b3; }
+.quest-edges line.link { stroke: #56606b; stroke-width: 3; stroke-dasharray: 7 6; }
+.quest-edges line.link.done { stroke: #6fbf6a; }
+.quest-node.locked { opacity: 0.6; border-style: dotted; }
+.quest-node.locked .icon { filter: grayscale(0.8); }
+.quest-node-lock { position: absolute; right: -8px; top: -8px; font-size: 14px; }
+.quest-locked { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; color: #dfe5ea; }
+.quest-locked.hidden, .quest-world.hidden { display: none; }
+.quest-locked-icon { font-size: 48px; }
+.quest-locked p { max-width: 460px; }
+.quest-badge.locked { background: #4a3a20; color: #ffd884; }
+@media (max-width: 900px) { .quest-chapters { width: 160px; } }

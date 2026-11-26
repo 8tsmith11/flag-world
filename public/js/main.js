@@ -615,6 +615,7 @@ function startGame(msg, generated) {
   setInventory(msg.inventory);
   inventoryScreen.setSeed(msg.seed);
   depotRenderer.set(msg.merchants);
+  questScreen.reset(); questScreen.receive(msg.quests);
   viewModel = new ViewModel(player.color);
   status.textContent = 'Click to play';
   document.body.classList.add('in-game');

@@ -631,7 +631,7 @@ Match players only, `{action, quest?}`.
 
 | Action | Fields | Behavior |
 |--------|--------|----------|
-| `claim` | `quest` | Claims a completed quest's reward for the team (once per team), if it fits in your inventory; within 12 blocks of your Wise Monkey |
+| `claim` | `quest` | Claims a completed quest's reward for the team (once per team: the first claim is paid, any later one, even in the same tick, is refused), if it fits in your inventory; within 12 blocks of your Wise Monkey. The whole team gets the updated book at once |
 | `requestDepot` | — | Gives you a Merchant Depot if your team has none placed and none exists anywhere (carried, stored, on the ground); within 12 blocks of your Wise Monkey |
 | `close` | — | Closes the book |
 
@@ -935,6 +935,7 @@ reclaim.
 | `fluidNodes` | FluidNode[] | Current pipes, pipe modes and tank contents; see `fluidState` |
 | `litBoilers` | `{x,y,z}[]` | Boilers currently converting water to steam; restore their plumes |
 | `teamObtained` | int[] | Item ids that a member of your team has ever held in an inventory; seeds normal recipe discovery |
+| `quests` | object | Your team's quest book, as in a `quests` message with `open: false` |
 | `portals` | `{id,x,y,z,expiresTick}[]` | Active Rift Orb portals; `expiresTick` is a server tick |
 | `boss` | BossState \| null | Current Dragon Lord state, including HP, phase, telegraphs and fireballs |
 | `players` | PlayerInfo[]  | All match players, including you and disconnected ones. Your own entry's `lastSeq` is where your input `seq` continues from |
@@ -1179,10 +1180,16 @@ number his name and look come from; see `merchantLook` in
 ### `quests`
 
 Your team's quest book (`shared/quests.js` holds the chapters and quests).
+Sent to every connected member of the team whenever anything in it changes
+(a completion, an unlock, a teammate's claim, a counted goal, the depot), with
+`open: false`; and to one player, with `open: true`, when they open the book
+or press one of its buttons. The same object (with `open: false`) is in the
+join message as `quests`.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `open` | bool | Open the book (right clicking your Wise Monkey) |
+| `open` | bool | Open the book (right clicking your Wise Monkey) or a reply to your `questAction`; false for team updates, which only refresh it |
+| `unlocked` | string[] | Chapter ids with an `unlock` goal that your team has unlocked (chapters without one are always open) |
 | `completed`, `claimed`, `revealed` | string[] | Quest ids done, rewards claimed and quests shown (others are "???") |
 | `counts` | `{[id]: [have, need]}` | Progress on counted goals |
 | `depot` | `{placed, x?, y?, z?, present?}` | Your team's Merchant Depot |
@@ -1824,8 +1831,16 @@ to the same successful world and record the resolved seed as `world.seed`.
 - **Baby monkeys**: 48 coins for a team's first, ×1.5 (rounded) for each one
   after, all match (merchant deaths don't reset it). They grow up after 20
   minutes; until then they take no role and nothing targets them.
-- **Quests** (`shared/quests.js`, `server/quests.js`): completion comes from
-  team progress (items obtained, crafted, placed) and milestones counted by
-  `TeamProgress.event` (taming, roles, trades, depot sales, kills...). Rewards
-  are claimed once per team. Saves keep completions, claims, team progress,
-  depots, baby purchases and stock.
+- **Quests** (`shared/quests.js`, `server/quests.js`): two chapters, I "A
+  Brand New Adventure" (open from the start) and II "Monkey Business"
+  (unlocks for a team when any member first holds a bronze ingot; it never
+  needs Chapter I done). Completion comes from team progress (items
+  obtained, crafted, placed) and milestones counted by `TeamProgress.event`
+  (taming, roles, trades, depot sales, kills, `flagCaptured`, `meet:<npc>`
+  when talking to a Wise or Ancient Monkey...). A quest completes once its
+  chapter is unlocked, its prerequisites (`deps`) are done and its goal is
+  met; progress made earlier counts at that moment. The book never restricts
+  crafting or items. Rewards are claimed once per team: the first claim wins,
+  later ones (even in the same tick) are refused. Every team has the same
+  quests; progress is separate. Saves keep unlocked chapters, completions,
+  claims, team progress, depots, baby purchases and stock.
