@@ -211,6 +211,24 @@ export class Garrison {
     }
   }
 
+  // ---- Saves ----
+
+  // Living village goblins by slot, for a save (egg-hatched ones aren't kept).
+  units() {
+    return [...this.slots.values()].filter(s => s.mob && !s.mob.dead)
+      .map(s => ({ slot: s.id, x: s.mob.state.x, y: s.mob.state.y, z: s.mob.state.z, hp: s.mob.hp }));
+  }
+  // Puts saved goblins back in their slots where they were.
+  restoreUnits(list) {
+    for (const u of list ?? []) {
+      const slot = this.slots.get(u.slot);
+      if (!slot || slot.mob) continue;
+      const mob = new GoblinUnit(this.game.nextId++, this, slot, { x: Math.floor(u.x), y: u.y, z: Math.floor(u.z) });
+      Object.assign(mob.state, { x: u.x, y: u.y, z: u.z }); mob.hp = u.hp;
+      slot.mob = mob; slot.held = false; this.game.mobs.set(mob.id, mob);
+    }
+  }
+
   // ---- Combat ----
 
   // The region at a point: an active area (positionRegion), else a planned

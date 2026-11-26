@@ -58,7 +58,8 @@ export class WorkMonkey extends Npc {
   count(test) {return this.inventory.slots.reduce((n,s)=>n+(s&&test(s.item)?s.count:0),0);}
   take(item,count) {this.inventory.remove(item,count);}
   snapshot() {
-    return {...super.snapshot(),role:this.config.role,tamed:this.team!==null,tool:this.gear[TOOL]?.item??null};
+    return {...super.snapshot(),role:this.config.role,tamed:this.team!==null,tool:this.gear[TOOL]?.item??null,
+      armor:this.gear[ARMOR]?.item??null};
   }
 }
 

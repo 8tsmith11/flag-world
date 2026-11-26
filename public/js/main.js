@@ -324,6 +324,9 @@ viewDistanceInput.addEventListener('input', () => {
   setViewDistance(scene, camera, viewDistance, sky.fogScale);
   if (chunks) chunks.setViewDistance(viewDistance);
 });
+// Save now: on the pause screen during a match.
+const saveNow = document.getElementById('save-now');
+saveNow.addEventListener('click', (e) => { e.stopPropagation(); conn.send({ type: C2S.SAVE_GAME }); });
 // Using the settings shouldn't count as a click to play.
 document.getElementById('settings').addEventListener('click', (e) => e.stopPropagation());
 window.addEventListener('keydown', (e) => {
@@ -977,6 +980,7 @@ function frame(now) {
   }
   if (mode === MODE.DEAD) updateDeathPrompt(now);
   resumeHint.hidden = !(lockable() && currentScreen === null && !input.locked);
+  saveNow.hidden = !(connected && player && !loading && (mode === MODE.PLAY || mode === MODE.SPECTATE || mode === MODE.DEAD));
   updateFlagHud();
 
   hotbar.select(input.slot);

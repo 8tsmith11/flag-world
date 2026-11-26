@@ -3,10 +3,9 @@
 // A save is the world's seed, size and teams (so generation recreates the
 // same terrain) plus everything that changed since: block edits, container
 // contents, pipes and tanks, turrets, players and their inventories, flags,
-// working monkeys, NPCs, cows, dragons, Crawlers, dropped items, the clock
-// and what the goblins lost for good. Eels, goblins and arrows aren't kept:
-// eels respawn and the garrison refills its slots (throttled as usual), and
-// goblin construction picks up from the blocks already in place.
+// working monkeys, NPCs, cows, dragons, Crawlers, Void Eels, dropped items,
+// the clock, goblin construction progress, the living goblins in their slots
+// and what the goblins lost for good. Only arrows in flight aren't kept.
 //
 // Files live in saves/ next to server.js, one per match (overwritten by
 // each autosave), named by when the match started and its seed.
@@ -60,8 +59,10 @@ export function serializeGame(game) {
       home: d.home, homeIsland: { x: d.homeIsland.x, z: d.homeIsland.z, radius: d.homeIsland.radius }, leashRadius: d.leashRadius })),
     crawlers: [...game.mobs.values()].filter(m => m.type === 'crawler').map(m => ({ x: m.state.x, y: m.state.y, z: m.state.z, hp: m.hp, home: m.home })),
     items: [...game.items.values()].map(e => ({ item: e.item, count: e.count, mods: e.mods ?? null, x: e.state.x, y: e.state.y, z: e.state.z })),
+    eels: [...game.mobs.values()].filter(m => m.type === 'voidEel').map(m => ({ x: m.state.x, y: m.state.y, z: m.state.z, hp: m.hp })),
     garrison: game.garrison ? { totemDestroyed: game.garrison.totemDestroyed,
-      lostUnique: [...game.garrison.slots.values()].filter(s => s.unique && !s.mob && s.ready === null).map(s => s.role) } : null,
+      lostUnique: [...game.garrison.slots.values()].filter(s => s.unique && !s.mob && s.ready === null).map(s => s.role),
+      construction: game.garrison.construction?.progress() ?? null, units: game.garrison.units() } : null,
     boss: game.boss ? { status: game.boss.status === 'dying' ? 'dead' : game.boss.status } : null,
   };
 }

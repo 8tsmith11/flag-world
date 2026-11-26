@@ -15,6 +15,8 @@ export const C2S = {
   OPEN_CONTAINER: 'openContainer',
   ANVIL_REROLL: 'anvilReroll',
   CREATIVE_TOGGLE: 'creativeToggle',
+  SAVE_GAME: 'saveGame', // {}: write the match's save file now
+
   CREATIVE_ACTION: 'creativeAction', // {action,value?}
   TALK: 'talk', // {id}: right click on an NPC
   MONKEY_ACTION: 'monkeyAction', // {id,action,...}: GUI games, configuration, inventory slots, close

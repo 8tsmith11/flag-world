@@ -19,7 +19,8 @@ import {
   createCrawlerModel, createEelModel, animatePlayer, animateCow, animateDragon, animateCrawler, animateEel, swingPlayer,
 } from './models.js';
 import { GrappleLine } from './grappleLine.js';
-import { createNpcModel, animateMonkey, updateMonkeyTeam, setMonkeyHeld } from './monkeyModels.js';
+import { createNpcModel, animateMonkey, updateMonkeyTeam, setMonkeyHeld, setMonkeyArmor } from './monkeyModels.js';
+import { getItemDef } from '/shared/items.js';
 import { NPC_DEFS } from '/shared/npcs.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
@@ -89,6 +90,23 @@ function createNametag(name) {
   return sprite;
 }
 
+// A cow in love gives off little rising hearts.
+let heartTexture = null;
+function heartSprite() {
+  if (!heartTexture) {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ff3d6e';
+    ctx.beginPath(); ctx.moveTo(16, 28);
+    ctx.bezierCurveTo(2, 18, 2, 6, 10, 6); ctx.bezierCurveTo(14, 6, 16, 9, 16, 11);
+    ctx.bezierCurveTo(16, 9, 18, 6, 22, 6); ctx.bezierCurveTo(30, 6, 30, 18, 16, 28); ctx.fill();
+    heartTexture = new THREE.CanvasTexture(canvas); heartTexture.colorSpace = THREE.SRGBColorSpace;
+  }
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: heartTexture, transparent: true, depthWrite: false }));
+  sprite.scale.set(0.3, 0.3, 1);
+  return sprite;
+}
+
 const MODEL_FACTORIES = {
   ...Object.fromEntries(['worker','soldier','archer','brute','king'].map(role => [`goblin${role[0].toUpperCase()}${role.slice(1)}`, createGoblinModel])),
   goblinTotem: createTotemModel,
@@ -153,6 +171,7 @@ export class EntityRenderer {
     this.goblinInstances.remove(entity);
     this.scene.remove(entity.object);
     disposeObject(entity.object);
+    for (const heart of entity.hearts ?? []) { this.scene.remove(heart); heart.material.dispose(); }
     entity.grappleLine?.dispose();
     this.entities.delete(id);
   }
@@ -172,7 +191,7 @@ export class EntityRenderer {
     if(resetSnapshots(previous,snap,entity.info.type))entity.snapshots.length=0;
     entity.snapshots.push({
       time: performance.now(),u:snap.u ?? 1, x: snap.x, y: snap.y, z: snap.z, yaw: snap.yaw, pitch: snap.pitch, held: snap.held,
-      crouching: !!snap.crouching, draw: snap.draw ?? 0, armor: snap.armor ?? null,
+      crouching: !!snap.crouching, draw: snap.draw ?? 0, armor: snap.armor ?? null, love: !!snap.love, tool: snap.tool ?? null,
       accessory: snap.accessory ?? null,
       orbActive: !!snap.orbActive,
       slowed: snap.slowTicks > 0, grapple: snap.grapple ?? null,
@@ -187,6 +206,24 @@ export class EntityRenderer {
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });
     if (entity.snapshots.length > MAX_SNAPSHOTS) entity.snapshots.shift();
+  }
+
+  // Hearts drift up from a cow in love and fade; none spawn otherwise.
+  updateHearts(entity, dt, love) {
+    entity.hearts ??= [];
+    entity.heartTimer = (entity.heartTimer ?? 0) - dt;
+    if (love && entity.heartTimer <= 0) {
+      entity.heartTimer = 0.45 + Math.random() * 0.4;
+      const heart = heartSprite(), p = entity.object.position;
+      heart.position.set(p.x + (Math.random() - 0.5) * 0.8, p.y + 1.3, p.z + (Math.random() - 0.5) * 0.8);
+      heart.userData.age = 0;
+      this.scene.add(heart); entity.hearts.push(heart);
+    }
+    for (const heart of [...entity.hearts]) {
+      heart.userData.age += dt; heart.position.y += dt * 0.6;
+      heart.material.opacity = Math.max(0, 1 - heart.userData.age / 1.4);
+      if (heart.userData.age >= 1.4) { this.scene.remove(heart); heart.material.dispose(); entity.hearts.splice(entity.hearts.indexOf(heart), 1); }
+    }
   }
 
   // Plays a player's arm swing (sent by the server when they punch, mine or
@@ -318,15 +355,24 @@ export class EntityRenderer {
       const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
       if (object.userData.goblin) animateGoblin(object, dt, b.g === GOBLIN_STATE.WALK ? Math.max(speed, 1.5) : 0, { climbing: b.g === GOBLIN_STATE.CLIMB, mining: b.g === GOBLIN_STATE.WORK });
       if (object.userData.totem) animateTotem(object, dt);
-      if (object.userData.cow) animateCow(object, dt, speed);
+      if (object.userData.cow) { animateCow(object, dt, speed); this.updateHearts(entity, dt, !!b.love && object.visible); }
       if (object.userData.crawler) animateCrawler(object, dt, speed, b.climbing);
       if (object.userData.monkey) {
         setMonkeyHeld(object, b.tool ?? null, createItemModel);
+        setMonkeyArmor(object, b.armor ?? null, item => getItemDef(item).color);
         animateMonkey(object, dt, { pose: b.pose ?? 'sit', look: b.look, speed,
           talking: now < (entity.talkUntil ?? 0) });
       }
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch);
+      // A renamed player gets a new tag (relit with the body below).
+      if (object.userData.nametag && b.name && object.userData.nametag.userData.nametag !== b.name) {
+        object.remove(object.userData.nametag);
+        object.userData.nametag.material.map.dispose(); object.userData.nametag.material.dispose();
+        object.userData.nametag = createNametag(b.name);
+        object.add(object.userData.nametag);
+        entity.lightEquipment = null;
+      }
       if (object.userData.nametag) object.userData.nametag.visible = !b.crouching && !b.dead;
       if (object.userData.player) {
         animatePlayer(object, {

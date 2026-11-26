@@ -143,6 +143,6 @@ export class Cow {
   // Per-tick snapshot for STATE, sent on ticks it moved.
   snapshot() {
     const s = this.state;
-    return { id: this.id, type: this.type, x: s.x, y: s.y, z: s.z, yaw: s.yaw };
+    return { id: this.id, type: this.type, x: s.x, y: s.y, z: s.z, yaw: s.yaw, ...(this.inLove ? { love: true } : {}) };
   }
 }

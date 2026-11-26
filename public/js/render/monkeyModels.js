@@ -110,7 +110,14 @@ function ape(kind, colors) {
     box(knee, d.foot, [0, -d.shin, -d.foot[2] * 0.25], dark);
     legs.push({ hip, knee, side });
   }
+  // Worn armor: a chest plate and shoulder guards, shown when set (setMonkeyArmor).
+  const armorMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const armor = pivot(torso, 0, 0, 0);
+  box(armor, [tw * 1.12, th * 0.66, td * 1.14], [0, th * 0.64, 0], armorMaterial);
+  for (const side of [-1, 1]) box(armor, [d.arm * 1.5, d.arm * 1.1, d.arm * 1.5], [side * d.shoulderWidth, th * 0.86, 0], armorMaterial);
+  armor.visible = false;
   root.userData.monkey = {
+    armor, armorMaterial,
     kind, d, body, pelvis, torso, neck, head, jaw, arms, legs, eyes, fur, skin, dark,
     pose: { ...POSES.sit }, look: 0, phase: 0, time: Math.random() * 100,
     scratch: 0, nextScratch: 4 + Math.random() * 8, beat: 0, lastPose: null, talkUntil: 0,
@@ -226,6 +233,15 @@ export function setMonkeyHeld(model, item, createItemModel) {
   held.rotation.x = -Math.PI / 2;
   held.scale.setScalar(1.6);
   hand.add(held);
+}
+
+// The armor a working monkey wears (an item id or null), in its color.
+export function setMonkeyArmor(model, item, itemColor) {
+  const m = model.userData.monkey;
+  if (!m?.armor || m.armorItem === item) return;
+  m.armorItem = item;
+  m.armor.visible = item !== null && item !== undefined;
+  if (m.armor.visible) m.armorMaterial.color.setHex(itemColor(item));
 }
 
 export function animateMonkey(model, dt, { pose = 'sit', look = 0, speed = 0, talking = false }) {

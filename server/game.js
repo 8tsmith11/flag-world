@@ -293,6 +293,14 @@ export class Game {
       case C2S.MONKEY_ACTION:
         if(session.player)this.monkeys?.action(session.player,msg);
         break;
+      case C2S.SAVE_GAME:
+        // Any match player can save now (the same file autosaves overwrite).
+        if (session.player && this.tick - (this.lastManualSave ?? -Infinity) >= TICK_RATE * 2) {
+          this.lastManualSave = this.tick;
+          const ok = !!this.save();
+          this.broadcast({ type: S2C.ANNOUNCE, text: ok ? `${session.player.name} saved the game` : 'Saving failed' });
+        }
+        break;
     }
   }
 
@@ -545,11 +553,19 @@ export class Game {
       this.spawnNpcs();
       this.monkeys.spawn();
     }
-    this.spawnEels();
+    if (save?.eels) for (const e of save.eels) {
+      const eel = new VoidEel(this.nextId++, this.eelBand(), { x: e.x, y: e.y, z: e.z });
+      eel.hp = e.hp; this.mobs.set(eel.id, eel);
+    } else this.spawnEels();
     this.garrison = new Garrison(this);
     if (save?.garrison) {
       this.garrison.totemDestroyed = save.garrison.totemDestroyed;
       for (const slot of this.garrison.slots.values()) if (slot.unique && save.garrison.lostUnique.includes(slot.role)) slot.ready = null;
+      this.garrison.construction?.restore(save.garrison.construction);
+      // Slots change with the areas just restored (outskirts sections are
+      // regenerated on update); the goblins go back after that.
+      this.garrison.update(this.tick);
+      this.garrison.restoreUnits(save.garrison.units);
     }
     if (save?.boss?.status === 'dead' && this.boss) this.boss.status = 'dead';
     this.garrison.update(this.tick);
@@ -1677,8 +1693,10 @@ export class Game {
       cow.step(this.world, this.tick);
       steerGround(cow, this.world);
       this.cows.relocate(cow);
+      const inLove = (cow.loveUntil ?? 0) > this.tick, loveChanged = inLove !== !!cow.inLove;
+      cow.inLove = inLove;
       if (s.y < this.world.voidY) this.removeCow(cow);
-      else if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(cow);
+      else if (loveChanged || `${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(cow);
     }
     this.breedCows();
     return moved;

@@ -781,6 +781,49 @@ export class Construction {
     if (this.shaft && this.nav.contains(this.shaft, p)) this.relink = true;
   }
 
+  // ---- Saves ----
+
+  // What construction has finished, for a save (server/save.js).
+  progress() {
+    if (!this.data) return null;
+    const entries = [];
+    for (const list of this.entries?.values() ?? []) for (const e of list) if (e.done) entries.push(e.id);
+    const skipped = [this.plan.surface, this.plan.fortress].flatMap(part => part.pieces.filter(p => p.skipped).map(p => p.id));
+    return { done: this.done, breached: this.breached, entries, skipped,
+      active: this.plan.areas.filter(a => a.state === 'active' && a !== this.shaft).map(a => a.id),
+      alive: this.plan.areas.filter(a => a.alive).map(a => a.id),
+      relocated: !!this.relocation?.done, castle: !!this.castleEntry?.done, startTick: this.startTick };
+  }
+  // Puts construction back where a save left it. The blocks are already in
+  // the world; this restores the build order's bookkeeping around them.
+  restore(state) {
+    if (!state || !this.data) return;
+    this.startTick = state.startTick ?? this.startTick;
+    const announce = this.game.broadcast;
+    this.game.broadcast = () => {};
+    try {
+      for (const id of state.skipped ?? []) for (const part of [this.plan.surface, this.plan.fortress]) {
+        const piece = part.pieces.find(p => p.id === id);
+        if (!piece || piece.skipped) continue;
+        this.skip(piece, part);
+        for (const l of (part.links ?? []).filter(l => l.to === piece.id)) this.fallback(part.pieces.find(p => p.id === l.from), l.a);
+      }
+      if (state.breached && !this.breached) { this.work.drop(this.digJob, false); this.breach(); }
+      const done = new Set(state.entries);
+      for (const list of this.entries.values()) for (const e of list) if (done.has(e.id)) {
+        e.done = e.started = true; for (const k of e.cells) this.work.reserved.delete(k);
+      }
+      for (const id of state.alive ?? []) { const a = this.nav.area(id); if (a) a.alive = true; }
+      for (const id of state.active) { const a = this.nav.area(id); if (a && a.state !== 'active') this.activate(a); }
+      if (state.relocated && !this.relocation.done) { this.relocation.started = true; this.relocated(); }
+      if (state.castle) { this.castleEntry.done = this.castleEntry.started = true; for (const k of this.castleEntry.cells) this.work.reserved.delete(k); }
+      if (state.done && !this.done) {
+        for (const a of this.plan.areas) if (a.state !== 'active') this.activate(a);
+        this.complete();
+      }
+    } finally { this.game.broadcast = announce; }
+  }
+
   // ---- Creative: Max goblin fortress ----
 
   // Places every remaining target block at once and brings every area to life.

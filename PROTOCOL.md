@@ -198,6 +198,7 @@ then as changed snapshots at the viewer's distance cadence (`u`).
 | `type`     | string | `"cow"` |
 | `x`,`y`,`z`| number | Feet position |
 | `yaw`      | number | Facing (0 looks toward -Z, like players) |
+| `love`     | bool?  | Present (true) while fed and in love; clients draw rising hearts |
 
 **CrawlerSnapshot** — a Crawler. Sent in `entitySpawn` / `welcome`, then in
 `state` as changed snapshots at the viewer's distance cadence (`u`).
@@ -335,9 +336,11 @@ next to `server.js` (one file per match, overwritten; `server/save.js`).
 A save holds the seed, size and teams, block edits, containers, pipes,
 tanks, turrets, players (position, HP, inventory, elimination), flags,
 working monkeys (config, inventory, gear), NPCs, cows, dragons, Crawlers,
-dropped items, the clock and the goblins' lost King/Totem. Void Eels respawn
-fresh, goblins refill their slots and construction resumes from the blocks in
-place; a carried flag is dropped where its carrier was.
+Void Eels, dropped items, the clock, the goblins' lost King/Totem, goblin
+construction progress (breach, finished build entries, active areas, shaft
+relocation, Castle, skipped pieces, completion) and every living village
+goblin in its slot. Only arrows in flight aren't kept; a carried flag is
+dropped where its carrier was.
 
 Loading: saved players start disconnected and are reclaimed by name (the
 usual match-in-progress flow). Lobby members whose name matches a saved
@@ -441,6 +444,12 @@ the player's team has held at least one ingredient. Search filters these by
 output name. Recipes still require all ingredients in the player's own
 inventory to craft; unavailable recipes are greyed out and show have / need
 for each ingredient. Creative crafting keeps its full catalogue.
+
+### `saveGame`
+
+Match players, `{}`. Writes the match's save file now (at most once per 2 s);
+everyone gets an `announce` saying who saved, or that saving failed. The
+pause screen's **Save now** button sends it.
 
 ### `creativeToggle`
 
@@ -1042,7 +1051,9 @@ Private reply/view for a working monkey. Common fields: `{id,name,team}`;
 The final cup answer and unrevealed card faces remain server-only. Winning
 assigns team ownership and opens configuration for all viewers; other teams
 receive a read-only view. `state` NPC snapshots additionally carry `role`,
-`tamed` and `tool` (the tool slot's item id or null, drawn in its hand) for
+`tamed`, `tool` (the tool slot's item id or null, drawn in its hand) and
+`armor` (the armor slot's item id or null, drawn as a chest plate and
+shoulder guards in its color) for
 working monkeys; `team` changes after taming. Their `pose` can also be
 `climb` or `work`.
 
