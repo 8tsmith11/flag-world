@@ -119,8 +119,8 @@ is a Lava Bucket; it places lava source 136. Historic and reserved IDs remain in
 
 Block 122 is copper ore and 123 is tin ore (both hardness 3). Team islands
 contain common copper and rare tin, with no iron. Tiny island stone contains
-the most iron (as much as tin) and some copper, so they're worth the trip. The central island contains all three at higher
-densities. The weights and assigned ids are in `METALS` in `shared/config.js`.
+mostly tin, a decent amount of iron and some copper. The central island is
+mostly iron, with some copper and tin. The weights and assigned ids are in `METALS` in `shared/config.js`.
 
 **ItemStack** — `{ item, count, mods? }`. `mods`, only on weapons, tools,
 armor and accessories, is at most one modifier `[{ id, value }]` (see

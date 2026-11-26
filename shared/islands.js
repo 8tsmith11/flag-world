@@ -457,6 +457,68 @@ function addPonds(world, terrain, rand, noise, nearKeep, pondArea) {
   }
 }
 
+// Small enclosed holes straight through an island into the void (thin
+// edges, caves breaking through) are filled: any group of up to
+// VOID_HOLE_MAX fully empty columns surrounded by solid columns gets the
+// terrain profile of a solid neighbour column.
+const VOID_HOLE_MAX = 12;
+const HOLE_FILL = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND, BLOCK.IRON_ORE, BLOCK.COPPER_ORE,
+  BLOCK.TIN_ORE, BLOCK.SNOW, BLOCK.ASH, BLOCK.BASALT, BLOCK.PACKED_ICE, BLOCK.ICE, BLOCK.COBBLE, BLOCK.MAGMA]);
+function fillVoidHoles(world, islands) {
+  const cache = new Map();
+  const solidRange = (x, z) => {
+    const k = x + world.sizeX * z;
+    if (cache.has(k)) return cache.get(k);
+    let range = null;
+    const top = world.getSurfaceY(x, z, isSolid);
+    if (top >= world.minY && isSolid(world.getBlock(x, top, z))) {
+      let bottom = top;
+      for (let y = world.minY; y < top; y++) if (isSolid(world.getBlock(x, y, z))) { bottom = y; break; }
+      range = { top, bottom };
+    }
+    cache.set(k, range);
+    return range;
+  };
+  const seen = new Set();
+  for (const island of islands) {
+    const r = Math.ceil(island.radius * 1.3);
+    for (let x = Math.max(1, Math.floor(island.x - r)); x <= Math.min(world.sizeX - 2, island.x + r); x++)
+      for (let z = Math.max(1, Math.floor(island.z - r)); z <= Math.min(world.sizeZ - 2, island.z + r); z++) {
+        const k = x + world.sizeX * z;
+        if (seen.has(k) || solidRange(x, z)) continue;
+        const group = [[x, z]], walls = [], members = new Set([k]);
+        seen.add(k);
+        let open = false;
+        for (let i = 0; i < group.length && !open; i++) {
+          const [cx, cz] = group[i];
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = cx + dx, nz = cz + dz;
+            if (nx < 1 || nz < 1 || nx >= world.sizeX - 1 || nz >= world.sizeZ - 1) { open = true; break; }
+            const range = solidRange(nx, nz);
+            if (range) { walls.push({ x: nx, z: nz, range, hole: [cx, cz] }); continue; }
+            const nk = nx + world.sizeX * nz;
+            if (members.has(nk)) continue;
+            // Joins empty columns already found open: open too.
+            if (seen.has(nk)) { open = true; break; }
+            seen.add(nk); members.add(nk); group.push([nx, nz]);
+            if (group.length > VOID_HOLE_MAX) { open = true; break; }
+          }
+        }
+        if (open || !walls.length) continue;
+        for (const [hx, hz] of group) {
+          // The solid neighbour nearest this column (any wall of the group).
+          const wall = walls.reduce((a, b) => Math.hypot(b.x - hx, b.z - hz) < Math.hypot(a.x - hx, a.z - hz) ? b : a);
+          for (let y = wall.range.bottom; y <= wall.range.top; y++) {
+            const id = world.getBlock(wall.x, y, wall.z);
+            if (id === BLOCK.AIR) continue;
+            world.setBlock(hx, y, hz, HOLE_FILL.has(id) ? id : BLOCK.STONE);
+          }
+          cache.delete(hx + world.sizeX * hz);
+        }
+      }
+  }
+}
+
 // What each tiny island holds, at most one: a dragon roost (big enough ones,
 // by chance, up to the size's cap), else by chance a loose chest, else nothing.
 function chooseTinyContents(islands, seed, config) {
@@ -579,6 +641,8 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
     carveCaves(world, terrain, rand, noise3, nearKeep, config.caveArea);
   }
 
+  fillVoidHoles(world, islands);
+
   selectWoodedBiomes(world,terrains,noise);
   progress('ores');
   // One pass over the terrain's chunks keeps ore cost linear in world blocks.
@@ -652,6 +716,8 @@ export function generateIslandWorld(seed, teamCount, config, { createNoise2D, cr
   placeSurfaceQuarriesForTeams(world,ordinaryTerrains,seed,config.quarry);
   world.treeGenerationMs=performance.now()-treeStart;
   finishRiverBanks(world);
+  // Rivers, earthworks and structures can open new ones.
+  fillVoidHoles(world, islands);
   delete world.plantClearance;
   delete world.treeObstacles;
   attachGeneratedTorches(world);
