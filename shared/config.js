@@ -112,7 +112,7 @@ export const RESPAWN_DELAY = 3;
 // Falling below this y kills the player.
 export const VOID_Y = -20;
 export const VOID_BELOW_LOWEST_ISLAND = 95;
-export const EEL_BAND = { belowIsland: 30, outerBelowIsland: 20, aboveVoid: 10, minHeight: 40 };
+export const EEL_BAND = { belowIsland: 18, outerBelowIsland: 12, aboveVoid: 10, minHeight: 40 };
 export const CENTRAL_EXTRA_DEPTH = 45;
 export const BIOME_SETTINGS = {
   noiseScale: 95, blend: 0.17, surfacePatchScale: 7,
@@ -200,7 +200,9 @@ export const KEEP_SIZE = 7;
 export const KEEP_HEIGHT = 5;
 // Terrain around a keep is flattened this far out so it can be walked into from any side.
 export const KEEP_MARGIN = 2;
-export const FLAG_GRAB_TIME = 2;
+export const FLAG_GRAB_TIME = 4;
+// Seconds a carrier stands on their own pedestal to capture.
+export const FLAG_CAPTURE_TIME = 4;
 export const FLAG_RETURN_TIME = 120;
 // A player is on a flag when their feet are within this horizontal distance of its base.
 export const FLAG_TOUCH_RADIUS = 0.8;
@@ -260,7 +262,7 @@ export const COW_PANIC_TIME = 5;
 export const COW_DROPS = { leather: [0, 2], beef: [1, 3] };
 
 // Dragons patrol above the island and dive to breathe fire at nearby players.
-export const DRAGON_HP = 30;
+export const DRAGON_HP = 120;
 export const DRAGON_SPEED = 5.5;
 export const DRAGON_SIGHT = 45;
 export const DRAGON_FIRE_RANGE = 14;
@@ -306,7 +308,7 @@ export const EEL_LUNGE_WINDUP = 1;
 export const EEL_LUNGE_DURATION = 0.45;
 export const EEL_TURN_RATE = 0.2;
 export const EEL_GLIDE_BREAK = 1.5;
-export const EEL_DETECT_RADIUS = 24;
+export const EEL_DETECT_RADIUS = 32;
 export const EEL_DETECT_HEIGHT = 180;
 export const EEL_NIGHT_DETECT_SCALE = 1.3;
 export const EEL_NIGHT_RISE_SCALE = 1.3;
@@ -315,7 +317,12 @@ export const EEL_WANDER_RADIUS = 65;
 export const EEL_DROPS = [1, 2];
 // Bite reach from the head's center to the target's box.
 export const EEL_REACH = 1.2;
-export const EEL_LOSE_RANGE = 30;
+export const EEL_LOSE_RANGE = 40;
+// A player within this many blocks of an island's edge is exposed to eels.
+export const EEL_EDGE_REACH = 2;
+// Chance a new wander goal heads under a player within EEL_PROWL_RANGE.
+export const EEL_PROWL_CHANCE = 0.6;
+export const EEL_PROWL_RANGE = 120;
 export const RIFT_ORB = { durationSeconds: 10, maxStack: 4, throwSpeed: 13,
   gravity: 20, radius: 0.18, launchLift: 0.35, launchForward: 0.7 };
 

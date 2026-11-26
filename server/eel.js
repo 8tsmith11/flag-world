@@ -5,7 +5,7 @@ import {
   EEL_LUNGE_WINDUP, EEL_REACH, EEL_DETECT_RADIUS, EEL_DETECT_HEIGHT,
   EEL_NIGHT_DETECT_SCALE, EEL_NIGHT_RISE_SCALE, EEL_FORGET_TIME,
   EEL_LOSE_RANGE, EEL_WANDER_RADIUS, EEL_ATTACK_COOLDOWN,
-  EEL_LUNGE_DURATION, EEL_TURN_RATE,
+  EEL_LUNGE_DURATION, EEL_TURN_RATE, EEL_EDGE_REACH, EEL_PROWL_CHANCE, EEL_PROWL_RANGE,
 } from '../shared/config.js';
 import { playerBoxOf, playerFitsAt } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
@@ -16,6 +16,8 @@ const WINDUP_TICKS = Math.round(EEL_LUNGE_WINDUP * TICK_RATE);
 const LUNGE_TICKS = Math.round(EEL_LUNGE_DURATION * TICK_RATE);
 const FORGET_TICKS = Math.round(EEL_FORGET_TIME * TICK_RATE);
 const COOLDOWN_TICKS = Math.round(EEL_ATTACK_COOLDOWN * TICK_RATE);
+const EDGE_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+  .map(([x, z]) => [x * EEL_EDGE_REACH, z * EEL_EDGE_REACH]);
 
 function turnToward(current, wanted) {
   let difference = (wanted - current + Math.PI) % (Math.PI * 2);
@@ -67,9 +69,16 @@ export class VoidEel {
     return outer ? Math.max(this.band.top, outer.bottomY - this.band.outerBelowIsland) : this.band.top;
   }
 
+  // Open to the void below: in the player's own column, or (standing near an
+  // island's edge) a column within EEL_EDGE_REACH of it, which an eel can rise
+  // up beside.
   exposed(world, player) {
     const c = this.center(), p = player.state;
-    return !world.naturalTerrainBetween(p.x, p.z, c.y, p.y + 0.1);
+    if (!world.naturalTerrainBetween(p.x, p.z, c.y, p.y + 0.1)) return true;
+    for (const [dx, dz] of EDGE_OFFSETS) {
+      if (!world.naturalTerrainBetween(p.x + dx, p.z + dz, c.y, p.y - 0.5)) return true;
+    }
+    return false;
   }
 
   detectable(world, player, night) {
@@ -110,11 +119,23 @@ export class VoidEel {
     return this.target;
   }
 
-  wander(world, tick) {
+  wander(world, tick, players = []) {
     const s = this.state;
     if (this.wanderGoal && tick < this.wanderUntil
       && Math.hypot(s.x - this.wanderGoal.x, s.y - this.wanderGoal.y, s.z - this.wanderGoal.z) > 3) return this.wanderGoal;
     this.wanderUntil = tick + TICK_RATE * (6 + Math.floor(Math.random() * 7));
+    // Prowl: often drift toward a player within range, staying in the band,
+    // so eels gather under where people are instead of the empty void.
+    if (Math.random() < EEL_PROWL_CHANCE) {
+      const near = players.filter(p => huntable(p) && Math.hypot(p.state.x - s.x, p.state.z - s.z) < EEL_PROWL_RANGE);
+      const pick = near[Math.floor(Math.random() * near.length)];
+      if (pick) {
+        const x = pick.state.x + (Math.random() - 0.5) * 16, z = pick.state.z + (Math.random() - 0.5) * 16;
+        const top = this.bandTop(world, x, z);
+        this.wanderGoal = { x, z, y: Math.max(this.band.bottom + 4, top - 4 - Math.random() * 8) };
+        return this.wanderGoal;
+      }
+    }
     this.wanderGoal = {
       x: Math.max(4, Math.min(world.sizeX - 4, s.x + (Math.random() - 0.5) * EEL_WANDER_RADIUS * 2)),
       y: this.band.bottom + 4 + Math.random() * Math.max(1,
@@ -124,7 +145,7 @@ export class VoidEel {
     return this.wanderGoal;
   }
 
-  returnGoal(world, tick) {
+  returnGoal(world, tick, players) {
     const s = this.state;
     if (s.y > this.bandTop(world)) {
       while (this.escapeTrail.length && Math.hypot(s.x - this.escapeTrail.at(-1).x,
@@ -142,7 +163,7 @@ export class VoidEel {
       }
       return { x: s.x, y: this.bandTop(world) - 5, z: s.z };
     }
-    return this.wander(world, tick);
+    return this.wander(world, tick, players);
   }
 
   clear(world, x, y, z) {
@@ -231,7 +252,7 @@ export class VoidEel {
       ? { x: target.state.x + (this.approachOffset?.x ?? 0),
         y: target.state.y + playerBoxOf(target.state).height / 2,
         z: target.state.z + (this.approachOffset?.z ?? 0) }
-      : this.returnGoal(world, tick);
+      : this.returnGoal(world, tick, players);
     goal.x += this.separation?.x ?? 0;
     goal.y += this.separation?.y ?? 0;
     goal.z += this.separation?.z ?? 0;

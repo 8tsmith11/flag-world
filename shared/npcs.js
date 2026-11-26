@@ -30,7 +30,7 @@ export const NPC_DEFS = {
   },
   [NPC_KIND.WISE_MONKEY]: {
     model: 'orangutan', box: NPC.wiseMonkey.box, hp: NPC.wiseMonkey.hp,
-    behavior: 'seated', voice: 'wiseMonkey', dialogue: 'wiseMonkey',
+    behavior: 'seated', voice: 'wiseMonkey', dialogue: 'wiseMonkey', gravity: true,
   },
   // LATER UPDATE: the Ancient Monkeys cannot be damaged (hp: null) and have
   // no abilities yet. Give them hp and abilities here and in server/npcs.js.

@@ -53,7 +53,7 @@ import { lookDirection, raycastBlock, raycastPlayers } from '../shared/raycast.j
 import {
   C2S, S2C, PHASE, MAX_NAME_LENGTH, DEATH_CAUSE, FLAG_STATE, FLAG_EVENT, TEAMS,
 } from '../shared/protocol.js';
-import { Player, GRAB_TICKS } from './player.js';
+import { Player, GRAB_TICKS, CAPTURE_TICKS } from './player.js';
 import { Flag } from './flag.js';
 import { ItemEntity } from './item.js';
 import { WaterSimulation } from './water.js';
@@ -1747,6 +1747,11 @@ export class Game {
     for (const npc of this.npcs.activeValues()) {
       npc.step(this.world, players, this.tick);
       this.npcs.relocate(npc);
+      // Fell into the void (a dug-out Wise Monkey).
+      if (npc.def.gravity && npc.state.y < this.world.voidY && !npc.dead) {
+        if (npc.damageable) this.hurtNpc(npc, Infinity, null);
+        else { npc.dead = true; this.npcs.delete(npc.id); this.broadcast({ type: S2C.ENTITY_DESPAWN, id: npc.id }); }
+      }
     }
   }
 
@@ -2097,7 +2102,11 @@ export class Game {
       // flagless (your flag already captured).
       if (player.carrying) {
         const canCapture = own.state === FLAG_STATE.HOME || own.state === FLAG_STATE.CAPTURED;
-        if (canCapture && this.onFlag(player, own.home)) this.capture(player);
+        // Capturing takes a hold on the pedestal, like taking.
+        if (canCapture && this.onFlag(player, own.home)) {
+          if (player.grab?.flag !== 'capture') player.grab = { flag: 'capture', ticks: 0, total: CAPTURE_TICKS };
+          if (++player.grab.ticks >= CAPTURE_TICKS) { player.grab = null; this.capture(player); }
+        } else player.grab = null;
         continue;
       }
 

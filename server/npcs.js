@@ -6,7 +6,9 @@
 //
 // Talking: npcLine picks what an NPC says to a player (shared/npcLines.js).
 
-import { NPC, TICK_RATE, TICK_DT, DIALOGUE } from '../shared/config.js';
+import { NPC, TICK_RATE, TICK_DT, DIALOGUE, GRAVITY } from '../shared/config.js';
+
+const NPC_FALL = { gravity: GRAVITY, terminal: 40 };
 import { NPC_DEFS, npcName } from '../shared/npcs.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { isSolid } from '../shared/blocks.js';
@@ -52,8 +54,29 @@ export class Npc {
   }
 
   step(world, players, tick) {
+    if (this.def.gravity) this.fall(world);
     this.lookAtNearest(players);
     if (this.def.behavior === 'restless') this.stepRestless(world, tick);
+  }
+
+  // Falls when nothing solid is under its box (dug out from below); it sits
+  // where it lands, which becomes its new home. Below the void it dies
+  // (Game.updateNpcs).
+  fall(world) {
+    const s = this.state, box = this.def.box, r = box.halfW - 0.01;
+    const below = Math.floor(s.y - 0.01);
+    const supported = [[-r, -r], [r, -r], [-r, r], [r, r], [0, 0]]
+      .some(([dx, dz]) => isSolid(world.getBlock(Math.floor(s.x + dx), below, Math.floor(s.z + dz))));
+    if (supported && (s.vy ?? 0) >= 0) { s.vy = 0; return; }
+    s.vy = Math.max(-NPC_FALL.terminal, (s.vy ?? 0) - NPC_FALL.gravity * TICK_DT);
+    const nextY = s.y + s.vy * TICK_DT;
+    // Land on the first solid block crossed.
+    for (let y = Math.floor(s.y - 0.01); y >= Math.floor(nextY); y--) {
+      if ([[-r, -r], [r, -r], [-r, r], [r, r], [0, 0]].some(([dx, dz]) => isSolid(world.getBlock(Math.floor(s.x + dx), y, Math.floor(s.z + dz))))) {
+        s.y = y + 1; s.vy = 0; this.home = { ...this.home, x: s.x, y: s.y, z: s.z }; return;
+      }
+    }
+    s.y = nextY;
   }
 
   // Head yaw relative to the body toward the nearest live player in range,

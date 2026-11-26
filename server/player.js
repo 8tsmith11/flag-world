@@ -1,4 +1,4 @@
-import { MAX_HP, FLAG_GRAB_TIME, TICK_RATE } from '../shared/config.js';
+import { MAX_HP, FLAG_GRAB_TIME, FLAG_CAPTURE_TIME, TICK_RATE } from '../shared/config.js';
 import { createPlayerState } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { breakingStats, attackStats, rangedStats } from '../shared/tools.js';
@@ -12,6 +12,7 @@ import { ITEM } from '../shared/itemIds.js';
 // socket is set to null and the player stays in the world (position,
 // inventory, ...) until someone reconnects with the same name.
 export const GRAB_TICKS = Math.round(FLAG_GRAB_TIME * TICK_RATE);
+export const CAPTURE_TICKS = Math.round(FLAG_CAPTURE_TIME * TICK_RATE);
 
 export class Player {
   constructor(id, socket, name, color, spawn, team = 0) {
@@ -170,7 +171,7 @@ export class Player {
       accessory: this.inventory.accessory?.item ?? null,
       springCharge: s.springCharge,
       springBouncing: s.springBouncing,
-      grab: this.grab ? this.grab.ticks / GRAB_TICKS : 0,
+      grab: this.grab ? this.grab.ticks / (this.grab.total ?? GRAB_TICKS) : 0,
       // How far a bow is drawn or a crossbow loaded, 0..1.
       draw: this.held() === ITEM.CROSSBOW
         ? (this.loaded ? 1 : Math.min(1, this.loadTicks / this.rangedStats().loadTicks))

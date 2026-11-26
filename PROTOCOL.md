@@ -55,7 +55,7 @@ unique within the lobby (ignoring case).
 | `dead`     | bool    | Dead and waiting to respawn (or eliminated); not drawn, can't be hit, sends no inputs |
 | `eliminated` | bool  | Died while flagless; out of the match for good and spectating |
 | `carrying` | int \| null | Id of the flag they hold. Carriers walk at 60% speed (the client copies this into its physics state) |
-| `grab`     | number  | 0..1 progress toward taking the enemy flag they're standing on; 0 when not |
+| `grab`     | number  | 0..1 progress toward taking the enemy flag they're standing on, or capturing on their own pedestal; 0 when not |
 | `held`     | int \| null | Item id in hand, drawn in their fist |
 | `armor`    | int \| null | Worn armor item id |
 | `accessory` | int \| null | Worn accessory item id; drives player visual and predicted movement |
@@ -262,7 +262,7 @@ promptly for every player.
 | `name` | string | `"Dragon"`, used in the event feed |
 | `x`,`y`,`z` | number | Base position |
 | `yaw`,`pitch` | number | Facing and climb angle |
-| `hp` | number | Health, 0..30 |
+| `hp` | number | Health, 0..120 (`DRAGON_HP`) |
 | `breathing` | bool | Fire cone is active |
 | `walking` | bool | On the ground with folded wings and walking legs |
 | `aimYaw`,`aimPitch` | number | Fire aim angles toward the target's collision-box center, relative to body yaw and world horizontal |
@@ -639,13 +639,16 @@ the nearest player they can see within 12 blocks, give up beyond 24, and bite
 for 3 (every 1 s, before armor) when within 0.6 blocks of the player's box. A
 dead Crawler drops 0–2 Silk.
 
-Void Eels: `eels` in `WORLD_SIZES` (4, 7, 10) roam a void band whose top
-stays deep under the central island and rises to about 20 blocks below the
+Void Eels: `eels` in `WORLD_SIZES` (8, 12, 16) roam a void band whose top
+is about 18 blocks under the central island and about 12 blocks below the
 nearest outer island underside elsewhere. Half start under the central
-island. An eel detects a player
-in a 24-block-radius column extending 180 blocks above it (30% farther at
-night) when no natural island terrain separates them. Player-built blocks do
-not block detection. It rises toward exposed players, chases up to about 30
+island. Most new wander goals (60%) drift under a random player within 120
+blocks. An eel detects a player
+in a 32-block-radius column extending 180 blocks above it (30% farther at
+night) when no natural island terrain separates them, either in the player's
+own column or in one 2 blocks away (a player near an island's edge is
+exposed). Player-built blocks do
+not block detection. It rises toward exposed players, chases up to about 40
 blocks away, and returns to the deep band after losing a target for 10 s or
 when the target dies or moves over natural island terrain. It retraces its
 approach and skirts island edges when returning. 30 HP; a bite does 4 with
@@ -1057,16 +1060,16 @@ The server runs these rules; the messages above carry the results.
   The islands have no floor underneath them.
 - **On a flag.** A player is "on" a flag when their feet are within 0.8 blocks
   of its base horizontally, and between 0.5 below and 1 above it.
-- **Taking.** Standing on an enemy flag (home or dropped) for 2 s takes it
+- **Taking.** Standing on an enemy flag (home or dropped) for 4 s takes it
   (`grab` shows the progress). Stepping off resets the progress. You can't
   take your own team's flag, and you can only carry one flag at a time.
 - **Carrying.** Carriers move at 60% speed. If the carrier dies or
   disconnects, the flag drops where they were and falls like an item.
 - **Returning.** A dropped flag returns home after 120 s, or at once if its
   a member of its team is on it or it falls below `world.voidY`.
-- **Capturing.** A carrier captures when they are on their own pedestal
-  while their own flag is home, or already captured (flagless players can
-  capture too). The captured flag's whole team becomes flagless:
+- **Capturing.** A carrier captures after standing on their own pedestal
+  for 4 s (`grab` shows the progress; stepping off resets it) while their
+  own flag is home, or already captured (flagless players can capture too). The captured flag's whole team becomes flagless:
   they keep playing where they are, with their inventories, and their keep
   stays standing.
 - **Elimination.** Flagless players can still fight, mine, build, and take,
