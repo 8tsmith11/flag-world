@@ -1,7 +1,7 @@
 import { PLANT_ROWS } from './plantAtlas.js';
 export { plantUV } from './plantAtlas.js';
 import * as THREE from 'three';
-import { VEGETATION_IDS, getBlockDef } from '/shared/blocks.js';
+import { PLANT_ATLAS_IDS, getBlockDef } from '/shared/blocks.js';
 import { VEGETATION as C } from '/shared/config.js';
 import { litMaterial } from './voxelLighting.js';
 export function plantMaterial(daylight,time,renderer) {
@@ -11,7 +11,7 @@ export function plantMaterial(daylight,time,renderer) {
  texture.magFilter=THREE.NearestFilter;texture.minFilter=THREE.LinearMipmapLinearFilter;
  // Transparent gutters isolate the artwork; alpha testing writes depth and
  // avoids sorting/transparent layers even in denser forest patches.
- const ready=Promise.all(VEGETATION_IDS.map((id,index)=>new Promise((resolve,reject)=>{
+ const ready=Promise.all(PLANT_ATLAS_IDS.map((id,index)=>new Promise((resolve,reject)=>{
   const image=new Image();image.onload=()=>{const pad=(C.atlasStride-C.atlasTile)/2;
    context.drawImage(image,index%C.atlasColumns*C.atlasStride+pad,Math.floor(index/C.atlasColumns)*C.atlasStride+pad,C.atlasTile,C.atlasTile);resolve();};
   image.onerror=()=>reject(new Error(`Missing plant texture ${getBlockDef(id).icon}`));image.src=getBlockDef(id).icon;

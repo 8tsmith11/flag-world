@@ -26,7 +26,7 @@
 //   tileEntity   - name of the tile entity type attached when placed
 //                  ('furnace', 'alloyFurnace', 'chest', 'anvil', 'tank', 'boiler', 'crusher')
 
-import { TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS, METALS, FLUID, ELEMENTAL, FIRE_TEMPLE } from './config.js';
+import { SAPLING_DROP_CHANCE, FARMING, TICK_RATE, GOBLIN_GEN, LIGHTING, WORLD_LOOK, VEGETATION, TREE_SETTINGS, METALS, FLUID, ELEMENTAL, FIRE_TEMPLE } from './config.js';
 import { ITEM } from './itemIds.js';
 
 export const BLOCK = {
@@ -73,6 +73,9 @@ export const BLOCK = {
   BUSH: 94, GLOW_FLOWER: 95, GLOW_MOSS: 96, GLOW_MUSHROOM: 97,
   ROOT: 98, DARK_ROOT: 99, VINE: 100, BUD_VINE: 101,
   BRANCH: 102,
+  // Farming: tilled soil and wheat's four growth stages (WHEAT..WHEAT+3).
+  FARMLAND: 151,
+  WHEAT: 152,
   // The Ancient Lightning Monkey's cloud. Kept clear of the plant range above.
   STORM_CLOUD: 120,
   GLASS: 121,
@@ -266,6 +269,27 @@ VEGETATION_IDS.forEach((id, i) => {
     support: hanging ? [0,1,0] : null,
     plantHeight: VEGETATION.heights[heightKey], emission, color: 0xffffff, icon: `/textures/${art}.svg` });
 });
+// Crops: each kind's stage block ids, seed item and produce. A crop's id
+// encodes its stage; the last stage is mature.
+export const CROPS = {
+  wheat: { name: 'wheat', stages: [BLOCK.WHEAT, BLOCK.WHEAT + 1, BLOCK.WHEAT + 2, BLOCK.WHEAT + 3],
+    seed: ITEM.WHEAT_SEEDS, produce: ITEM.WHEAT },
+};
+const cropOfId = new Map();
+for (const crop of Object.values(CROPS)) crop.stages.forEach((id, stage) => cropOfId.set(id, { crop, stage }));
+// { crop, stage } for a crop block, else null.
+export function cropAt(id) { return cropOfId.get(id) ?? null; }
+export function isCrop(id) { return cropOfId.has(id); }
+export function isMatureCrop(id) { const c = cropOfId.get(id); return !!c && c.stage === c.crop.stages.length - 1; }
+export const CROP_IDS = [...cropOfId.keys()];
+CROPS.wheat.stages.forEach((id, stage) => define(id, 'wheat', {
+  solid: false, transparent: true, lightOpaque: false, blocksAttack: false, hardness: 0, breakTime: 0,
+  shape: 'plant', plantArt: `wheat-${stage}`, support: [0, -1, 0], drops: ITEM.WHEAT_SEEDS,
+  plantHeight: [0.3, 0.55, 0.8, 1][stage], color: 0xffffff, icon: `/textures/wheat-${stage}.svg`,
+}));
+define(BLOCK.FARMLAND, 'farmland', { color: 0x5b3a22, breakTime: 0.5, drops: BLOCK.DIRT });
+// Every plant drawn from the plant atlas, in atlas order.
+export const PLANT_ATLAS_IDS = [...VEGETATION_IDS, ...CROP_IDS];
 define(BLOCK.AIR, 'air', { solid: false, transparent: true, color: 0x000000, breakable: false, hardness: 0 });
 define(BLOCK.GRASS, 'grass', { color: WORLD_LOOK.grass, breakTime: 0.6, drops: BLOCK.DIRT });
 define(BLOCK.DIRT, 'dirt', { color: 0x8a5a36, breakTime: 0.5 });
@@ -304,8 +328,9 @@ define(BLOCK.OBSIDIAN, 'obsidian', { color: 0x19171e, hardness: FIRE_TEMPLE.obsi
 define(BLOCK.KEEP, 'keep', { color: 0x4b5263, hardness: Infinity });
 define(BLOCK.PEDESTAL, 'pedestal', { color: 0xd4af37, hardness: Infinity });
 define(BLOCK.WOOD, 'wood', { color: 0x6b4a2b, breakTime: 1 });
+// Branches stay in trees but aren't an item: breaking one drops a log.
 define(BLOCK.BRANCH, 'branch', { color: 0x6b4a2b, breakTime: TREE_SETTINGS.branchBreakTime,
-  transparent: true, lightOpaque: false, shape: 'branch', icon: '/textures/branch.svg' });
+  transparent: true, lightOpaque: false, shape: 'branch', icon: '/textures/branch.svg', drops: BLOCK.WOOD });
 define(BLOCK.LEAVES, 'leaves', { color: WORLD_LOOK.leaves, breakTime: 0.2, drops: null });
 define(BLOCK.SAPLING, 'sapling', { color: 0x50a346, solid: false, transparent: true,
   breakTime: 0.15, drops: ITEM.TREE_SEED, shape: 'sapling' });
@@ -387,6 +412,25 @@ define(BLOCK.STORM_CLOUD, 'storm cloud', { color: 0x4d5059, breakTime: 0.35, lig
 define(BLOCK.ROPE, 'rope', {
   solid: false, transparent: true, shape: 'rope', color: 0xb89a62, breakTime: 0, drops: null,
 });
+
+// What breaking a block yields, as [{ item, count }] (doors aside, which the
+// server drops as a pair). Random parts use `random` (0..1).
+export function blockDrops(id, random = Math.random) {
+  const out = [];
+  const crop = cropAt(id);
+  if (crop) {
+    if (crop.stage === crop.crop.stages.length - 1) {
+      const [lo, hi] = FARMING.matureSeeds;
+      out.push({ item: crop.crop.produce, count: 1 }, { item: crop.crop.seed, count: lo + Math.floor(random() * (hi - lo + 1)) });
+    } else out.push({ item: crop.crop.seed, count: 1 });
+    return out;
+  }
+  const drop = getBlockDef(id).drops;
+  if (drop !== null && drop !== undefined) out.push({ item: drop, count: 1 });
+  if (id === BLOCK.LEAVES && random() < SAPLING_DROP_CHANCE) out.push({ item: ITEM.TREE_SEED, count: 1 });
+  if ((id === BLOCK.GRASS_TUFT || id === BLOCK.FERN) && random() < FARMING.seedFromGrass) out.push({ item: ITEM.WHEAT_SEEDS, count: 1 });
+  return out;
+}
 
 export function getBlockDef(id) {
   return defs[id] ?? defs[BLOCK.AIR];

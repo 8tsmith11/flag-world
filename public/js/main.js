@@ -10,7 +10,7 @@ import {
 import { C2S, S2C, DEATH_CAUSE, FLAG_EVENT, TEAMS, ENTITY_TYPE } from '/shared/protocol.js';
 import { generateClientWorld } from './worldGeneration.js';
 import {
-  BLOCK, blocksAttack, canBreak, breakTicks, getBlockDef, isTargetable, isLava, isLiquid, isDoor, doorState, isFurnace, isChest, isAnvil, isFlowingWater, fluidKind,
+  BLOCK, blocksAttack, canBreak, breakTicks, getBlockDef, isTargetable, isLava, isLiquid, isDoor, doorState, isMatureCrop, isFurnace, isChest, isAnvil, isFlowingWater, fluidKind,
 } from '/shared/blocks.js';
 import { breakingStats, rangedStats } from '/shared/tools.js';
 import { getItemDef, ITEM } from '/shared/items.js';
@@ -851,7 +851,8 @@ function frame(now) {
       input.primaryDown = input.secondaryDown = false;
     }
     // Right click on an NPC talks to it instead of anything else.
-    if (controls.place && targetPlayer !== null && entities.entities.get(targetPlayer)?.info.type === ENTITY_TYPE.NPC) {
+    const targetType = targetPlayer !== null ? entities.entities.get(targetPlayer)?.info.type : null;
+    if (controls.place && (targetType === ENTITY_TYPE.NPC || targetType === ENTITY_TYPE.COW && heldItem() === ITEM.WHEAT)) {
       conn.send({ type: C2S.TALK, id: targetPlayer });
       controls.place = false;
     }
@@ -904,7 +905,8 @@ function frame(now) {
       controls.place = false;
     }
     // Right click on a door opens or closes it instead of placing.
-    const useTarget = controls.place && target && (changingFace || (!placingWhileCrouched && isDoor(target.id))
+    const tilling = getItemDef(heldItem()).tool === 'hoe' && (target?.id === BLOCK.GRASS || target?.id === BLOCK.DIRT);
+    const useTarget = controls.place && target && (changingFace || tilling || isMatureCrop(target.id) || (!placingWhileCrouched && isDoor(target.id))
       || ((target.id === BLOCK.WATER || target.id === BLOCK.LAVA) && heldItem() === ITEM.EMPTY_BUCKET));
     controls.use = useTarget ? { x: target.x, y: target.y, z: target.z,
       nx:target.nx,ny:target.ny,nz:target.nz } : null;

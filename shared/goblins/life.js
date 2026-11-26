@@ -43,7 +43,9 @@ export const LIFE = {
   minArea: 30, maxSurfaceArea: 24000, maxUndergroundArea: 1600,
   undergroundAreas: [3, 8], roomsPerArea: 6,
   outskirtsWidth: 6, sectionLength: 48,
-  releaseSeconds: 5, workersPerCells: 650, patrolPerCells: 1800,
+  releaseSeconds: 5,
+  // Village-wide: at most one new worker / fighter per this many seconds.
+  birthSeconds: { worker: 12, fighter: 25 }, workersPerCells: 650, patrolPerCells: 1800,
   patrolSoldiers: 1, patrolArchers: 0, reserve: 2,
   courtyardArchers: 1, towerArchers: 1, gateGuards: 1, gateArchers: 1,
   postRadius: 2, postWait: [3, 8], wanderWait: [2, 5], patrolPoints: 6,

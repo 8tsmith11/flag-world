@@ -20,11 +20,12 @@ import {
   FLAG_RETURN_TIME, FLAG_TOUCH_RADIUS, DRAGON_LEASH, CRAWLER_DROPS, EEL_BAND, EEL_DROPS,
   EEL_GLIDE_BREAK, CRAWLER_DAMAGE, EEL_DAMAGE,
   DAY_LENGTH, DAY_START, BIOME_SETTINGS,
-  SAPLING_DROP_CHANCE, TREE_SETTINGS, ARROW_DRAG, CREATIVE_SPEED, ELEMENTAL,
+  SAPLING_DROP_CHANCE, TREE_SETTINGS, ARROW_DRAG, CREATIVE_SPEED, ELEMENTAL, FARMING,
 } from '../shared/config.js';
 import {
   BLOCK, branchBoxes, blocksAttack, isSolid, isWater, isLava, isLiquid, isFlowingWater, isTargetable, canBreak, breakTicks, getBlockDef, FACING_DIRS, facingOf, facedBlock, fluidKind,
   ladderBlock, isLadder, ladderFacing, doorBlock, isDoor, doorState,
+  isCrop, isMatureCrop, cropAt, blockDrops, CROPS,
 } from '../shared/blocks.js';
 import { getItemDef, ITEM } from '../shared/items.js';
 import { accessoryDef } from '../shared/accessories.js';
@@ -59,6 +60,7 @@ import { ItemEntity } from './item.js';
 import { WaterSimulation } from './water.js';
 import { LavaSimulation } from './lava.js';
 import { LeafDecay } from './leafDecay.js';
+import { Farming } from './farming.js';
 import { SaplingGrowth } from './saplings.js';
 import { QuarryRegrowth } from './quarry.js';
 import { FluidSystem, fluidFace } from './fluids.js';
@@ -454,6 +456,7 @@ export class Game {
         && p.state.y < top + 1 && p.state.y + playerBoxOf(p.state).height > y), null, this.chunkLoading);
     this.quarry = new QuarryRegrowth(this);
     this.fluids = new FluidSystem(this);
+    this.farming = new Farming(this);
     this.world.onBlockChanged = (x, y, z, id, oldId) => {
       invalidateDragonSurface(this.world, x, z);
       this.blockChanges.set(`${x},${y},${z}`, { x, y, z, id });
@@ -483,6 +486,7 @@ export class Game {
       this.leafDecay.changed(x, y, z, id, oldId);
       if (oldId === BLOCK.SAPLING && id !== BLOCK.SAPLING) this.saplings.removed(x, y, z);
       if (id === BLOCK.SAPLING && oldId !== BLOCK.SAPLING) this.saplings.planted(x, y, z, this.tick);
+      if (isCrop(id) || isCrop(oldId)) this.farming.changed(x, y, z, id);
       if (id === BLOCK.QUARRY_STONE || oldId === BLOCK.QUARRY_STONE) this.quarry.changed(x, y, z, id);
       if (fluidKind(id) || fluidKind(oldId)) this.fluids.changed(x, y, z, id, oldId);
       if (turretType(oldId) && id !== oldId) this.turretController.remove(x, y, z);
@@ -805,9 +809,7 @@ export class Game {
       this.dropAt(state.reinforced ? ITEM.REINFORCED_DOOR : ITEM.DOOR, x, lower, z);
     } else {
       this.world.setBlock(x, y, z, BLOCK.AIR);
-      const drop = getBlockDef(id).drops;
-      if (drop !== null) this.dropAt(drop, x, y, z);
-      if (id === BLOCK.LEAVES && Math.random() < SAPLING_DROP_CHANCE) this.dropAt(ITEM.TREE_SEED, x, y, z);
+      for (const stack of blockDrops(id)) this.dropAt(stack.item, x, y, z, stack.count);
     }
     FACING_DIRS.forEach(([dx, dz], facing) => {
       // A ladder on the west side of this block faces east, toward it.
@@ -815,7 +817,7 @@ export class Game {
       if (isLadder(n) && ladderFacing(n) === facing) this.breakBlock(x - dx, y, z - dz);
     });
     const above = this.world.getBlock(x, y + 1, z);
-    if (above === BLOCK.SAPLING) this.breakBlock(x, y + 1, z);
+    if (above === BLOCK.SAPLING || isCrop(above)) this.breakBlock(x, y + 1, z);
     if (isDoor(above) && !doorState(above).upper) this.breakBlock(x, y + 1, z);
   }
 
@@ -872,6 +874,26 @@ export class Game {
       this.swing(player);
       return;
     }
+    // A hoe tills grass or dirt with open space above into farmland.
+    if (getItemDef(player.held()).tool === 'hoe' && (id === BLOCK.GRASS || id === BLOCK.DIRT) && this.inReach(player, pos)) {
+      const above = this.world.getBlock(pos.x, pos.y + 1, pos.z);
+      if (isSolid(above) || isLiquid(above)) return;
+      if (getBlockDef(above).shape === 'plant') this.breakBlock(pos.x, pos.y + 1, pos.z);
+      this.world.setBlock(pos.x, pos.y, pos.z, BLOCK.FARMLAND);
+      this.swing(player);
+      return;
+    }
+    // Right click a ripe crop: harvest it into your inventory and replant
+    // (one of its seeds goes back in the ground).
+    if (isMatureCrop(id) && this.inReach(player, pos)) {
+      this.harvestCrop(pos.x, pos.y, pos.z, stack => {
+        const left = player.inventory.addStack(stack);
+        if (left) this.dropAt(stack.item, pos.x, pos.y, pos.z, left, stack.mods);
+      });
+      player.inventoryDirty = true;
+      this.swing(player);
+      return;
+    }
     if (!isDoor(id) || !this.inReach(player, pos)) return;
     const { facing, open, upper } = doorState(id);
     const lower = upper ? pos.y - 1 : pos.y;
@@ -881,6 +903,19 @@ export class Game {
     this.world.setBlock(pos.x, lower, pos.z, doorBlock(facing, !open, false, reinforced));
     this.world.setBlock(pos.x, lower + 1, pos.z, doorBlock(facing, !open, true, reinforced));
     this.swing(player);
+  }
+
+  // Harvests a ripe crop and replants it at its first stage, keeping one
+  // seed back for that. give(stack) receives the rest.
+  harvestCrop(x, y, z, give) {
+    const id = this.world.getBlock(x, y, z), crop = cropAt(id);
+    if (!crop || !isMatureCrop(id)) return false;
+    for (const stack of blockDrops(id)) {
+      if (stack.item === crop.crop.seed) stack.count--;
+      if (stack.count > 0) give(stack);
+    }
+    this.world.setBlock(x, y, z, crop.crop.stages[0]);
+    return true;
   }
 
   // Places the block in `slot` at `pos`: an in-reach air cell next to a block,
@@ -912,6 +947,10 @@ export class Game {
       const soil = this.world.getBlock(pos.x, pos.y - 1, pos.z);
       if (soil !== BLOCK.GRASS && soil !== BLOCK.DIRT) return;
       cells = [[pos.x, pos.y, pos.z, BLOCK.SAPLING]];
+    } else if (def.places === 'crop') {
+      if (pos.ny !== 1 || this.world.getBlock(pos.x, pos.y, pos.z) !== BLOCK.AIR) return;
+      if (this.world.getBlock(pos.x, pos.y - 1, pos.z) !== BLOCK.FARMLAND) return;
+      cells = [[pos.x, pos.y, pos.z, CROPS[def.crop].stages[0]]];
     } else if (def.places === 'ladder') {
       // Flat against the side of a full block: the targeted face must be a side.
       if (pos.ny !== 0 || (pos.nx === 0 && pos.nz === 0)) return;
@@ -1474,7 +1513,35 @@ export class Game {
       if (s.y < this.world.voidY) this.removeCow(cow);
       else if (`${s.x},${s.y},${s.z},${s.yaw}` !== before) moved.push(cow);
     }
+    this.breedCows();
     return moved;
+  }
+
+  // Wheat in hand, right click a cow (sent as `talk`): it's in love for a
+  // while. Two cows in love near each other have a calf.
+  feedCow(player, cow) {
+    if (player.held() !== ITEM.WHEAT || this.tick < (cow.breedReadyTick ?? 0) || (cow.loveUntil ?? 0) > this.tick) return;
+    const s = player.state, c = cow.state;
+    if (Math.hypot(s.x - c.x, s.y - c.y, s.z - c.z) > NPC.talkReach + 1) return;
+    player.inventory.takeOne(player.selected);
+    player.inventoryDirty = true;
+    cow.loveUntil = this.tick + ticks(FARMING.loveTime);
+    this.swing(player);
+  }
+
+  breedCows() {
+    if (this.tick % 10) return;
+    const loving = [...this.cows.activeValues()].filter(c => (c.loveUntil ?? 0) > this.tick);
+    for (let i = 0; i < loving.length; i++) for (let j = i + 1; j < loving.length; j++) {
+      const a = loving[i], b = loving[j];
+      if ((a.loveUntil ?? 0) <= this.tick || (b.loveUntil ?? 0) <= this.tick) continue;
+      if (Math.hypot(a.state.x - b.state.x, a.state.y - b.state.y, a.state.z - b.state.z) > FARMING.breedRange) continue;
+      a.loveUntil = b.loveUntil = 0;
+      a.breedReadyTick = b.breedReadyTick = this.tick + ticks(FARMING.breedCooldown);
+      const calf = new Cow(this.nextId++, a.herd, a.state.x, a.state.y, a.state.z);
+      this.cows.set(calf.id, calf);
+      this.broadcast({ type: S2C.ENTITY_SPAWN, entity: calf.describe() });
+    }
   }
 
   // A hurt cow's whole herd runs from the attacker. At 0 HP it drops leather and beef.
@@ -1764,6 +1831,8 @@ export class Game {
 
   // Right click on an NPC in reach: it answers this player only.
   talk(player, id) {
+    const cow = this.cows.get(id);
+    if (cow) { if (!player.dead) this.feedCow(player, cow); return; }
     const npc = this.npcs.get(id);
     if (!npc || player.dead || (!(npc instanceof WorkMonkey) && this.tick < (player.nextTalkTick ?? 0))) return;
     const s = player.state, n = npc.state, box = npc.def.box;
@@ -2208,6 +2277,7 @@ export class Game {
     this.chunkLoading.update(this.players.values());
     this.leafDecay.tick();
     this.saplings.tick(this.tick);
+    this.farming.tick(this.tick);
     this.quarry.tick(this.tick);
     this.turretController.step(this.tick);
     this.fortressTraps.step();

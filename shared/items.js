@@ -17,7 +17,7 @@
 //   texture       - armor: 'scales' draws the pieces with a scaled texture
 
 import { MAX_STACK, METALS, ELEMENTAL } from './config.js';
-import { BLOCK, getBlockDef, registeredBlockIds, ladderBlock, doorBlock, blockBase, isLadder, isDoor, doorState, isWater, isLava } from './blocks.js';
+import { BLOCK, getBlockDef, registeredBlockIds, ladderBlock, doorBlock, blockBase, isLadder, isDoor, doorState, isWater, isLava, isCrop } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { ACCESSORIES, RIFT_ORB } from './accessories.js';
 import { MOB_EGGS } from './mobEggs.js';
@@ -101,6 +101,13 @@ defineItem(ITEM.CROSSBOW, 'crossbow', { maxStack: 1, tool: 'crossbow', color: 0x
 defineItem(ITEM.ROPE_BUNDLE, 'rope bundle', { maxStack: 8, places: 'rope', shape: 'rope', color: getBlockDef(BLOCK.ROPE).color });
 // Right click to fire; pulls you to the block it hits.
 defineItem(ITEM.GRAPPLING_HOOK, 'grappling hook', { maxStack: 1, tool: 'grapple', color: 0x8d9299 });
+// Farming. Hoes till grass or dirt into farmland (right click); seeds plant on farmland.
+const HOES = [[ITEM.WOOD_HOE, 'wood', getBlockDef(BLOCK.PLANKS).color], [ITEM.STONE_HOE, 'stone', getBlockDef(BLOCK.STONE).color],
+  [ITEM.IRON_HOE, 'iron', IRON_COLOR]];
+for (const [id, material, color] of HOES) defineItem(id, `${material} hoe`, { maxStack: 1, tool: 'hoe', color, icon: `/textures/${material}-hoe.svg` });
+defineItem(ITEM.WHEAT_SEEDS, 'wheat seeds', { places: 'crop', crop: 'wheat', color: 0xc9b163, icon: '/textures/wheat-seeds.svg' });
+defineItem(ITEM.WHEAT, 'wheat', { color: 0xd8b44a, icon: '/textures/wheat.svg' });
+defineItem(ITEM.BREAD, 'bread', { color: 0xb5793a, icon: '/textures/bread.svg', food: 5 });
 defineItem(ITEM.RIFT_ORB, 'rift orb', { maxStack: RIFT_ORB.maxStack, shape: 'rift', color: 0xa66aff });
 
 const blockItems = new Map();
@@ -130,7 +137,8 @@ export function creativeItemIds() {
     if (isDoor(id)) return doorState(id).reinforced ? ITEM.REINFORCED_DOOR : ITEM.DOOR;
     if (isWater(id)) return BLOCK.WATER;
     if (isLava(id)) return BLOCK.LAVA;
-    if (id === BLOCK.FIRE_PORTAL) return null;
+    if (id === BLOCK.FIRE_PORTAL || id === BLOCK.BRANCH) return null;
+    if (isCrop(id)) return null;
     return id < 256 ? blockBase(id).base : id;
   });
   return [...new Set(ids.filter(id => id !== null))];

@@ -447,6 +447,8 @@ Right click on an NPC. The server answers with `speak`, to this player only,
 if the NPC is alive and within 6 blocks of the eyes (`NPC.talkReach`), at most
 once per `NPC.talkCooldown` for Wise/Ancient NPC dialogue. Worker screens
 can be reopened immediately.
+Right click on a cow while holding wheat also sends `talk` with the cow's
+id: the server feeds it (see **Farming**).
 For a working monkey this opens a private `monkey` taming or configuration
 view instead of ordinary dialogue. Wild monkeys are brown; taming assigns
 the winning player's team and changes their fur to that team's color.
@@ -1275,6 +1277,28 @@ chance to drop a sapling, and breaking leaves drops one 10% of the time
 (`SAPLING_DROP_CHANCE`). The server schedules planted saplings to grow in
 30 seconds (`SAPLING_GROW_TIME`),
 sending the resulting tree as `blockChange` messages.
+
+## Farming
+
+Block 151 is farmland; 152–155 are wheat's four growth stages (`CROPS` in
+`shared/blocks.js`). Items 324–329: wheat seeds, wheat, wood/stone/iron hoes
+and bread (3 wheat, heals 5). Tuning is `FARMING` in `shared/config.js`.
+
+- `input.use` on grass or dirt (with no solid block or liquid above) while
+  holding a hoe tills it into farmland, clearing a plant on top.
+- Seeds are placed (`input.place`) only on top of farmland.
+- Each stage lasts 35–70 s. A crop off farmland breaks. Breaking an unripe
+  crop drops one seed; a ripe one drops 1 wheat and 1–3 seeds. Farmland
+  drops dirt, and breaking it breaks the crop on top.
+- `input.use` on a ripe crop harvests it straight into the inventory (extra
+  drops fall) and replants it, keeping one of its seeds back.
+- Grass tufts and ferns drop wheat seeds 15% of the time.
+- Feeding wheat to a cow (`talk` on it) puts it in love for 30 s; two cows in
+  love within 8 blocks have a calf (a new cow in the first one's herd,
+  announced with `entitySpawn`), then wait 5 minutes before breeding again.
+- Grass spreads: each tick, 3 random columns within 40 blocks of each player
+  are checked, and exposed top dirt next to grass (within one block up or
+  down) becomes grass.
 
 ## Tiny islands
 

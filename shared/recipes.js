@@ -55,6 +55,10 @@ export const RECIPES = [
   { id: 'bronze_armor', station: 'workbench', output: ITEM.BRONZE_ARMOR, count: 1, inputs: needs([ITEM.BRONZE_INGOT, METALS.crafting.bronzeArmorIngots]) },
   { id: 'anvil', station: 'workbench', output: BLOCK.ANVIL, count: 1, inputs: needs([ITEM.IRON_INGOT, 6]) },
   { id: 'dragonscale_armor', station: 'workbench', output: ITEM.DRAGONSCALE_ARMOR, count: 1, inputs: needs([ITEM.DRAGON_SCALE, 8]) },
+  { id: 'wood_hoe', station: 'workbench', output: ITEM.WOOD_HOE, count: 1, inputs: needs([BLOCK.PLANKS, 2], [BLOCK.WOOD, 1]) },
+  { id: 'stone_hoe', station: 'workbench', output: ITEM.STONE_HOE, count: 1, inputs: needs([BLOCK.STONE, 2], [BLOCK.WOOD, 1]) },
+  { id: 'iron_hoe', station: 'workbench', output: ITEM.IRON_HOE, count: 1, inputs: needs([ITEM.IRON_INGOT, 2], [BLOCK.WOOD, 1]) },
+  { id: 'bread', station: null, output: ITEM.BREAD, count: 1, inputs: needs([ITEM.WHEAT, 3]) },
   { id: 'glider', station: 'workbench', output: ITEM.GLIDER, count: 1, inputs: needs([ITEM.LEATHER, 3], [BLOCK.WOOD, 2]) },
 ];
 

@@ -70,4 +70,11 @@ export const ITEM = {
   ANCIENT_FIRE_MONKEY_EGG: ELEMENTAL.itemIds.ancientFireMonkeyEgg,
   DRAGON_CROWN: ELEMENTAL.itemIds.dragonCrown,
   DRAGON_HEART: ELEMENTAL.itemIds.dragonHeart,
+  // Farming (FARMING in config.js).
+  WHEAT_SEEDS: 324,
+  WHEAT: 325,
+  WOOD_HOE: 326,
+  STONE_HOE: 327,
+  IRON_HOE: 328,
+  BREAD: 329,
 };

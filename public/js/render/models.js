@@ -70,6 +70,18 @@ function createHammer(color) {
   return group;
 }
 
+// A hoe standing on its handle: a long shaft and a flat blade sticking
+// out sideways at the top.
+function createHoe(color) {
+  const group = new THREE.Group();
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.6, 8), lambert(0x8c6a42));
+  handle.position.y = 0.3;
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.03), lambert(color));
+  blade.position.set(0.07, 0.58, 0);
+  group.add(handle, blade);
+  return group;
+}
+
 // A sword standing on its pommel: brown grip, gray crossguard, and a flat
 // blade in the material's color along +Y.
 function createSword(color) {
@@ -801,6 +813,17 @@ export function createItemModel(item, blockSize = 0.25) {
     group.add(handle,head);return group;
   }
   if (def.tool === 'hammer') return createHammer(def.color);
+  if (def.tool === 'hoe') return createHoe(def.color);
+  // Plain items drawn from an SVG icon (seeds, wheat, bread): a flat picture.
+  if (def.icon && def.block === null && !def.tool && !def.shape) {
+    let texture = plantItemTextures.get(item);
+    if (!texture) { texture = new THREE.TextureLoader().load(def.icon); texture.colorSpace = THREE.SRGBColorSpace;
+      texture.magFilter = THREE.NearestFilter; plantItemTextures.set(item, texture); }
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(blockSize * 1.2, blockSize * 1.2),
+      new THREE.MeshLambertMaterial({ map: texture, alphaTest: 0.5, side: THREE.DoubleSide }));
+    mesh.position.y = blockSize * 0.6;
+    const group = new THREE.Group(); group.add(mesh); return group;
+  }
   if (def.tool === 'sword') return createSword(def.color);
   if (def.tool === 'bow') return createBow(def.color);
   if (def.tool === 'windAxe') return createWindAxe(def.color);

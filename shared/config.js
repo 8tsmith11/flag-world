@@ -30,6 +30,19 @@ export const QUARRY_REGROW_TIME = 5;
 // takes to grow into a tree (seconds, a random time in this range).
 export const SAPLING_DROP_CHANCE = 0.1;
 export const SAPLING_GROW_TIME = [30, 30];
+// Farming: a hoe tills grass or dirt (with air above) into farmland; seeds
+// plant on farmland and grow through the crop's stages, each taking a random
+// stageTime (seconds). A mature crop drops its produce plus matureSeeds seeds;
+// an unripe one drops one seed. Grass tufts and ferns drop seeds at
+// seedFromGrass. Feeding wheat to two cows within breedRange (blocks) of each
+// other while both are in love (loveTime) breeds a calf; parents then wait
+// breedCooldown. Grass spreads onto exposed dirt next to grass: each tick,
+// grassSamples random columns within grassRange of each player are checked.
+export const FARMING = {
+  stageTime: [35, 70], matureSeeds: [1, 3], seedFromGrass: 0.15,
+  loveTime: 30, breedRange: 8, breedCooldown: 300,
+  grassSamples: 3, grassRange: 40,
+};
 
 // Player physics (blocks, seconds).
 export const PLAYER_WIDTH = 0.6;

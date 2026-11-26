@@ -184,7 +184,13 @@ export class Garrison {
       ready.push(slot);
     }
     ready.sort((a, b) => priority(a) - priority(b));
+    // The whole village grows slowly: one new goblin per birthSeconds for
+    // workers and for fighters separately (King/Totem aside), so a freshly
+    // built area fills over minutes instead of all at once.
+    this.births ??= { worker: 0, fighter: 0 };
     for (const slot of ready) {
+      const kind = slot.role === 'worker' ? 'worker' : 'fighter';
+      if (!slot.unique && tick < this.births[kind]) continue;
       // A slot with no spawn site or no route waits before searching again,
       // rather than repeating the search every tick.
       const spawn = this.spawnFor(slot); if (!spawn) { slot.retry = tick + C.spawnRetryTicks; continue; }
@@ -199,6 +205,7 @@ export class Garrison {
       if (!route.length && dist(spawn.point, slot.point) > 0.1 && this.construction.done) { slot.retry = tick + C.spawnRetryTicks; continue; }
       const mob = new GoblinUnit(this.game.nextId++, this, slot, spawn.point); mob.path = route;
       slot.mob = mob; this.game.mobs.set(mob.id, mob);
+      if (!slot.unique) this.births[kind] = tick + Math.round(C.birthSeconds[kind] * TICK_RATE);
       this.releases.set(spawn.id, tick + Math.round(C.releaseSeconds * TICK_RATE));
       this.game.broadcast({ type: S2C.ENTITY_SPAWN, entity: mob.describe() });
     }
