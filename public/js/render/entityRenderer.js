@@ -395,7 +395,9 @@ export class EntityRenderer {
         object.rotation.y = now * ITEM_SPIN_SPEED + spin.phase;
         spin.inner.position.y = ITEM_BOB_HEIGHT * (1 + Math.sin(now * ITEM_BOB_SPEED + spin.phase));
       } else {
-        object.rotation.y = lerpAngle(a.yaw, b.yaw, t);
+        // (Some entities, such as grenades, have no yaw: a NaN rotation would
+        // make the whole model vanish.)
+        object.rotation.y = lerpAngle(a.yaw ?? 0, b.yaw ?? 0, t);
         if (object.userData.dragon) object.rotation.x = a.pitch + (b.pitch - a.pitch) * t;
       }
       const span = (b.time - a.time) / 1000;
