@@ -113,7 +113,7 @@ function tooltipDetails(stack) {
   else if (def.food) effects.push(`Restores ${def.food} HP over time when eaten`);
   if (def.tool === 'hoe') effects.push('Right click grass or dirt to till it into farmland');
   if (def.places === 'crop') effects.push('Right click farmland to plant');
-  if (stack.item === ITEM.WHEAT) effects.push('Feed to cows to breed them', 'Craft 3 into bread');
+  if (stack.item === ITEM.WHEAT) effects.push('Cows follow you while you hold it', 'Feed to cows to breed them', 'Craft 3 into bread');
   if (stack.item === ITEM.GLIDER) effects.push('Hold right click in the air to glide');
   if (stack.item === ITEM.ROPE_BUNDLE) effects.push(`Hangs up to ${ROPE_LENGTH} blocks of climbable rope`);
   if (ITEM_TIPS[stack.item]) effects.push(...ITEM_TIPS[stack.item]);

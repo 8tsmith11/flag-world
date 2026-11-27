@@ -304,7 +304,7 @@ server/
   inventory.js               36 slots + cursor stack: pickup, clicks, crafting
   item.js                    Dropped item entity
   arrow.js                   Arrow entity: flight, swept collision, sticking
-  cow.js                     Cows and herds: wandering, panic, path following
+  cow.js                     Cows and herds: wandering, panic, following players holding wheat
   pathfind.js                A* over standable blocks for walking mobs
   dragon.js                  Dragons: patrol, landing, leash, fire breath
   crawler.js                 Crawlers: wandering, hunting, wall climbing, bites

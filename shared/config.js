@@ -279,6 +279,13 @@ export const COW_FLEE_SPEED = 0.85;
 export const COW_HERD_AREA = 20000;
 export const COW_HERD_SIZE = [3, 6];
 export const COW_PANIC_TIME = 5;
+// A player holding a cow's breeding food (wheat) within COW_TEMPT_RANGE
+// blocks (and COW_TEMPT_HEIGHT up or down) leads cows: they walk after them
+// at COW_TEMPT_SPEED and stop COW_TEMPT_STOP blocks away, facing them.
+export const COW_TEMPT_RANGE = 10;
+export const COW_TEMPT_HEIGHT = 4;
+export const COW_TEMPT_SPEED = 0.5;
+export const COW_TEMPT_STOP = 2;
 export const COW_DROPS = { leather: [0, 2], beef: [1, 3] };
 
 // Dragons patrol above the island and dive to breathe fire at nearby players.

@@ -144,7 +144,7 @@ export const QUESTS = [
   { id: 'farming', chapter: 'adventure', x: 9, y: 1, links: ['food'], icon: ITEM.WHEAT, title: 'Farming', goal: obtained(ITEM.WHEAT),
     reward: [{ item: ITEM.WHEAT_SEEDS, count: 4 }],
     text: ['Breaking grass tufts and ferns sometimes gives wheat seeds. Craft a hoe at a workbench (wood hoe: 2 planks and 1 wood; stone hoe: 2 stone and 1 wood; iron hoe: 2 iron ingots and 1 wood) and right click grass or dirt with it to till farmland, then right click farmland with seeds to plant.',
-      'Crops grow by themselves. Right click a ripe crop to harvest it and replant. Feed wheat to two cows to breed them.'] },
+      'Crops grow by themselves. Right click a ripe crop to harvest it and replant. Cows follow anyone holding wheat, so you can lead them home; feed wheat to two cows to breed them.'] },
 
   // ---- Keep and combat ----
   { id: 'keep', chapter: 'adventure', x: 0, y: 3, icon: BLOCK.PEDESTAL, title: 'Your Keep and Flag', goal: obtained(BLOCK.WOOD, BLOCK.DIRT),

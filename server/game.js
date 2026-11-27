@@ -12,7 +12,7 @@ import {
   REACH_DISTANCE, HOTBAR_SIZE, ITEM_SIZE, TOWER_MIN_HEIGHT,
   BOW_COOLDOWN, ARROW_SPEED, ARROW_DAMAGE, ARROW_KNOCKBACK, ARROW_GRAVITY,
   CROSSBOW_ARROW_SPEED, CROSSBOW_ARROW_DAMAGE, CROSSBOW_ARROW_GRAVITY, ROPE_LENGTH,
-  COW_HERD_AREA, COW_HERD_SIZE, COW_WIDTH, COW_PANIC_TIME, COW_DROPS, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
+  COW_HERD_AREA, COW_HERD_SIZE, COW_WIDTH, COW_PANIC_TIME, COW_DROPS, COW_TEMPT_RANGE, COW_TEMPT_HEIGHT, ITEM_PICKUP_RADIUS, ITEM_PICKUP_DELAY,
   DRAGON_FIRE_DAMAGE, DRAGON_DROPS,
   ITEM_THROW_PICKUP_DELAY, ITEM_THROW_SPEED, ITEM_POP_SPEED,
   MAX_HP, REGEN_DELAY, REGEN_INTERVAL, EAT_TIME, FOOD_HEAL_TIME, HIT_TOLERANCE,
@@ -1823,9 +1823,17 @@ export class Game {
   // Moves every cow; returns the ones that moved (for STATE).
   updateCows() {
     const moved = [];
+    // Players holding wheat, who tempt cows to follow them.
+    const tempting = [...this.players.values()].filter((p) => !p.dead && p.connected && p.held() === ITEM.WHEAT);
     for (const cow of this.cows.activeValues()) {
       const s = cow.state;
       const before = `${s.x},${s.y},${s.z},${s.yaw}`;
+      let tempter = null, best = COW_TEMPT_RANGE;
+      for (const p of tempting) {
+        const d = Math.hypot(p.state.x - s.x, p.state.z - s.z);
+        if (d <= best && Math.abs(p.state.y - s.y) <= COW_TEMPT_HEIGHT) { tempter = p; best = d; }
+      }
+      cow.tempter = tempter;
       cow.step(this.world, this.tick);
       steerGround(cow, this.world);
       this.cows.relocate(cow);

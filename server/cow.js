@@ -4,10 +4,12 @@
 //
 // Each cow grazes, wanders near the middle of its herd, and wanders back if
 // it strays. When any cow in a herd is hurt, the whole herd panics and runs
-// away from the attacker for COW_PANIC_TIME. Routes come from findPath.
+// away from the attacker for COW_PANIC_TIME. A player holding wheat (their
+// breeding food) nearby tempts cows to follow them (`tempter`, chosen by
+// Game.updateCows). Routes come from findPath.
 
 import {
-  TICK_RATE, COW_WIDTH, COW_HEIGHT, COW_HP, COW_WANDER_SPEED, COW_FLEE_SPEED,
+  TICK_RATE, COW_WIDTH, COW_HEIGHT, COW_HP, COW_WANDER_SPEED, COW_FLEE_SPEED, COW_TEMPT_SPEED, COW_TEMPT_STOP,
 } from '../shared/config.js';
 import { createPlayerState, stepPlayer, isInWater } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
@@ -93,6 +95,21 @@ export class Cow {
       }
       return COW_FLEE_SPEED;
     }
+    // Tempted by wheat: follow the player, stopping a little short, facing them.
+    const t = this.tempter?.state;
+    if (t) {
+      const dx = t.x - s.x, dz = t.z - s.z;
+      if (Math.hypot(dx, dz) <= COW_TEMPT_STOP) { this.path = []; s.yaw = Math.atan2(-dx, -dz); this.wait = TICK_RATE; return 0; }
+      const goal = this.path.at(-1);
+      if (--this.repath <= 0 || !goal || Math.hypot(goal.x + 0.5 - t.x, goal.z + 0.5 - t.z) > 2) {
+        this.goTo(world, t.x, t.z, 300);
+        this.repath = Math.floor(TICK_RATE / 2) + Math.floor(Math.random() * 4);
+      }
+      if (this.path.length) return COW_TEMPT_SPEED;
+      s.yaw = Math.atan2(-dx, -dz);
+      return 0;
+    }
+    if (this.tempted) { this.path = []; this.tempted = false; }
     if (this.path.length) return COW_WANDER_SPEED;
     if (--this.wait > 0) return 0;
     this.wait = Math.floor((2 + Math.random() * 4) * TICK_RATE);
@@ -108,6 +125,7 @@ export class Cow {
 
   // One tick: follow the path (steering, jumping up steps) through the shared physics.
   step(world, tick) {
+    if (this.tempter) this.tempted = true;
     const speed = this.think(world, tick);
     const s = this.state;
     let forward = 0, jump = false;
