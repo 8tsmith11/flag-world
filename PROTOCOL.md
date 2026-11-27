@@ -1963,3 +1963,9 @@ to the same successful world and record the resolved seed as `world.seed`.
   owner, x, y, z, where, bite}`), sent to everyone when they move or a bite
   starts or ends. Fisherman monkeys (role `fisherman`, config `fishSpot`,
   `castDir` 0..3) use the same rules, ten times slower.
+- Void fishing counts only just above the void's kill depth (`voidY + 4`),
+  below where Void Eels swim. A hooked Void Eel (tier 2 void) is reeled up
+  the line from the bobber to land beside whoever hooked it: it hunts a
+  player who hooked it; one hooked by a monkey hovers within 4 blocks of
+  where it landed for 2 minutes (only going for players near that spot),
+  then follows the line back down to the void.

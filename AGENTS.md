@@ -192,7 +192,10 @@ including the host, plays by opening `http://<host-ip>:3000`.
   The server (`server/fishing.js`) decides casts, bait, conservation (one
   roll per attempt), bites and catches; bait choice is per player
   (`inventory.bait`). Fisherman monkeys: `fishermanWork` in
-  `server/monkeyWorkers.js`. Check: `node scripts/fishing-check.js`.
+  `server/monkeyWorkers.js`. Hooked Void Eels are ordinary `VoidEel`s
+  (`hooked()` in server/eel.js: reeled up the line, then hunt the player or
+  hover for the monkey, then home down the line). Check:
+  `node scripts/fishing-check.js`.
 
 ## Quest book design rules
 

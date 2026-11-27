@@ -97,11 +97,20 @@ export class Fishing {
 
   get world() { return this.game.world; }
 
-  // How low a bobber must get to be fishing in the void.
-  voidY() {
-    const lowest = Math.min(...(this.world.islands ?? []).map((i) => i.bottomY));
-    const y = Number.isFinite(lowest) ? lowest - F.voidBelowIslands : this.world.voidY + EEL_BAND.aboveVoid;
-    return Math.max(y, this.world.voidY + 2);
+  // How low a bobber must get to be fishing in the void: below the Void
+  // Eels' band, just above the void's kill depth.
+  voidY() { return this.world.voidY + F.voidAboveDeath; }
+
+  // Where a hooked eel lands beside its fisher: a clear spot a couple of
+  // blocks toward the line (or around them), at their height.
+  eelLanding(owner, bobber) {
+    const s = owner.state, toward = Math.atan2(bobber.z - s.z, bobber.x - s.x);
+    for (const r of [2.2, 3, 1.6, 4]) for (let k = 0; k < 8; k++) {
+      const a = toward + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * Math.PI / 4;
+      const p = { x: s.x + Math.cos(a) * r, y: s.y + 0.4, z: s.z + Math.sin(a) * r };
+      if (VoidEel.prototype.clear.call({}, this.world, p.x, p.y, p.z)) return p;
+    }
+    return { x: s.x, y: s.y + 2, z: s.z };
   }
 
   bobberOf(owner) { for (const b of this.bobbers.values()) if (b.owner === owner) return b; return null; }
@@ -221,7 +230,11 @@ export class Fishing {
     game.teamProgress?.event(team, `fishCaught:${attempt.where}`);
     if (bobber.monkey) game.teamProgress?.event(team, 'monkeyFished');
     if (result.encounter === 'voidEel') {
+      // It comes up the line from the bobber to land beside the fisher.
+      const landing = this.eelLanding(owner, bobber);
       const eel = new VoidEel(game.nextId++, game.eelBand(), { x: bobber.x, y: bobber.y, z: bobber.z });
+      eel.hooked(game.tick, { x: bobber.x, y: bobber.y, z: bobber.z }, landing,
+        bobber.monkey ? { patrol: true } : { hunt: owner });
       game.mobs.set(eel.id, eel);
       game.broadcast({ type: S2C.ENTITY_SPAWN, entity: eel.describe() });
       game.teamProgress?.event(team, 'fishedEel');

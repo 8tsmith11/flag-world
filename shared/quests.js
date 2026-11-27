@@ -332,7 +332,7 @@ export const QUESTS = [
       `When something bites, the tip of your rod bends down a little, and the bobber dips under with a splash. Reel in straight away (within about a second) and you always catch something. Reel in before the bite, or too late, and it gets away, bait and all. Bites usually come after ${FISHING.bite.min}-${FISHING.bite.max} seconds.`,
       'Water gives fish (eat them: hold right click), and now and then seeds, leather, rope, coins, iron or a loot crate.'] },
   { id: 'voidFishing', chapter: 'adventure', x: 10, y: 3, links: ['waterFishing'], icon: ITEM.VOID_FISH, title: 'Fishing the Void', goal: event('fishCaught:void'),
-    text: [`Cast off the edge of an island into the void. Your line is very long (${FISHING.maxLine} blocks), and the bobber has to fall all the way down to the real void, far below the islands; the open air just under an island isn't deep enough.`,
+    text: [`Cast off the edge of an island into the void. Your line is very long (${FISHING.maxLine} blocks), and the bobber has to fall all the way down to the real void, far below the islands and below where the Void Eels swim; the open air under an island isn't deep enough.`,
       'Down there you can\'t see the bobber, so watch the tip of your rod: it bends when something bites. The void gives void fish, which bite nowhere else, and other odd things.'] },
   { id: 'lootCrates', chapter: 'adventure', x: 10, y: 4, links: ['waterFishing'], icon: ITEM.LOOT_CRATE, title: 'Loot Crates', goal: event('crateOpened'),
     text: ['Now and then a catch is a loot crate. Hold it and right click to open it: coins, metal, seeds, leather and silk, sometimes gear, a fishing rod with a modifier, or an accessory.',
@@ -427,8 +427,8 @@ export const QUESTS = [
   // ---- The deep void ----
   { id: 'eelCatch', chapter: 'beyond', x: 7, y: 3, icon: ITEM.VOID_EEL_EGG, title: 'Something Bit Back', hidden: true,
     reveal: event('fishedEel'), goal: event('fishedEel'),
-    text: ['Fishing the deep void with a tier 2 rod, you hooked a Void Eel and pulled it up. It came up angry, right where your line was.',
-      'A Fisherman monkey working the void can hook one too: guard your fishing platforms.'] },
+    text: ['Fishing the deep void with a tier 2 rod, you hooked a Void Eel and reeled it all the way up. It landed right beside you, and it is angry: it hunts whoever hooked it.',
+      `A Fisherman monkey working the void can hook one too. That eel lands beside the monkey and hovers around its fishing spot for about ${Math.round(FISHING.eel.patrolSeconds / 60)} minutes before sinking back down: arrow turrets, guard monkeys or spike barricades there can deal with it.`] },
 
   // ---- The frozen island and the Ancient Monkeys ----
   { id: 'iceIsland', chapter: 'beyond', x: 0, y: 2, icon: BLOCK.PACKED_ICE, title: 'The Frozen Island', goal: event('visit:ice'),

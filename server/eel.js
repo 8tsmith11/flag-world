@@ -11,6 +11,7 @@ import { playerBoxOf, playerFitsAt } from '../shared/physics.js';
 import { isSolid } from '../shared/blocks.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { Provocation, huntable } from './provocation.js';
+import { FISHING } from '../shared/config.js';
 
 export const EEL_BOX = { halfW: 0.6, height: 0.8 };
 const WINDUP_TICKS = Math.round(EEL_LUNGE_WINDUP * TICK_RATE);
@@ -95,6 +96,54 @@ export class VoidEel {
     this.escapeTrail = [];
   }
 
+  // Hooked on a fishing line (server/fishing.js): reeled up from `from` (the
+  // bobber) to `to` beside the fisher, then it hunts `then.hunt` (a player)
+  // or, for a monkey's catch (`then.patrol`), hovers around the landing spot
+  // for a while. Either way it goes home down the line it came up.
+  hooked(tick, from, to, then) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) / 2));
+    const line = Array.from({ length: steps + 1 }, (_, i) => ({ x: from.x + (to.x - from.x) * i / steps,
+      y: from.y + (to.y - from.y) * i / steps, z: from.z + (to.z - from.z) * i / steps }));
+    this.pull = { line, i: 1, then };
+    // Its way home: the line, deepest point first (returnGoal walks it from the end).
+    this.homeLine = line.slice();
+  }
+
+  // One tick of being reeled in. True while still on the line.
+  stepPull(tick) {
+    const p = this.pull, s = this.state;
+    let move = FISHING.eel.pullSpeed * TICK_DT;
+    while (move > 0 && p.i < p.line.length) {
+      const goal = p.line[p.i], c = this.center();
+      const dx = goal.x - c.x, dy = goal.y - c.y, dz = goal.z - c.z, d = Math.hypot(dx, dy, dz);
+      if (d <= move) { s.x += dx; s.y += dy; s.z += dz; move -= d; p.i++; continue; }
+      s.x += dx / d * move; s.y += dy / d * move; s.z += dz / d * move;
+      s.yaw = Math.atan2(-dx, -dz); s.pitch = Math.atan2(dy, Math.max(0.01, Math.hypot(dx, dz)));
+      move = 0;
+    }
+    this.rememberTrail();
+    if (p.i < p.line.length) return true;
+    this.pull = null;
+    const to = p.line.at(-1);
+    if (p.then.hunt) { this.provocation.provoke(p.then.hunt, tick); this.target = p.then.hunt; this.lastSeenTick = tick; }
+    if (p.then.patrol) this.patrol = { x: to.x, y: to.y, z: to.z, until: tick + Math.round(FISHING.eel.patrolSeconds * TICK_RATE), goal: null, next: 0 };
+    this.escapeTrail = this.homeLine ?? [];
+    return false;
+  }
+
+  // A monkey's catch hovering where it landed; null once that time is up.
+  patrolGoal(tick) {
+    const p = this.patrol;
+    if (!p) return null;
+    if (tick >= p.until) { this.patrol = null; this.wanderGoal = null; return null; }
+    const c = this.center(), r = FISHING.eel.patrolRadius;
+    if (!p.goal || tick >= p.next || Math.hypot(c.x - p.goal.x, c.y - p.goal.y, c.z - p.goal.z) < 1.2) {
+      p.goal = { x: p.x + (Math.random() - 0.5) * 2 * r, y: p.y + (Math.random() - 0.5) * 2, z: p.z + (Math.random() - 0.5) * 2 * r };
+      p.next = tick + TICK_RATE * 3;
+    }
+    return p.goal;
+  }
+
   center() {
     const s = this.state;
     return { x: s.x, y: s.y + EEL_BOX.height / 2, z: s.z };
@@ -148,6 +197,9 @@ export class VoidEel {
     let nearest = null;
     for (const player of players) {
       if (!this.detectable(world, player, night)) continue;
+      // Hovering where a monkey hooked it, it only goes for players near
+      // that spot (one who hits it is still chased, as a provoker).
+      if (this.patrol && Math.hypot(player.state.x - this.patrol.x, player.state.z - this.patrol.z) > FISHING.eel.patrolRadius + 6) continue;
       const p = player.state, c = this.center();
       const distance = Math.hypot(p.x - c.x, p.z - c.z);
       if (!nearest || distance < nearest.distance) nearest = { player, distance };
@@ -246,6 +298,7 @@ export class VoidEel {
 
   step(world, players, tick, night = false) {
     this.night = night;
+    if (this.pull && this.stepPull(tick)) return null;
     const target = this.chooseTarget(world, players, tick, night);
     if (!target) { this.windupTicks = 0; this.lungeTicks = 0; }
     if (target && this.lungeTicks > 0) {
@@ -274,7 +327,7 @@ export class VoidEel {
       ? { x: target.state.x + (this.approachOffset?.x ?? 0),
         y: target.state.y + playerBoxOf(target.state).height / 2,
         z: target.state.z + (this.approachOffset?.z ?? 0) }
-      : this.returnGoal(world, tick);
+      : this.patrolGoal(tick) ?? this.returnGoal(world, tick);
     goal.x += this.separation?.x ?? 0;
     goal.y += this.separation?.y ?? 0;
     goal.z += this.separation?.z ?? 0;
@@ -284,7 +337,9 @@ export class VoidEel {
       if (!last || Math.hypot(this.state.x - last.x, this.state.y - last.y,
         this.state.z - last.z) > 1) this.escapeTrail.push({ x: this.state.x, y: this.state.y, z: this.state.z });
       if (this.escapeTrail.length > 500) this.escapeTrail.shift();
-    } else if (this.state.y <= this.bandTop(world)) this.escapeTrail.length = 0;
+    } else if (this.state.y <= this.bandTop(world) && !this.homeLine) this.escapeTrail.length = 0;
+    // A hooked eel back down in its band is an ordinary eel again.
+    if (this.homeLine && !this.patrol && !target && this.state.y <= this.bandTop(world) && !this.escapeTrail.length) this.homeLine = null;
     if (target && tick >= this.nextAttackTick
       && Math.hypot(target.state.x - this.state.x, target.state.y - this.state.y, target.state.z - this.state.z) < 5) {
       this.windupTicks = WINDUP_TICKS;

@@ -306,21 +306,42 @@ const settle = (who) => run(TICK_RATE * 15, () => bobber(who) && !bobber(who).fl
 }
 
 // ---- Void Eel encounters, from tier 2 void fishing ----
-{
+const perch = globalThis.voidPerch;
+const hookEel = (owner, monkey) => {
   const table = FISHING_LOOT['void:2'], saved = table.slice();
   table.splice(0, table.length, { encounter: 'voidEel', weight: 1, boost: 0 });
-  const mobs = game.mobs.size;
-  const b = game.fishing.spawn(host, ox + 45, game.fishing.voidY(), oz + 20, 0, 0, 0, false);
+  const b = game.fishing.spawn(owner, perch.x + 1.5, game.fishing.voidY(), perch.z + 0.5, 0, 0, 0, monkey);
   b.where = 'void'; b.bite = true;
+  const before = new Set(game.mobs.keys());
   const result = game.fishing.catchFish(b, { where: 'void', tier: 2, luck: 1 });
   game.fishing.remove(b);
   table.splice(0, table.length, ...saved);
   assert.equal(result.encounter, 'voidEel');
-  const eel = [...game.mobs.values()].find((m) => m.type === ENTITY_TYPE.VOID_EEL && Math.hypot(m.state.x - b.x, m.state.z - b.z) < 2);
-  assert.ok(game.mobs.size === mobs + 1 && eel, 'no Void Eel came up by the bobber');
+  const eel = [...game.mobs.values()].find((mob) => !before.has(mob.id));
+  assert.ok(eel?.type === ENTITY_TYPE.VOID_EEL, 'no Void Eel was hooked');
+  return { eel, b };
+};
+{
+  // The void bobber sits below where Void Eels swim.
+  assert.ok(game.fishing.voidY() < game.eelBand().bottom, 'void fishing is not below the Void Eels');
+  // A player hooks one: it comes up the line from the bobber and lands
+  // beside them, then goes for them.
+  Object.assign(host.state, { x: perch.x + 0.5, y: Y + 1, z: perch.z + 0.5, vx: 0, vy: 0, vz: 0 });
+  const { eel, b } = hookEel(host, false);
+  assert.ok(Math.hypot(eel.state.x - b.x, eel.state.z - b.z) < 1 && eel.state.y < Y - 100, 'the eel did not start down at the bobber');
+  let lastY = eel.state.y, rising = true;
+  run(TICK_RATE * 12, () => { rising &&= eel.state.y >= lastY - 1e-6; lastY = eel.state.y; return !eel.pull; });
+  assert.ok(!eel.pull && rising, 'the eel was not reeled up the line');
+  assert.ok(Math.hypot(eel.state.x - host.state.x, eel.state.z - host.state.z) < 5 && Math.abs(eel.state.y - host.state.y) < 3,
+    'the eel did not land beside its fisher');
+  assert.equal(eel.provocation.target, host, 'the eel is not after the player who hooked it');
+  let lunged = false;
+  run(TICK_RATE * 6, () => (lunged ||= eel.windupTicks > 0 || eel.lungeTicks > 0));
+  assert.ok(lunged, 'the eel never attacked its fisher');
   assert.ok(game.teamProgress.of(0).events.get('fishedEel') === 1);
+  game.mobs.delete(eel.id);
+  stand(host, 12, 7);
 }
-
 // ---- Loot crates ----
 {
   for (const name of ['lootCrate', 'ironboundCrate']) for (let i = 0; i < 50; i++) assert.ok(rollTable(name, Math.random).length >= LOOT_TABLES[name].rolls[0]);
@@ -421,15 +442,31 @@ const settle = (who) => run(TICK_RATE * 15, () => bobber(who) && !bobber(who).fl
   m.gear[0] = rod(ITEM.BRONZE_FISHING_ROD);
   run(TICK_RATE * 60, () => game.fishing.bobberOf(m)?.attempt);
   assert.equal(game.fishing.bobberOf(m)?.where, 'lava', `a bronze-rod fisherman did not fish lava (${m.status})`);
-  // A monkey can hook a Void Eel too (tier 2 void table).
-  const table = FISHING_LOOT['void:2'], saved = table.slice();
-  table.splice(0, table.length, { encounter: 'voidEel', weight: 1, boost: 0 });
-  const vb = game.fishing.bobberOf(m); vb.attempt.where = 'void'; vb.attempt.biteAt = game.tick;
-  const mobs = game.mobs.size; sent.clear();
-  run(2);
-  table.splice(0, table.length, ...saved);
-  assert.equal(game.mobs.size, mobs + 1, 'the monkey did not hook a Void Eel');
+  // A monkey hooks one off the void perch: it lands beside the monkey,
+  // hovers around that spot for a good while (long enough for turrets,
+  // guards or spikes), then goes back down the line.
+  game.fishing.remove(game.fishing.bobberOf(m));
+  Object.assign(m.state, { x: perch.x + 0.5, y: Y + 1, z: perch.z + 0.5 });
+  m.task = null; m.idleUntil = game.tick + TICK_RATE * 999;
+  sent.clear();
+  const { eel } = hookEel(m, true);
   assert.ok(messages(3, S2C.NOTICE).some((n) => /Void Eel/.test(n.text)), 'the team was not warned');
+  run(TICK_RATE * 12, () => !eel.pull);
+  const landed = { x: eel.state.x, y: eel.state.y, z: eel.state.z };
+  assert.ok(Math.hypot(landed.x - m.state.x, landed.z - m.state.z) < 5 && Math.abs(landed.y - m.state.y) < 3, 'the eel did not land beside the monkey');
+  assert.ok(eel.patrol, 'a monkey\'s eel is not hovering');
+  let farthest = 0;
+  run(TICK_RATE * (F.eel.patrolSeconds - 10), () => { farthest = Math.max(farthest, Math.hypot(eel.state.x - landed.x, eel.state.z - landed.z)); return false; });
+  assert.ok(farthest <= F.eel.patrolRadius + 3 && Math.abs(eel.state.y - landed.y) < 4, `the eel wandered off its spot (${farthest.toFixed(1)} blocks)`);
+  // Everyone back to their keeps (solid island under them), so nothing
+  // tempts it to stay up.
+  for (const p of [host, mate, enemy]) Object.assign(p.state, game.keepSpawn(game.world.keeps[game.occupiedTeams.indexOf(p.team)] ?? game.world.keeps[0]), { vx: 0, vy: 0, vz: 0 });
+  eel.target = null; eel.provocation.target = null;
+  run(TICK_RATE * 15);
+  assert.ok(!eel.patrol, 'the eel never stopped hovering');
+  run(TICK_RATE * 20);
+  assert.ok(eel.state.y < landed.y - 30, 'the eel did not go back down to the void');
+  game.mobs.delete(eel.id);
   game.npcs.delete(m.id);
 }
 

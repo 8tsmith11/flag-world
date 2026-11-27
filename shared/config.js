@@ -844,16 +844,22 @@ export const FISHING_IDS = {
 //   castSpeed, gravity, maxFall: the bobber's flight (blocks, seconds).
 //   maxLine: how far the bobber may get from where it was cast; long enough
 //     to reach the real void from an island.
-//   voidBelowIslands: void fishing counts only this far below the lowest
-//     island's underside (where Void Eels swim), not in the air just under
-//     an island.
+//   voidAboveDeath: void fishing counts only within this many blocks of the
+//     void's kill depth (world.voidY): below where Void Eels swim, never in
+//     the air just under an island.
+//   eel: a hooked Void Eel is reeled up the line at pullSpeed to land beside
+//     whoever hooked it. It hunts a player who hooked it; one hooked by a
+//     monkey hovers within patrolRadius of where it landed for
+//     patrolSeconds (time to be farmed by guards, turrets or spikes), then
+//     follows the line back down.
 //   bite: base wait in seconds, the mean of `samples` uniform draws between
 //     min and max (bounded, bunched around the middle); divided by the rod's
 //     Fishing Speed. window: seconds to reel in after a bite. Monkeys wait
 //     monkeySlowdown times longer and never miss.
 //   maxConservation: Bait Conservation never goes above this.
 export const FISHING = {
-  castSpeed: 13, castLift: 0.25, gravity: 20, maxFall: 30, maxLine: 320, voidBelowIslands: 18,
+  castSpeed: 13, castLift: 0.25, gravity: 20, maxFall: 30, maxLine: 400, voidAboveDeath: 4,
+  eel: { pullSpeed: 45, patrolSeconds: 120, patrolRadius: 4 },
   bite: { min: 6, max: 24, samples: 3 }, window: 1.1, monkeySlowdown: 10, maxConservation: 0.5,
   monkeyCastSpeed: 3, reelCooldown: 0.3,
   craft: { woodRodWood: 2, woodRodSilk: 2, bronzeRodBronze: 3 },
