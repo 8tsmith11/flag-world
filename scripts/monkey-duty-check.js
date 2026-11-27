@@ -232,7 +232,7 @@ const container = (p, c, id) => { world.setBlock(p.x, Y + 1, p.z, id); world.til
   for (const m of [w, c, u]) game.npcs.delete(m.id);
 }
 
-// ---- Wise Monkeys: unkillable, on unbreakable shrine bricks ----
+// ---- Wise Monkeys: unkillable, on an unbreakable throne ----
 {
   const wise = [...game.npcs.values()].find((n) => n.npc === 'wiseMonkey');
   assert.ok(wise, 'no Wise Monkey');
@@ -241,8 +241,10 @@ const container = (p, c, id) => { world.setBlock(p.x, Y + 1, p.z, id); world.til
   const below = world.getBlock(Math.floor(wise.state.x), Math.floor(wise.state.y) - 1, Math.floor(wise.state.z));
   assert.equal(below, BLOCK.SHRINE_BRICKS, 'the Wise Monkey does not sit on shrine bricks');
   const site = world.structures.find((s) => s.kind === 'monkeyShrine');
+  // The floor is ordinary stone bricks (mossy and cracked here and there).
+  const floor = [BLOCK.STONE_BRICKS, BLOCK.MOSSY_STONE_BRICKS, BLOCK.CRACKED_STONE_BRICKS];
   for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++)
-    assert.equal(world.getBlock(site.x + dx, site.y, site.z + dz), BLOCK.SHRINE_BRICKS, 'shrine floor is not shrine bricks');
+    assert.ok(floor.includes(world.getBlock(site.x + dx, site.y, site.z + dz)), 'the shrine floor is not stone bricks');
   const { canBreak } = await import('../shared/blocks.js');
   assert.ok(!canBreak(BLOCK.SHRINE_BRICKS, 1e9), 'shrine bricks can be broken');
   enemy.inventory.slots[0] = { item: ITEM.IRON_HAMMER, count: 1 }; enemy.selected = 0;
@@ -276,6 +278,6 @@ const container = (p, c, id) => { world.setBlock(p.x, Y + 1, p.z, id); world.til
 }
 
 console.log('OK: guard patrol, melee and pursuit, bow guard with line of sight, lookout reports and spyglass names,',
-  'every weapon in the tool slot, armed workers fight back, unkillable Wise Monkey on unbreakable shrine bricks,',
+  'every weapon in the tool slot, armed workers fight back, unkillable Wise Monkey on an unbreakable throne,',
   'craftsman capacity and waiting, collect drops off, fuel/input destination slots, mixed alloy forms');
 process.exit(0);

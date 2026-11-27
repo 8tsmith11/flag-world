@@ -106,7 +106,7 @@ export const BLOCK = {
   // Commerce update (COMMERCE_IDS in config.js).
   REINFORCED_WALL: COMMERCE_IDS.blocks.reinforcedWall,
   MERCHANT_DEPOT: COMMERCE_IDS.blocks.merchantDepot,
-  // The Wise Monkey's shrine floor and throne: nothing breaks it.
+  // The Wise Monkey's throne: nothing breaks it.
   SHRINE_BRICKS: COMMERCE_IDS.blocks.shrineBricks,
   // Explosives update (EXPLOSIVES_IDS in config.js). SULFUR_PLANT..+3 are the
   // sulfur crop's growth stages; LIT_BARREL is an explosive barrel whose fuse
@@ -333,7 +333,7 @@ define(BLOCK.STONE_BRICKS, 'stone bricks', { color: 0x92918d, hardness: METALS.h
 // Stone bricks bound with iron straps: same hammer, four times the work.
 define(BLOCK.REINFORCED_WALL, 'reinforced wall', { color: 0x6f7378, hardness: REINFORCED_WALL.hardness,
   breakTime: REINFORCED_WALL.breakTime, blastResistance: REINFORCED_WALL.blastResistance });
-// Wise Monkey shrine floors and thrones, so he can't be dug out from under.
+// Wise Monkey thrones, so he can't be dug out from under.
 // Explosive barrel: lit with a lighter (BLOCK.LIT_BARREL while the fuse
 // burns, server/explosives.js). Unlit barrels break and drop normally.
 // `ignite` names what a lighter does to a block (Explosives.light).

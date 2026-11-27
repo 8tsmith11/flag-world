@@ -144,8 +144,8 @@ including the host, plays by opening `http://<host-ip>:3000`.
   special cases. The book never gates crafting or items. Rewards stay small
   and are claimed once per team. Members get the team's book in the join
   message and a `quests` message whenever it changes (`QuestBook.sync`).
-- Wise Monkeys can't be damaged (`hp: null`); their shrine floor and throne
-  are `BLOCK.SHRINE_BRICKS` (unbreakable) so they can't be dug out. Any tamed
+- Wise Monkeys can't be damaged (`hp: null`); their throne is
+  `BLOCK.SHRINE_BRICKS` (unbreakable) so they can't be dug out. Any tamed
   adult monkey with a weapon in its tool slot fights back when attacked
   (`holdsWeapon`, self-defense through `guardTick`).
 - Machine screens share `public/js/machinePanels.js`; containers report a

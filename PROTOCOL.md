@@ -1697,8 +1697,9 @@ shortcuts through that API. Browser/OS permissions still govern key capture.
   pipes, boilers, and steam crushers. Each advances when the team obtains,
   crafts or places the relevant items. Other teams get a dismissive line.
 - A Wise Monkey can't be hurt or killed (`hp: null`) and never fights back.
-  Its shrine's floor and throne are shrine bricks (block 162), which nothing
-  can break, so it can't be dug out from under either. Right clicking it also
+  Its throne is shrine bricks (block 162), which nothing can break, so it
+  can't be dug out from under either. The shrine's floor is ordinary stone
+  bricks. Right clicking it also
   opens its team's quest book (`quests`).
 - Ancient Monkeys cannot be damaged yet, only make sounds (`speak` with
   `sound`), and alternate sitting with standing (a chest beat), strolling and
