@@ -111,7 +111,8 @@ function tooltipDetails(stack) {
     'Fizzles into a dropped orb inside a keep zone');
   if (stack.item === ITEM.GOLDEN_BEEF) effects.push('Fully restores HP instantly when eaten');
   else if (def.food) effects.push(`Restores ${def.food} HP over time when eaten`);
-  if (def.tool === 'hoe') effects.push('Right click grass or dirt to till it into farmland');
+  if (def.tool === 'hoe') effects.push('Right click grass or dirt to till it into farmland',
+    'Break tufts, ferns, flowers and other plants with it to collect them (and sometimes wheat seeds)');
   if (def.places === 'crop') effects.push('Right click farmland to plant');
   if (stack.item === ITEM.WHEAT) effects.push('Cows follow you while you hold it', 'Feed to cows to breed them', 'Craft 3 into bread');
   if (stack.item === ITEM.GLIDER) effects.push('Hold right click in the air to glide');

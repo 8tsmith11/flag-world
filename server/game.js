@@ -1037,13 +1037,14 @@ export class Game {
     if (player.breaking.ticks % BREAK_SWING_TICKS === 1) this.swing(player);
     if (player.breaking.ticks >= breakTicks(id, tool.speed)) {
       player.breaking = null;
-      this.breakBlock(pos.x, pos.y, pos.z);
+      this.breakBlock(pos.x, pos.y, pos.z, getItemDef(player.held()).tool ?? null);
     }
   }
 
   // Removes a block and pops out its drop. A door goes as a pair (one drop);
   // ladders hanging on the block and a door standing on it fall off too.
-  breakBlock(x, y, z) {
+  // tool: the breaking item's tool kind (see blockDrops), or null.
+  breakBlock(x, y, z, tool = null) {
     const id = this.world.getBlock(x, y, z);
     if (isDoor(id)) {
       const state = doorState(id);
@@ -1054,7 +1055,7 @@ export class Game {
       this.dropAt(state.reinforced ? ITEM.REINFORCED_DOOR : ITEM.DOOR, x, lower, z);
     } else {
       this.world.setBlock(x, y, z, BLOCK.AIR);
-      for (const stack of blockDrops(id)) this.dropAt(stack.item, x, y, z, stack.count);
+      for (const stack of blockDrops(id, Math.random, tool)) this.dropAt(stack.item, x, y, z, stack.count);
     }
     FACING_DIRS.forEach(([dx, dz], facing) => {
       // A ladder on the west side of this block faces east, toward it.
@@ -1128,7 +1129,7 @@ export class Game {
     if (getItemDef(player.held()).tool === 'hoe' && (id === BLOCK.GRASS || id === BLOCK.DIRT) && this.inReach(player, pos)) {
       const above = this.world.getBlock(pos.x, pos.y + 1, pos.z);
       if (isSolid(above) || isLiquid(above)) return;
-      if (getBlockDef(above).shape === 'plant') this.breakBlock(pos.x, pos.y + 1, pos.z);
+      if (getBlockDef(above).shape === 'plant') this.breakBlock(pos.x, pos.y + 1, pos.z, 'hoe');
       this.world.setBlock(pos.x, pos.y, pos.z, BLOCK.FARMLAND);
       this.swing(player);
       return;

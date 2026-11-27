@@ -1572,7 +1572,11 @@ and bread (3 wheat, heals 5). Tuning is `FARMING` in `shared/config.js`.
   drops dirt, and breaking it breaks the crop on top.
 - `input.use` on a ripe crop harvests it straight into the inventory (extra
   drops fall) and replants it, keeping one of its seeds back.
-- Grass tufts and ferns drop wheat seeds 15% of the time.
+- Plants (tufts, ferns, flowers, bushes, roots, vines) drop only when broken
+  with a hoe (`HOE_DROPS` in `shared/blocks.js`): themselves, plus wheat seeds
+  15% of the time from grass tufts and ferns. Broken by hand, by explosions
+  or by losing their support, they drop nothing. Mushrooms, glow mushrooms
+  and glow moss drop however they are broken.
 - Feeding wheat to a cow (`talk` on it) puts it in love for 30 s; two cows in
   love within 8 blocks have a calf (a new cow in the first one's herd,
   announced with `entitySpawn`), then wait 5 minutes before breeding again.

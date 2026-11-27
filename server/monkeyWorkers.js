@@ -707,7 +707,7 @@ export class MonkeyWorkers {
       if(t.progress<need)return false;
       t.progress-=need;t.cells.pop();
       w.setBlock(cell.x,cell.y,cell.z,BLOCK.AIR);
-      for(const stack of blockDrops(id,this.random))this.gathered(m,stack,cell);
+      for(const stack of blockDrops(id,this.random,getItemDef(m.tool?.item).tool??null))this.gathered(m,stack,cell);
       t.broke=(t.broke??0)+1;
       if(!this.room(m)&&this.carried(m))break;
     }

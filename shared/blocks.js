@@ -475,10 +475,18 @@ define(BLOCK.ROPE, 'rope', {
   solid: false, transparent: true, shape: 'rope', color: 0xb89a62, breakTime: 0, drops: null,
 });
 
+// Plants that drop (themselves, and wheat seeds from tufts and ferns) only
+// when broken with a hoe. Mushrooms and glow moss drop however they break.
+export const HOE_DROPS = new Set(VEGETATION_IDS.filter((id) =>
+  id !== BLOCK.MUSHROOM && id !== BLOCK.GLOW_MUSHROOM && id !== BLOCK.GLOW_MOSS));
+
 // What breaking a block yields, as [{ item, count }] (doors aside, which the
-// server drops as a pair). Random parts use `random` (0..1).
-export function blockDrops(id, random = Math.random) {
+// server drops as a pair). Random parts use `random` (0..1). `tool` is the
+// breaking item's tool kind ('hoe', 'hammer'...), or null (bare hands, or
+// not broken by anyone: explosions, lost support).
+export function blockDrops(id, random = Math.random, tool = null) {
   const out = [];
+  if (HOE_DROPS.has(id) && tool !== 'hoe') return out;
   const crop = cropAt(id);
   if (crop) {
     if (crop.stage === crop.crop.stages.length - 1) {
