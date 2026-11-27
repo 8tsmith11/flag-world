@@ -271,7 +271,8 @@ export class MerchantSystem {
     this.game.npcs.relocate?.(m);
     if (t < 1) return;
     if (r.walk.leaving) { this.castOff(r); return; }
-    m.state.yaw = r.dock.yaw + Math.PI;
+    // Face the island (the way the airship's bow points), not out to the ship.
+    m.state.yaw = r.dock.yaw;
     r.walk = null;
   }
 

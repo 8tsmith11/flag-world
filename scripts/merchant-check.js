@@ -83,6 +83,9 @@ const merchant = r.merchant;
 assert.ok(merchant instanceof SkyMerchant && game.npcs.has(merchant.id));
 run(MERCHANT.walkSeconds * TICK_RATE + 2);
 assert.ok(Math.hypot(merchant.state.x - pos.x - 0.5, merchant.state.z - pos.z - 0.5) < 3, 'merchant did not step off beside the depot');
+// Standing by the depot he faces the island (away from his ship), so he
+// greets customers instead of showing them his back.
+assert.ok(-Math.sin(merchant.state.yaw) * fx - Math.cos(merchant.state.yaw) * fz < -0.9, 'the merchant faces out toward his ship');
 assert.ok(messages(1, S2C.NOTICE).some((m) => /docked/.test(m.text)), 'team not told of the arrival');
 assert.ok(!messages(2, S2C.NOTICE).some((m) => /docked/.test(m.text)), 'enemy told of the arrival');
 const depot = world.tileEntities.get(`${pos.x},${pos.y},${pos.z}`);

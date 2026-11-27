@@ -189,9 +189,11 @@ export function createAirshipModel(info) {
   const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 1.6, 8), iron);
   pipe.position.set(0.9, 2.4, 4.6); hull.add(pipe);
   box(hull, [0.5, 0.12, 0.5], [0.9, 3.2, 4.6], brass);
-  // Ship's wheel at the cabin front, and the team pennant at the bow.
+  // Ship's wheel on a post in front of the cabin (the pilot stands behind it,
+  // facing the bow), and the team pennant at the bow.
+  box(hull, [0.14, 0.9, 0.14], [0, 0.45, 0.35], woodDark);
   const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.05, 6, 14), brass);
-  wheel.position.set(0, 1.1, 1.6); hull.add(wheel);
+  wheel.position.set(0, 1.1, 0.35); hull.add(wheel);
   for (let i = 0; i < 4; i++) { const spoke = box(wheel, [0.9, 0.04, 0.04], [0, 0, 0], brass); spoke.rotation.z = i * Math.PI / 4; }
   box(hull, [0.08, 2, 0.08], [0, 1, -6.2], brass);
   box(hull, [0.04, 0.5, 0.9], [0, 1.7, -5.8], lambert(team));
