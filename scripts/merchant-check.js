@@ -84,6 +84,21 @@ const merchant = r.merchant;
 assert.ok(merchant instanceof SkyMerchant && game.npcs.has(merchant.id));
 run(MERCHANT.walkSeconds * TICK_RATE + 2);
 assert.ok(Math.hypot(merchant.state.x - pos.x - 0.5, merchant.state.z - pos.z - 0.5) < 3, 'merchant did not step off beside the depot');
+// Not walking any more: his pose says so (clients stop the walk cycle).
+assert.equal(merchant.pose, 'stand', 'the merchant is still walking');
+// Gravity: dig out the ground under him and he drops onto what's below.
+{ const fx0 = Math.floor(merchant.state.x), fz0 = Math.floor(merchant.state.z), fy0 = Math.floor(merchant.state.y) - 1;
+  const saved = [world.getBlock(fx0, fy0, fz0), world.getBlock(fx0, fy0 - 1, fz0)];
+  const cells = [];
+  for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) cells.push([fx0 + dx, fz0 + dz, world.getBlock(fx0 + dx, fy0, fz0 + dz)]);
+  for (const [x, z] of cells) world.setBlock(x, fy0, z, BLOCK.AIR);
+  world.setBlock(fx0, fy0 - 2, fz0, BLOCK.STONE); world.setBlock(fx0, fy0 - 1, fz0, BLOCK.AIR);
+  const y0 = merchant.state.y;
+  run(TICK_RATE * 2);
+  assert.ok(merchant.state.y < y0 - 0.9 && !merchant.dead, `the merchant did not fall (${y0} -> ${merchant.state.y})`);
+  for (const [x, z, id] of cells) world.setBlock(x, fy0, z, id);
+  world.setBlock(fx0, fy0 - 1, fz0, saved[1]);
+  Object.assign(merchant.state, { y: y0, vy: 0 }); }
 // Standing by the depot he faces the island (away from his ship), so he
 // greets customers instead of showing them his back.
 assert.ok(-Math.sin(merchant.state.yaw) * fx - Math.cos(merchant.state.yaw) * fz < -0.9, 'the merchant faces out toward his ship');

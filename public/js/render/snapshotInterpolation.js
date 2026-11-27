@@ -8,5 +8,7 @@ export function sampleSnapshots(snapshots,now) {
   let i=snapshots.length-1;while(i>0 && snapshots[i-1].time>time)i--;
   const b=snapshots[i],a=snapshots[Math.max(0,i-1)];
   const t=b.time===a.time?1:Math.max(0,Math.min(1,(time-a.time)/(b.time-a.time)));
-  return {a,b,t};
+  // past: playback has run beyond the newest snapshot (an entity that stopped
+  // sends no more), so it is standing still there.
+  return {a,b,t,past:time>b.time+50};
 }

@@ -382,7 +382,7 @@ export class EntityRenderer {
         entity.flashing = flashing;
         object.traverse((o) => o.material?.emissive?.setHex(flashing ? FLASH_COLOR : 0x000000));
       }
-      const {a,b,t}=sampleSnapshots(snapshots,now);
+      const {a,b,t,past}=sampleSnapshots(snapshots,now);
       object.position.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
       if (object.userData.dragon) {
         this.goblinBounds.center.copy(object.position);this.goblinBounds.center.y += 1.5;
@@ -434,7 +434,9 @@ export class EntityRenderer {
         if (object.userData.dragon) object.rotation.x = a.pitch + (b.pitch - a.pitch) * t;
       }
       const span = (b.time - a.time) / 1000;
-      const speed = span > 0 ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
+      // Past the newest snapshot it has stopped (entities that stand still
+      // send nothing more), so it must not keep its last walking speed.
+      const speed = span > 0 && !past ? Math.hypot(b.x - a.x, b.z - a.z) / span : 0;
       if (object.userData.goblin) animateGoblin(object, dt, b.g === GOBLIN_STATE.WALK ? Math.max(speed, 1.5) : 0, { climbing: b.g === GOBLIN_STATE.CLIMB, mining: b.g === GOBLIN_STATE.WORK });
       if (object.userData.totem) animateTotem(object, dt);
       if (object.userData.cow) { animateCow(object, dt, speed); this.updateHearts(entity, dt, !!b.love && object.visible); }

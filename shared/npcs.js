@@ -47,7 +47,7 @@ export const NPC_DEFS = {
   // Arrives by airship each morning (server/merchants.js); right click to trade.
   [NPC_KIND.SKY_MERCHANT]: {
     name: 'Sky Merchant', model: 'octopus', box: MERCHANT.box, hp: MERCHANT.hp,
-    behavior: 'merchant', voice: 'merchant', dialogue: null,
+    behavior: 'merchant', voice: 'merchant', dialogue: null, gravity: true,
   },
   [NPC_KIND.ANCIENT_FIRE_MONKEY]: {
     name: 'Ancient Fire Monkey', model: 'gorilla', element: 'fire', box: NPC.ancientMonkey.box,

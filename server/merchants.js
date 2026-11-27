@@ -41,7 +41,13 @@ export class SkyMerchant extends Npc {
     this.name = merchantLook(appearance).name;
     this.pose = 'stand';
   }
-  step(world, players) { this.lookAtNearest(players); }
+  // He falls when nothing holds him up (not while stepping on or off the
+  // airship, which moves him itself); into the void he dies like any killed
+  // merchant (Game.updateNpcs), and a new one comes tomorrow.
+  step(world, players) {
+    if (this.pose !== 'walk' && !this.onShip) this.fall(world);
+    this.lookAtNearest(players);
+  }
   snapshot() { return { ...super.snapshot(), appearance: this.appearance }; }
 }
 
@@ -170,8 +176,11 @@ export class MerchantSystem {
     this.dirty = true;
   }
   dockShip(r) {
-    const g = this.game, spot = this.standSpot(r) ?? this.gangway(r), from = this.gangway(r);
+    const g = this.game, ground = this.standSpot(r), spot = ground ?? this.gangway(r), from = this.gangway(r);
     const merchant = new SkyMerchant(g.nextId++, { ...from, yaw: r.dock.yaw }, r.team, g.tick, this.appearance(r));
+    // No ground beside the depot: he stays on the airship's gangway (not
+    // blocks, so no gravity there).
+    merchant.onShip = !ground;
     merchant.home = { ...spot, yaw: r.dock.yaw };
     g.npcs.set(merchant.id, merchant);
     g.broadcast({ type: S2C.ENTITY_SPAWN, entity: merchant.describe() });

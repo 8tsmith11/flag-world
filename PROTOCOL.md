@@ -1923,7 +1923,9 @@ to the same successful world and record the resolved seed as `world.seed`.
   each morning, so building in the way of one route makes it take another),
   the team's airship flies in along that route over 30 s, bow first, docks,
   and the merchant steps off beside the depot. At 0.46 he walks back aboard
-  and the ship backs out the way it came. Killed (enemies only), he drops nothing; the ship leaves and a
+  and the ship backs out the way it came. Off the ship he has gravity: dig
+  out the ground under him and he falls (into the void he dies, like a killed
+  merchant); with no ground beside the depot he stays on the gangway. Killed (enemies only), he drops nothing; the ship leaves and a
   new merchant (new name and look) arrives the next morning. Stock refills
   each morning. Day numbers keep counting up (creative Set day/night moves
   forward to the next noon or midnight).
