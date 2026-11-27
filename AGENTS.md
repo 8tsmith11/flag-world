@@ -119,7 +119,8 @@ including the host, plays by opening `http://<host-ip>:3000`.
   `public/js/render/models.js`, shared by the world, the first-person arm
   (`viewModel.js`, drawn in a second pass after clearing depth) and the
   inventory preview.
-- `DEBUG` in `shared/config.js` toggles the FPS / coordinates overlay.
+- `DEBUG` in `shared/config.js` toggles the FPS / coordinates overlay, which
+  only shows in creative mode (`DebugHud.setCreative`).
 
 ## Commerce, automation and defense
 

@@ -569,6 +569,17 @@ export function createChunkMesher(THREE) {
             continue;
           }
 
+          // Farmland: a furrowed top (lines of tilled soil), plain dirt sides.
+          if (id === BLOCK.FARMLAND) {
+            for (const face of FACES) {
+              const n = meshBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
+              if (n === id || !getBlockDef(n).transparent) continue;
+              if (face.dir[1] === 1) pushFace(textured, face, x, y, z, WHITE, face.shade * j, 'farmland');
+              else pushFace(buf, face, x, y, z, color, face.shade * j, null);
+            }
+            continue;
+          }
+
           for (const face of FACES) {
             const n = meshBlock(x + face.dir[0], y + face.dir[1], z + face.dir[2]);
             if (n === id || !getBlockDef(n).transparent) continue;

@@ -1,15 +1,21 @@
-// On-screen FPS counter and player coordinates, shown when DEBUG is on.
+// On-screen FPS counter and player coordinates, shown when DEBUG is on and
+// the player is in creative mode (setCreative).
 
 import { DEBUG, CHUNK_SIZE } from '/shared/config.js';
 
 export class DebugHud {
   constructor(element) {
     this.element = element;
-    this.enabled = DEBUG;
-    this.element.hidden = !DEBUG;
+    this.enabled = false;
+    this.element.hidden = true;
     this.frames = 0;
     this.lastSample = performance.now();
     this.fps = 0;
+  }
+
+  setCreative(creative) {
+    this.enabled = DEBUG && !!creative;
+    this.element.hidden = !this.enabled;
   }
 
   update(info) {

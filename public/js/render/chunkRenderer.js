@@ -145,6 +145,26 @@ function shrineBrickTexture() {
   return texture;
 }
 
+// Tilled farmland from above: raised ridges of loose soil between darker
+// furrows, in lines across the block.
+function farmlandTexture() {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+  const c = canvas.getContext('2d');
+  c.fillStyle = '#5b3a22'; c.fillRect(0, 0, 64, 64);
+  for (let row = 0; row < 4; row++) {
+    const y = row * 16;
+    c.fillStyle = '#3a2414'; c.fillRect(0, y, 64, 4);          // furrow
+    c.fillStyle = '#4a2e1a'; c.fillRect(0, y + 4, 64, 2);      // its shaded edge
+    c.fillStyle = '#6e4a2c'; c.fillRect(0, y + 8, 64, 4);      // ridge top
+  }
+  // Clods: a few specks so the ridges don't look painted.
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 60; i++) { c.fillStyle = rand() < 0.5 ? '#77512f' : '#43291a'; c.fillRect(Math.floor(rand() * 64), Math.floor(rand() * 64), 2, 2); }
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function basaltTempleTexture(chiseled = false) {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
   const c = canvas.getContext('2d');
@@ -293,6 +313,7 @@ function blockAtlas(renderer) {
   sources.reinforcedWall = reinforcedWallTexture();
   sources.depotSide = depotTexture(); sources.depotTop = depotTexture(true);
   sources.shrineBricks = shrineBrickTexture();
+  sources.farmland = farmlandTexture();
   const torchCanvas=document.createElement('canvas');torchCanvas.width=torchCanvas.height=32;
   const tc=torchCanvas.getContext('2d');tc.fillStyle='#9a6837';tc.fillRect(0,0,32,32);
   tc.fillStyle='#d19a52';for(let x=0;x<32;x+=8)tc.fillRect(x,0,2,32);

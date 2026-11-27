@@ -186,6 +186,7 @@ monkeyScreen.onCue = text => toast.show(text);
 const creativeLabel = document.getElementById('creative-label');
 function setCreative(enabled) {
   creativeLabel.hidden = !enabled;
+  debug.setCreative(enabled);
   inventoryScreen.setCreative(enabled);
   if (player) {
     player.state.creative = enabled;
