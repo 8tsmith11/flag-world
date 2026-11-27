@@ -179,7 +179,7 @@ merchantScreen.onToast = (text) => toast.show(text);
 monkeyScreen.onOpen = () => { pickHint.hidden = true; closeInventory(false); showScreen('monkey'); document.exitPointerLock(); input.release(); };
 monkeyScreen.onClose = relock => { pickHint.hidden = true; showScreen(null); if (relock && lockable()) input.requestLock(); };
 // Selecting blocks for a monkey: a prompt over the crosshair, outlines on
-// what's selected; Esc (which releases the mouse) goes back to the panel.
+// what's selected; E (or Esc) goes back to the panel.
 monkeyScreen.onPick = prompt => { showScreen(null); pickHint.textContent = prompt; pickHint.hidden = false; input.requestLock(); };
 monkeyScreen.onPickChanged = prompt => { pickHint.textContent = prompt; };
 monkeyScreen.onWorldGame = () => { closeInventory(false); showScreen(null); if (!input.locked) input.requestLock(); };
@@ -339,7 +339,9 @@ window.addEventListener('keydown', e => {
   // With Keyboard Lock (localhost/HTTPS fullscreen) a quick Esc reaches the
   // page instead of releasing the mouse: release it here, which opens the menu.
   if (e.code === 'Escape' && input.locked && !e.repeat) document.exitPointerLock();
-  if (e.code === 'Escape' && monkeyScreen.picking) { e.preventDefault(); monkeyScreen.finishPick(); }
+  // Done selecting blocks for a monkey: E or Enter (Esc too, though in LAN
+  // fullscreen it also leaves fullscreen).
+  if ((e.code === 'Escape' || e.code === 'KeyE' || e.code === 'Enter') && monkeyScreen.picking && !e.repeat) { e.preventDefault(); monkeyScreen.finishPick(); }
   else if (e.code === 'Escape' && monkeyScreen.worldGame) monkeyScreen.close(false);
 });
 
@@ -763,8 +765,12 @@ conn.on(S2C.MERCHANT, msg => { if (mode === MODE.PLAY || !msg.open) merchantScre
 conn.on(S2C.QUESTS, msg => { if (mode === MODE.PLAY) questScreen.receive(msg); });
 conn.on(S2C.MERCHANTS, msg => depotRenderer.set(msg.merchants));
 // Private or team-only messages: lookout reports, the merchant, quests.
+// Only direct feedback ('info', the default) and danger alerts get the big
+// centre notice; announcements (the merchant docking, monkeys, quests...)
+// only go in the feed at the top right.
+const CENTER_NOTICES = new Set([undefined, 'info', 'danger', 'lookout']);
 conn.on(S2C.NOTICE, (msg) => {
-  toast.show(msg.text);
+  if (CENTER_NOTICES.has(msg.kind)) toast.show(msg.text);
   feed.add(msg.text, msg.kind === 'danger' || msg.kind === 'lookout' ? 'elim' : msg.kind === 'quest' || msg.kind === 'merchant' ? 'win' : '');
   if (msg.kind === 'lookout') sounds.alert?.();
 });

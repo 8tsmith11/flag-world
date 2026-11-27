@@ -4,7 +4,7 @@
 // Block selections happen in the world: choosing a field closes the panel
 // and enters selection mode (main.js drives input; outlines in
 // render/selectionOutlines.js). Left click selects, right click on a
-// selected block removes it, Esc goes back to the panel. After a pick the
+// selected block removes it, E (or Esc) goes back to the panel. After a pick the
 // mode moves on by itself: a list stays on that list unless the next field
 // is still empty, a single field moves to the next empty one or returns.
 import { C2S, TEAMS } from '/shared/protocol.js';
@@ -41,7 +41,10 @@ export class MonkeyScreen {
     this.screen.addEventListener('contextmenu',e=>e.preventDefault());
     window.addEventListener('keydown',e=>{
       if(!this.open||e.repeat)return;
-      if(e.code==='Escape'){e.preventDefault();this.close(false);}
+      // E closes it like the other screens (Esc too, but in fullscreen over
+      // the LAN Esc also leaves fullscreen); not while typing a name.
+      const typing=e.target?.matches?.('input, textarea');
+      if(e.code==='Escape'||(e.code==='KeyE'&&!typing)){e.preventDefault();this.close(false);}
     });
   }
   // The player right-clicked this monkey: its updates count again.
@@ -345,7 +348,7 @@ export class MonkeyScreen {
   pickPrompt() {
     const info=MONKEY_FIELDS[this.picking],d=this.draft,name=fieldName(d,this.picking);
     const n=info.list?` (${d[this.picking].length}/${info.max})`:'';
-    return `Selecting ${name}${n}: left click a block${info.list?' · right click a selected one to remove it':''} · Esc when done`;
+    return `Selecting ${name}${n}: left click a block${info.list?' · right click a selected one to remove it':''} · E when done`;
   }
   // Left click on a block while selecting.
   choose(p) {
