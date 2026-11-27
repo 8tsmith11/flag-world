@@ -278,18 +278,21 @@ const fuse = Math.round(X.barrel.fuseSeconds * TICK_RATE);
 {
   // Geometry: a hub and eight points, one toward each corner of the cube,
   // the same under mirroring of any axis.
-  const tips = new Set();
+  const tips = new Set(), faces = new Set();
   for (const { box } of SPIKE_PARTS) {
     const c = [0, 1, 2].map((i) => (box[i] + box[i + 3]) / 2 - 0.5);
     if (c.every((v) => Math.abs(v) < 1e-9)) continue;
-    assert.ok(c.every((v) => Math.abs(Math.abs(v) - Math.abs(c[0])) < 1e-9), 'a spike part is off the body diagonals');
-    tips.add(c.map(Math.sign).join());
+    const onAxis = c.filter((v) => Math.abs(v) > 1e-9).length === 1;
+    assert.ok(onAxis || c.every((v) => Math.abs(Math.abs(v) - Math.abs(c[0])) < 1e-9), 'a spike part is off the body diagonals and face axes');
+    (onAxis ? faces : tips).add(c.map((v) => Math.abs(v) < 1e-9 ? 0 : Math.sign(v)).join());
     for (const axis of [0, 1, 2]) {
       const mirrored = box.slice(); mirrored[axis] = 1 - box[axis + 3]; mirrored[axis + 3] = 1 - box[axis];
       assert.ok(SPIKE_PARTS.some((p) => p.box.every((v, i) => Math.abs(v - mirrored[i]) < 1e-9)), 'the caltrop is not symmetric');
     }
   }
   assert.equal(tips.size, 8, 'the caltrop does not point at all eight corners');
+  assert.equal(faces.size, 6, 'no spike out of every face');
+  assert.ok(SPIKE_PARTS.every(({ box }) => box.every((v) => v >= 0 && v <= 1)), 'a spike sticks out of its block');
   assert.equal(SPIKE_DIRECTIONS.length, 8);
   const reach = Math.max(...SPIKE_PARTS.map(({ box }) => box[3]));
   assert.ok(reach > 0.9 && reach <= 1, 'the points do not reach the corners');
@@ -669,7 +672,7 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
 
 console.log('OK: sulfur seeds from the merchant and loot, a renewable sulfur farm run by a farmer monkey, gunpowder and grenades from a',
   'craftsman, grenade throwing, flight, fuse and falloff damage (soft blocks only, never spikes), barrels (lit only by a lighter, fuse, structure,',
-  'reinforced walls, chain reactions), spike geometry, contact, breaking, arrows and teams, drawbridges (beside the mechanism on either side, steam paid up front per move,',
+  'reinforced walls, chain reactions), spike geometry (corners and faces), contact, breaking, arrows and teams, drawbridges (beside the mechanism on either side, steam paid up front per move,',
   'refused without it, moves finish without it, no orders while moving, materials, no duplication, broken sections, obstruction,',
   'lengths and directions, pathfinding, ownership), saves, quests, sync');
 process.exit(0);
