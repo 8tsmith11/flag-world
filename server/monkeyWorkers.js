@@ -572,7 +572,9 @@ export class MonkeyWorkers {
       if(++m.stuck>=C.stuckTicks){m.path=[];m.pathKey=null;m.stuck=0;}
     } else m.stuck=0;
     if(!m.path.length&&m.pathKey)m.arrived=true;
-    m.pose=m.climbing?'climb':m.walking?'walk':m.working||tick<(m.swingUntil??0)?'work':m.team!==null&&m.config.role!=='idle'&&!m.baby?'ready':'sit';
+    // A fisherman with its line out holds the rod still ('fish'); other work swings a tool.
+    m.pose=m.climbing?'climb':m.walking?'walk':m.working&&this.game.fishing?.bobberOf(m)?'fish'
+      :m.working||tick<(m.swingUntil??0)?'work':m.team!==null&&m.config.role!=='idle'&&!m.baby?'ready':'sit';
     if(m.team===null||(m.baby&&m.config.role!=='idle')||fighting||tick%C.thinkTicks!==m.id%C.thinkTicks)return;
     m.working=false;
     if(m.config.role==='guard'){guardPatrol(this,m,tick);return;}

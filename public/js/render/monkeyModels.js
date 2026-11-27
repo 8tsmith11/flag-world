@@ -52,6 +52,8 @@ const POSES = {
   // hand in animateMonkey), and swinging a tool at a block.
   climb: { hip: 0.85, pitch: 0.15, thigh: 0.9, knee: -1.1, shoulder: 2.7, elbow: 0.4, spread: 0.15 },
   work: { hip: 1, pitch: -0.25, thigh: 0.1, knee: -0.2, shoulder: 0.6, elbow: 0.2, spread: 0.1 },
+  // Fishing: standing, arms held out in front, still (the rod in the right hand).
+  fish: { hip: 1, pitch: -0.12, thigh: 0.05, knee: -0.1, shoulder: 0.85, elbow: 0.35, spread: 0.05 },
 };
 
 // Water: blue-green; lightning: pale violet-white.
@@ -113,7 +115,10 @@ function ape(kind, colors) {
   // Worn armor: a chest plate and shoulder guards, shown when set (setMonkeyArmor).
   const armorMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
   const armor = pivot(torso, 0, 0, 0);
-  box(armor, [tw * 1.12, th * 0.66, td * 1.14], [0, th * 0.64, 0], armorMaterial);
+  // The plate reaches past the belly (and a throat sac) in front, so no skin
+  // shows through it.
+  const front = Math.max(td * 0.42 + d.belly / 2, td * 0.48 + 0.1) + 0.03, back = td * 0.57;
+  box(armor, [tw * 1.12, th * 0.84, front + back], [0, th * 0.58, (back - front) / 2], armorMaterial);
   for (const side of [-1, 1]) box(armor, [d.arm * 1.5, d.arm * 1.1, d.arm * 1.5], [side * d.shoulderWidth, th * 0.86, 0], armorMaterial);
   armor.visible = false;
   root.userData.monkey = {
@@ -260,7 +265,7 @@ export function animateMonkey(model, dt, { pose = 'sit', look = 0, speed = 0, ta
     m.lastPose = pose;
   }
   for (const joint of Object.keys(target)) m.pose[joint] = approach(m.pose[joint], target[joint],
-    ['ready','crouch','jump','climb','work'].includes(pose) ? 12 : d.poseRate, dt);
+    ['ready','crouch','jump','climb','work','fish'].includes(pose) ? 12 : d.poseRate, dt);
   if (pose === 'climb') m.phase += dt * 6;
   if (pose === 'work') m.workPhase = (m.workPhase ?? 0) + dt * 7;
   const p = m.pose, legLength = d.thigh + d.shin;
