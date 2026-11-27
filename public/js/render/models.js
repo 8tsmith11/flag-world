@@ -1013,12 +1013,22 @@ export function setHandItem(hand, item) {
     model.position.set(0, 0.07, -0.15);
   }
   else if (tool === 'bow') model.position.set(0, -0.02, 0); // built in the hand's frame already
-  else if (tool === 'rod') model.rotation.x = -Math.PI / 2 + 0.45; // out of the fist, tip raised
+  // A rod leans its tip away from you: raised in a hanging hand (third
+  // person), tipped forward into the world in the first-person arm (whose
+  // hand +Y points back at the camera).
+  else if (tool === 'rod') model.rotation.x = -Math.PI / 2 + (hand.userData.firstPerson ? -0.55 : 0.45);
   else if (getItemDef(item).places === 'torch') {
     model.rotation.x = -Math.PI / 2;
     model.position.set(0, 0, -0.06);
   }
   else if (tool) model.rotation.x = -Math.PI / 2;
+  else if (getItemDef(item).icon && getItemDef(item).block === null && !getItemDef(item).shape) {
+    // A flat picture (seeds, wheat, coins, fish...): held out past the fist,
+    // facing the camera in first person and side-on (so it shows from the
+    // side) in a hanging third-person hand.
+    if (hand.userData.firstPerson) { model.rotation.x = -Math.PI / 2; model.position.set(0, 0.08, -0.1); }
+    else { model.rotation.y = Math.PI / 2; model.position.set(0, -0.2, -0.13); }
+  }
   else model.position.set(0, -0.1, -0.05);
   hand.add(model);
 }

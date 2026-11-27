@@ -44,6 +44,8 @@ export class ViewModel {
     const { pivot, hand } = createArm(color);
     this.pivot = pivot;
     this.hand = hand;
+    // Held items pose differently in the first-person arm (setHandItem).
+    hand.userData.firstPerson = true;
     this.scene.add(pivot);
     this.glider = createGliderModel();
     this.glider.position.set(0, 0.55, -1.1);
