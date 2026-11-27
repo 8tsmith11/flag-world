@@ -74,8 +74,8 @@ export const ITEM = {
   WHEAT_SEEDS: 324,
   WHEAT: 325,
   WOOD_HOE: 326,
-  STONE_HOE: 327,
-  IRON_HOE: 328,
+  // 327, 328: retired (stone and iron hoes; saves turn them into wood hoes,
+  // RETIRED_ITEMS in shared/items.js). Never reuse these ids.
   BREAD: 329,
   // Commerce update (COMMERCE_IDS in config.js).
   GOLD_COIN: COMMERCE_IDS.items.goldCoin,

@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SAVES } from '../shared/config.js';
+import { RETIRED_ITEMS } from '../shared/items.js';
 
 export const SAVE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'saves');
 const SAVE_VERSION = 1;
@@ -112,7 +113,10 @@ export function listSaves() {
 export function readSave(file) {
   if (typeof file !== 'string' || !/^[\w.-]+\.json$/.test(file)) return null;
   try {
-    const save = JSON.parse(fs.readFileSync(path.join(SAVE_DIR, file), 'utf8'));
+    // Retired item ids (anywhere: inventories, containers, dropped items,
+    // monkeys) become their replacements.
+    const save = JSON.parse(fs.readFileSync(path.join(SAVE_DIR, file), 'utf8'),
+      (k, v) => k === 'item' && RETIRED_ITEMS[v] !== undefined ? RETIRED_ITEMS[v] : v);
     return save.version === SAVE_VERSION ? save : null;
   } catch { return null; }
 }

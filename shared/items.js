@@ -102,10 +102,11 @@ defineItem(ITEM.CROSSBOW, 'crossbow', { maxStack: 1, tool: 'crossbow', color: 0x
 defineItem(ITEM.ROPE_BUNDLE, 'rope bundle', { maxStack: 8, places: 'rope', shape: 'rope', color: getBlockDef(BLOCK.ROPE).color });
 // Right click to fire; pulls you to the block it hits.
 defineItem(ITEM.GRAPPLING_HOOK, 'grappling hook', { maxStack: 1, tool: 'grapple', color: 0x8d9299 });
-// Farming. Hoes till grass or dirt into farmland (right click); seeds plant on farmland.
-const HOES = [[ITEM.WOOD_HOE, 'wood', getBlockDef(BLOCK.PLANKS).color], [ITEM.STONE_HOE, 'stone', getBlockDef(BLOCK.STONE).color],
-  [ITEM.IRON_HOE, 'iron', IRON_COLOR]];
-for (const [id, material, color] of HOES) defineItem(id, `${material} hoe`, { maxStack: 1, tool: 'hoe', color, icon: `/textures/${material}-hoe.svg` });
+// Farming. The wood hoe tills grass or dirt into farmland (right click);
+// seeds plant on farmland. (There is only the one hoe.)
+defineItem(ITEM.WOOD_HOE, 'wood hoe', { maxStack: 1, tool: 'hoe', color: getBlockDef(BLOCK.PLANKS).color, icon: '/textures/wood-hoe.svg' });
+// Item ids that no longer exist, and what saves turn them into.
+export const RETIRED_ITEMS = { 327: ITEM.WOOD_HOE, 328: ITEM.WOOD_HOE };
 defineItem(ITEM.WHEAT_SEEDS, 'wheat seeds', { places: 'crop', crop: 'wheat', color: 0xc9b163, icon: '/textures/wheat-seeds.svg' });
 defineItem(ITEM.WHEAT, 'wheat', { color: 0xd8b44a, icon: '/textures/wheat.svg' });
 defineItem(ITEM.BREAD, 'bread', { color: 0xb5793a, icon: '/textures/bread.svg', food: 5 });
