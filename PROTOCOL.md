@@ -626,7 +626,7 @@ they are within 9 blocks of him while he is docked.
 |--------|--------|----------|
 | `buy` | `offer` (an id from `sells`), `times` 1–64 | Pays `coins × times` and gives `count × times` of the item, only if the coins are there, the items fit and the daily stock lasts |
 | `sell` | `item`, `times` 1–64 or `all: true` | Takes whole batches (`count` each) of the item and pays their coins, only if the coins fit |
-| `baby` | — | Pays the current baby monkey price and spawns a baby monkey for the team next to the merchant |
+| `baby` | — | Pays the current baby monkey price and spawns a wild baby monkey next to the merchant (tamed with its game, like any wild monkey) |
 | `close` | — | Closes the screen |
 
 Every reply is a fresh `merchant` view (with `message` when refused).
@@ -1873,7 +1873,8 @@ to the same successful world and record the resolved seed as `world.seed`.
   sellable stack is sold if its coins fit the coin slots.
 - **Baby monkeys**: 48 coins for a team's first, ×1.5 (rounded) for each one
   after, all match (merchant deaths don't reset it). They grow up after 20
-  minutes; until then they take no role and nothing targets them.
+  minutes; until then they take no role and nothing targets them. A bought
+  baby starts wild and is tamed by winning its game, like any wild monkey.
 - **Quests** (`shared/quests.js`, `server/quests.js`): three chapters, in no
   fixed order. "A Brand New Adventure" is open from the start. "Monkey
   Business" unlocks for a team when any member first holds a bronze ingot.

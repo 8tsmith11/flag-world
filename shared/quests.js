@@ -244,7 +244,7 @@ export const QUESTS = [
       'Enemies can kill him; he drops nothing, and a new merchant comes the next morning.'] },
   { id: 'baby', chapter: 'adventure', x: 6, y: 5, deps: ['merchant'], icon: ITEM.MONKEY_EGG, title: 'Baby Monkeys', goal: event('babyMonkey'),
     text: [`The Sky Merchant sells baby monkeys for gold coins (${MERCHANT.babyBase} for your team's first). Each one your team buys makes the next cost more, for the whole match.`,
-      `Babies belong to your team but can't work or fight. They grow into ordinary monkeys after ${Math.round(MONKEY_DUTY.baby.growSeconds / 60)} minutes; right click one to see how long is left.`] },
+      `A baby starts wild: right click it and win its game to tame it, like any wild monkey (so tame it before anyone else does). Babies can't work or fight, and nothing attacks them. They grow into ordinary monkeys after ${Math.round(MONKEY_DUTY.baby.growSeconds / 60)} minutes; right click a tamed one to see how long is left.`] },
   { id: 'requests', chapter: 'adventure', x: 8, y: 5, deps: ['merchant'], icon: BLOCK.ARROW_TURRET, title: 'Requested Goods', goal: event('requestSold'),
     text: ['Each world the merchant asks for a few crafted goods (marked Requested in his trade screen). He pays more for them than their materials would fetch, so making them is worth it.',
       'Buying the materials from him always costs more than he pays, so the coins have to come from your own gathering and work.'] },

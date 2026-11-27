@@ -128,7 +128,8 @@ including the host, plays by opening `http://<host-ip>:3000`.
   `server/monkeyGuard.js`; craftsman, Collect drops (`config.collect`) and
   destination slots (`config.destSlots`, `SLOT_OPTIONS`) in
   `server/monkeyWorkers.js`. New config fields must default when a saved
-  config lacks them (`parseConfig`). Babies (`m.baby`, `growAt`) can't work.
+  config lacks them (`parseConfig`). Babies (`m.baby`, `growAt`) start wild
+  (tamed by their game) and can't work until grown.
 - Quests: data in `shared/quests.js`, team books in `server/quests.js`;
   follow "Quest book design rules" below. Chapters are stages of technology
   or discovery: one with an `unlock` goal opens for the whole team the first

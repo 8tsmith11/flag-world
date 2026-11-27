@@ -130,7 +130,14 @@ const npcsBefore = game.npcs.size;
 game.merchants.action(host, { action: 'baby' });
 const baby = [...game.npcs.values()].find((n) => n.baby);
 assert.ok(baby && game.npcs.size === npcsBefore + 1, 'no baby monkey');
-assert.equal(baby.team, host.team);
+// It starts wild: right clicking it starts its taming game, and winning tames it.
+assert.equal(baby.team, null, 'a bought baby monkey started tamed');
+game.monkeys.open(host, baby);
+const session = game.monkeys.sessions.get(host.id);
+assert.equal(session?.monkey, baby, 'a wild baby did not offer its taming game');
+game.monkeys.tamingResult(session, 'won');
+assert.equal(baby.team, host.team, 'winning did not tame the baby');
+assert.ok(baby.baby, 'taming made the baby grow up');
 assert.equal(coins(), 142 - before);
 assert.equal(babyPrice(1) > before, true);
 game.merchants.action(host, { action: 'baby' });

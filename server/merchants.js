@@ -416,11 +416,11 @@ export class MerchantSystem {
     if (!spot) return 'There is no room for a baby monkey here.';
     player.inventory.remove(ITEM.GOLD_COIN, price);
     player.inventoryDirty = true;
-    const baby = g.monkeys.spawnBaby(spot, player.team);
+    const baby = g.monkeys.spawnBaby(spot);
     r.babies++;
     g.teamProgress?.event(r.team, 'babyMonkey');
     g.teamProgress?.event(r.team, 'merchantTrade');
-    g.teamNotice(r.team, `${player.name} bought a baby monkey, ${baby.name}. It grows up in ${Math.round(MONKEY_DUTY.baby.growSeconds / 60)} minutes.`, 'monkey');
+    g.teamNotice(r.team, `${player.name} bought a baby monkey, ${baby.name}. It's still wild: play its game to tame it. It grows up in ${Math.round(MONKEY_DUTY.baby.growSeconds / 60)} minutes.`, 'monkey');
     return null;
   }
 

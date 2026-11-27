@@ -99,10 +99,12 @@ export class MonkeyWorkers {
       this.spawnOn(island,count,0.6,(x,z)=>![...this.game.npcs.values()].some(n=>Math.hypot(n.state.x-x-0.5,n.state.z-z-0.5)<2));
     }
   }
-  // A baby monkey for a team (bought from the Sky Merchant) at a standing cell.
-  spawnBaby(spot,team) {
+  // A baby monkey (bought from the Sky Merchant) at a standing cell. It
+  // starts wild: win its game to tame it, as with any wild monkey. It grows
+  // up on its timer either way, and can't work until it has.
+  spawnBaby(spot) {
     const m=new WorkMonkey(this.game.nextId++,this,{x:spot.x+0.5,y:spot.y,z:spot.z+0.5});
-    m.team=team;m.baby=true;m.growAt=this.game.tick+Math.round(D.baby.growSeconds*TICK_RATE);m.status='Growing up';
+    m.baby=true;m.growAt=this.game.tick+Math.round(D.baby.growSeconds*TICK_RATE);m.status='Growing up';
     m.home={x:m.state.x,y:m.state.y,z:m.state.z,yaw:0};
     this.game.npcs.set(m.id,m);
     this.game.broadcast?.({type:S2C.ENTITY_SPAWN,entity:m.describe()});
@@ -270,7 +272,7 @@ export class MonkeyWorkers {
   tamingResult(s,result) {
     const {player,monkey:m}=s;
     if(result==='won') {
-      m.team=player.team;m.status='Idle';
+      m.team=player.team;m.status=m.baby?'Growing up':'Idle';
       this.game.teamProgress?.event(player.team,'tame');
       for(const [id,other]of this.sessions)if(other.monkey===m) {
         this.sessions.delete(id);other.player.monkeyViewing=m.id;
@@ -548,8 +550,8 @@ export class MonkeyWorkers {
       stepPlayer(s,{forward:0,strafe:0,yaw:s.yaw,pitch:0,crouch,jump:cue==='jump'&&phase===0},this.game.world);
       m.pose=crouch?'crouch':s.onGround?'ready':'jump';return;
     }
-    if(m.baby&&tick>=m.growAt){m.baby=false;m.status='Ready';this.viewAll(m);
-      this.game.teamNotice?.(m.team,`${m.name} has grown up and is ready to work!`,'monkey');}
+    if(m.baby&&tick>=m.growAt){m.baby=false;m.status=m.team===null?'Wild':'Ready';this.viewAll(m);
+      if(m.team!==null)this.game.teamNotice?.(m.team,`${m.name} has grown up and is ready to work!`,'monkey');}
     m.climbing=false;
     // Guards fight every tick (aiming, swinging, chasing); out of a fight
     // they patrol on think ticks like any other role.

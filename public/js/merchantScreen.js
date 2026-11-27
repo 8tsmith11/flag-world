@@ -94,7 +94,7 @@ export class MerchantScreen {
     const icon = el('div', 'merchant-icon'); icon.append(itemIcon(ITEM.MONKEY_EGG));
     const text = el('div', 'merchant-text');
     text.append(el('strong', '', 'Baby monkey'),
-      el('span', 'merchant-note', `Joins your team; grows up in ${Math.round(MONKEY_DUTY.baby.growSeconds / 60)} min. Each one makes the next cost more (bought so far: ${d.babies}).`));
+      el('span', 'merchant-note', `Starts wild: win its game to tame it. Grows up in ${Math.round(MONKEY_DUTY.baby.growSeconds / 60)} min. Each one makes the next cost more (bought so far: ${d.babies}).`));
     const price = el('div', 'merchant-price');
     const c2 = itemIcon(ITEM.GOLD_COIN); c2.classList.add('merchant-coin');
     price.append(el('span', '', String(d.babyPrice)), c2);
