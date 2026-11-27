@@ -6,6 +6,8 @@
 //   - a dive that ends low near its target lands it for a fight on the
 //     ground: a telegraphed bite in front and a tail whip behind
 //   - a player without fire immunity is still burned
+//   - leaves are no cover: fire burns them, and a pursuing dragon smashes
+//     soft blocks it touches (never while patrolling, never grass or stone)
 //   - team (starter) islands have no dragons on any island world size
 // Small world, seed 2, on a grass platform in the sky.
 //   node scripts/dragon-check.js
@@ -141,6 +143,62 @@ const heal = () => { host.hp = MAX_HP; host.invulnerableUntilTick = 0; };
   game.dragons.delete(dragon.id);
 }
 
+// ---- No hiding under a tree: fire burns leaves, and a pursuing dragon
+// smashes soft blocks (wood, leaves) it touches. Grass and stone hold. ----
+{
+  heal(); host.inventory.armor = null;
+  const tx = ox + 30, tz = oz + 30, R = 3;
+  const tree = [];
+  for (let y = Y + 1; y <= Y + 6; y++) { world.setBlock(tx, y, tz, BLOCK.WOOD); tree.push([tx, y, tz]); }
+  for (let y = Y + 3; y <= Y + 6; y++) for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+    if (dx * dx + dz * dz > R * R + 1 || (dx === 0 && dz === 0) || (y === Y + 3 && Math.max(Math.abs(dx), Math.abs(dz)) <= 1)) continue;
+    world.setBlock(tx + dx, y, tz + dz, BLOCK.LEAVES); tree.push([tx + dx, y, tz + dz]);
+  }
+  // A stone hut nearby: stone is never smashed.
+  for (let y = Y + 1; y <= Y + 3; y++) world.setBlock(ox + 40, y, oz + 30, BLOCK.STONE);
+  const standing = () => tree.filter(([x, y, z]) => world.getBlock(x, y, z) !== BLOCK.AIR).length;
+  // Not pursuing anyone: flying through the canopy smashes nothing.
+  const idle = spawn(30, 30, 3);
+  idle.chooseTarget = () => null;
+  run(TICK_RATE * 2);
+  assert.equal(standing(), tree.length, 'a dragon that was not pursuing anyone smashed blocks');
+  game.dragons.delete(idle.id);
+  // Hiding under it while the dragon hunts you.
+  at(host, 31, 31);
+  const dragon = spawn(15, 30), log = watch(dragon);
+  dragon.provocation.provoke(host, game.tick);
+  let hurt = 0;
+  run(TICK_RATE * 60, () => {
+    at(host, 31, 31);
+    if (host.hp < MAX_HP) hurt += MAX_HP - host.hp;
+    heal();
+    if (game.tick % 100 === 0) dragon.provocation.provoke(host, game.tick);
+    return hurt > 0 && standing() < tree.length / 2;
+  });
+  assert.ok(hurt > 0, 'a player hiding under a tree was never hurt');
+  assert.ok(standing() < tree.length / 2, `the dragon left the tree standing (${standing()} of ${tree.length} blocks)`);
+  for (let x = ox + 20; x < ox + 41; x++) for (let z = oz + 20; z < oz + 41; z++)
+    assert.equal(world.getBlock(x, Y, z), BLOCK.GRASS, 'a dragon smashed the ground');
+  for (let y = Y + 1; y <= Y + 3; y++) assert.equal(world.getBlock(ox + 40, y, oz + 30), BLOCK.STONE, 'a dragon smashed stone');
+  game.dragons.delete(dragon.id);
+  for (const [x, y, z] of tree) world.setBlock(x, y, z, BLOCK.AIR);
+  for (let y = Y + 1; y <= Y + 3; y++) world.setBlock(ox + 40, y, oz + 30, BLOCK.AIR);
+}
+
+// ---- Behind a stone wall: it circles round to another side ----
+{
+  heal(); host.inventory.armor = null; at(host, 30, 30);
+  const wall = [];
+  for (let y = Y + 1; y <= Y + 6; y++) for (let dx = -4; dx <= 4; dx++) { world.setBlock(ox + 30 + dx, y, oz + 28, BLOCK.STONE); wall.push([ox + 30 + dx, y, oz + 28]); }
+  const dragon = spawn(30, 18), log = watch(dragon);
+  dragon.provocation.provoke(host, game.tick);
+  const hit = () => log.some((e) => e.fire.includes(host.id) || e.hits.some((h) => h.player === host));
+  run(TICK_RATE * 40, () => { at(host, 30, 30); heal(); if (game.tick % 100 === 0) dragon.provocation.provoke(host, game.tick); return hit(); });
+  assert.ok(hit(), 'a player behind a stone wall was never reached');
+  for (const [x, y, z] of wall) { assert.equal(world.getBlock(x, y, z), BLOCK.STONE, 'the dragon smashed the stone wall'); world.setBlock(x, y, z, BLOCK.AIR); }
+  game.dragons.delete(dragon.id);
+}
+
 // ---- Without fire immunity: still burned ----
 {
   heal(); host.inventory.armor = null; at(host, 30, 30);
@@ -151,4 +209,4 @@ const heal = () => { host.hp = MAX_HP; host.invulnerableUntilTick = 0; };
   game.dragons.delete(dragon.id);
 }
 
-console.log('OK: no dragons on starter islands; swoops (telegraphed, through dragonscale, knockback along the dive), landing after a low dive, bite and tail whip with wind-ups, fire still burns the unprotected');
+console.log('OK: no dragons on starter islands; swoops (telegraphed, through dragonscale, knockback along the dive), landing after a low dive, bite and tail whip with wind-ups, no hiding under trees (soft blocks smashed only while pursuing), circling round stone cover, fire still burns the unprotected');

@@ -143,7 +143,7 @@ export const QUESTS = [
       'Cows drop beef and leather. Cook beef in a furnace for more healing. Wheat makes bread (3 wheat, no workbench).'] },
   { id: 'farming', chapter: 'adventure', x: 9, y: 1, links: ['food'], icon: ITEM.WHEAT, title: 'Farming', goal: obtained(ITEM.WHEAT),
     reward: [{ item: ITEM.WHEAT_SEEDS, count: 4 }],
-    text: ['Breaking grass tufts and ferns sometimes gives wheat seeds. Craft a hoe at a workbench (wood hoe: 2 planks and 1 wood; stone hoe: 2 stone and 1 wood; iron hoe: 2 iron ingots and 1 wood) and right click grass or dirt with it to till farmland, then right click farmland with seeds to plant.',
+    text: ['Breaking grass tufts and ferns sometimes gives wheat seeds. Craft a wood hoe at a workbench (2 planks and 1 wood) and right click grass or dirt with it to till farmland, then right click farmland with seeds to plant.',
       'Crops grow by themselves. Right click a ripe crop to harvest it and replant. Cows follow anyone holding wheat, so you can lead them home; feed wheat to two cows to breed them.'] },
 
   // ---- Keep and combat ----
@@ -169,7 +169,7 @@ export const QUESTS = [
   { id: 'iron', chapter: 'adventure', x: 4, y: 3, icon: ITEM.IRON_INGOT, title: 'Iron', goal: obtained(ITEM.IRON_INGOT),
     text: ['Get an iron ingot. You don\'t need to mine: the Sky Merchant sells a few iron ingots every day, dragons drop some, and the Goblins quest rewards two.',
       'Mining iron ore yourself needs a bronze hammer (strength 4); see Monkey Business. Smelt ore in a furnace, or crush it first for double.',
-      'Iron makes the iron hammer (strength 5, breaks stone bricks and reinforced walls), iron swords, hoes and armor (10 ingots), reinforced doors and walls, arrow turrets and anvils.'] },
+      'Iron makes the iron hammer (strength 5, breaks stone bricks and reinforced walls), iron swords and armor (10 ingots), reinforced doors and walls, arrow turrets and anvils.'] },
   { id: 'anvil', chapter: 'adventure', x: 3, y: 4, deps: ['iron'], icon: BLOCK.ANVIL, title: 'Anvil', goal: made(BLOCK.ANVIL),
     text: ['An anvil (6 iron ingots) rerolls an item\'s modifiers for 2 iron ingots. Put a weapon, tool, armor or accessory in it and press Reroll.'] },
   { id: 'reinforced', chapter: 'adventure', x: 4, y: 4, deps: ['iron'], icon: BLOCK.REINFORCED_WALL, title: 'Reinforced Walls',
@@ -416,7 +416,7 @@ export const QUESTS = [
 
   // ---- Dragons and treasures ----
   { id: 'dragons', chapter: 'beyond', x: 4, y: 0, icon: ITEM.DRAGON_SCALE, title: 'Dragons', goal: { any: [event('kill:dragon'), obtained(ITEM.DRAGON_SCALE)] },
-    text: ['Dragons patrol islands of their own, land to rest and breathe fire at anyone nearby. They also swoop down through you (watch for the roar as one climbs), and bite and whip their tails on the ground. Hurting one makes it hunt you.',
+    text: ['Dragons patrol islands of their own, land to rest and breathe fire at anyone nearby. They also swoop down through you (watch for the roar as one climbs), and bite and whip their tails on the ground. A hunting dragon burns and smashes through trees and wooden walls, so hide behind stone. Hurting one makes it hunt you.',
       'They drop iron, leather and Dragon Scales.'] },
   { id: 'dragonscale', chapter: 'beyond', x: 5, y: 0, deps: ['dragons'], icon: ITEM.DRAGONSCALE_ARMOR, title: 'Dragonscale Armor', goal: obtained(ITEM.DRAGONSCALE_ARMOR),
     text: ['8 Dragon Scales make dragonscale armor at a workbench: the best armor there is, and it shrugs off dragon fire (but not a dragon\'s swoop, bite or tail).'] },

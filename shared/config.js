@@ -311,6 +311,13 @@ export const DRAGON_DROPS = { iron: [2, 5], leather: [2, 4], scales: [2, 4] };
 //     tailReach, each after a `windup`, every `cooldown` seconds.
 export const DRAGON_SWOOP = { cooldown: 7, windup: 1.2, rise: 7, speed: 16, damage: 6, knockback: 2.2, reach: 2.6,
   chance: 0.35, overshoot: 5, landBelow: 4 };
+// While pursuing a player, a dragon smashes the soft blocks its body touches
+// (hardness <= maxHardness: wood, leaves, planks, doors, glass...), at most
+// perTick a tick, and flies down through them toward its target. Natural
+// ground (grass, dirt, sand...), containers, barrels and drawbridge decks are
+// never smashed (server/dragon.js dragonSmashable). Patrolling or flying
+// home it smashes nothing.
+export const DRAGON_SMASH = { maxHardness: 1, perTick: 16 };
 export const DRAGON_MELEE = { biteReach: 3.6, tailReach: 4.4, windup: 0.55, biteDamage: 4, tailDamage: 3,
   biteKnockback: 0.8, tailKnockback: 1.6, cooldown: 1.6, groundSeconds: 4, engage: 7 };
 // How far past its island a leashed dragon roams unless chasing: team

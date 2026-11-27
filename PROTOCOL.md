@@ -788,6 +788,19 @@ through a 14-block cone aimed at that player's center when they have clear
 sight. The fire effect is sent to every player in the dragon's state. The
 server applies 2.5 damage per fire pulse before armor reduction; Dragonscale
 Armor is immune to it, so dragons never breathe at a fire-immune target.
+Leaves are no cover: each fire pulse burns up to 4 leaf blocks on the line to
+each player in the cone, and hits those with no leaves left in the way. If
+something else solid hides its target for 3 s, the dragon circles a third of
+the way round them and tries again.
+
+While pursuing a player (never while patrolling or flying home), a dragon
+smashes the soft blocks its body touches (`DRAGON_SMASH`: hardness 1 or less,
+such as wood, leaves, planks, doors and glass; at most 16 a tick, broken
+like a player would, with drops) and only keeps clear of blocks it can't
+smash, so it flies down through trees and wooden huts toward its target.
+Natural ground (grass, dirt, sand, scorched earth, ash, snow, ice, farmland,
+storm clouds), containers, explosive barrels and drawbridge decks are never
+smashed. A swoop's dive crashes through soft blocks the same way.
 
 Dragons also attack physically (`DRAGON_SWOOP`, `DRAGON_MELEE`): armor reduces
 these, and fire immunity doesn't stop them.
@@ -797,7 +810,7 @@ these, and fire immunity doesn't stop them.
   where the target's body was, at 16 blocks/s, overshooting 5 blocks
   (`swoop: 2`). Anyone within 2.6 blocks of it during the dive is hit once
   for 6 damage, with heavy knockback along the dive (it can throw players off
-  an edge). A wall in the way at the start cancels it.
+  an edge). A block it can't smash in the way at the start cancels it.
 - On the ground: a dive that ends on grass within 7 blocks of its target, or
   a player walking up to a landed dragon, starts a 4 s fight on the ground.
   It turns to face its target and bites anyone within 3.6 blocks in front
@@ -1548,7 +1561,7 @@ sending the resulting tree as `blockChange` messages.
 ## Farming
 
 Block 151 is farmland; 152–155 are wheat's four growth stages (`CROPS` in
-`shared/blocks.js`). Items 324–329: wheat seeds, wheat, wood/stone/iron hoes
+`shared/blocks.js`). Items 324–329: wheat seeds, wheat, wood hoe (327 and 328, the old stone and iron hoes, are retired: saves load them as wood hoes)
 and bread (3 wheat, heals 5). Tuning is `FARMING` in `shared/config.js`.
 
 - `input.use` on grass or dirt (with no solid block or liquid above) while

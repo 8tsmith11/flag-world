@@ -81,7 +81,10 @@ including the host, plays by opening `http://<host-ip>:3000`.
   live in `Game.mobs`; dragons in `Game.dragons`, leashed to a home island
   (central island and roosts; never team islands). Dragons breathe fire and
   also swoop, bite and tail-whip (`DRAGON_SWOOP`, `DRAGON_MELEE`): physical
-  hits that dragonscale's fire immunity doesn't stop (`scripts/dragon-check.js`).
+  hits that dragonscale's fire immunity doesn't stop. Leaves are no cover
+  (fire burns them); a pursuing dragon smashes soft blocks it touches
+  (`DRAGON_SMASH`, `dragonSmashable`: never natural ground, and never while
+  not pursuing) and circles round other cover (`scripts/dragon-check.js`).
   All three share `server/provocation.js`: player damage makes them hunt the
   attacker until they lose sight of them for `PROVOKE_FORGET_TIME`. Worldgen
   picks Crawler spawn points (`world.mobSpawns`) and roosts (`world.roosts`).

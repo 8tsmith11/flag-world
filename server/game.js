@@ -39,7 +39,7 @@ import { clickSlot, sortSlots } from './inventory.js';
 import { Arrow } from './arrow.js';
 import { RiftOrbProjectile } from './riftOrb.js';
 import { Cow, Herd, COW_BOX } from './cow.js';
-import { Dragon, DRAGON_BOX } from './dragon.js';
+import { Dragon, DRAGON_BOX, dragonSmashable } from './dragon.js';
 import { invalidateDragonSurface } from './dragonSurface.js';
 import { Crawler, CRAWLER_BOX } from './crawler.js';
 import { VoidEel, EEL_BOX, underBlockSpot } from './eel.js';
@@ -1943,6 +1943,9 @@ export class Game {
       }
       // Swoops, bites and tail whips: physical, with knockback (armor
       // reduces them; fire immunity doesn't).
+      // Soft blocks a pursuing dragon flew into (checked again: a block may
+      // have changed since).
+      for (const c of dragon.smash) if (dragonSmashable(this.world.getBlock(c.x, c.y, c.z))) this.breakBlock(c.x, c.y, c.z);
       for (const { player, damage, knockback, dir } of dragon.hits) {
         this.meleeHit(player, damage, dragon, knockback);
         // A swoop throws you along its dive, not just away from its body.

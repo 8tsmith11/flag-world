@@ -13,10 +13,40 @@ import { MOB_NAVIGATION as NAV } from '../shared/config.js';
 // hunts its attacker anywhere until it loses them, then flies home.
 import {
   TICK_RATE, TICK_DT, DRAGON_HP, DRAGON_SPEED, DRAGON_SIGHT,
-  DRAGON_FIRE_RANGE, DRAGON_FIRE_DURATION, DRAGON_FIRE_COOLDOWN, DRAGON_FIRE_INTERVAL, DRAGON_SWOOP, DRAGON_MELEE,
+  DRAGON_FIRE_RANGE, DRAGON_FIRE_DURATION, DRAGON_FIRE_COOLDOWN, DRAGON_FIRE_INTERVAL, DRAGON_SWOOP, DRAGON_MELEE, DRAGON_SMASH,
 } from '../shared/config.js';
 const ticks = (seconds) => Math.max(1, Math.round(seconds * TICK_RATE));
-import { BLOCK, isSolid } from '../shared/blocks.js';
+// Leaves are no cover from a dragon: its fire burns through them and a swoop
+// crashes through a canopy. Anything else solid is.
+const isCover = (id) => isSolid(id) && id !== BLOCK.LEAVES;
+const BURN_PER_PULSE = 4;
+// Natural ground a pursuing dragon never smashes (it would dig craters).
+const GROUND = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.SAND, BLOCK.SCORCHED_EARTH, BLOCK.ASH, BLOCK.SNOW,
+  BLOCK.ICE, BLOCK.FARMLAND, BLOCK.STORM_CLOUD]);
+// Soft blocks a pursuing dragon smashes on contact (DRAGON_SMASH).
+export function dragonSmashable(id) {
+  if (!isSolid(id) || GROUND.has(id) || id === BLOCK.BRIDGE_DECK) return false;
+  const def = getBlockDef(id);
+  return def.breakable !== false && !def.tileEntity && !def.ignite && (def.hardness ?? 0) <= DRAGON_SMASH.maxHardness;
+}
+// What stops a pursuing dragon: solid blocks it can't smash.
+const isHard = (id) => isSolid(id) && !dragonSmashable(id);
+const HIDDEN_RETRY_TICKS = 3 * TICK_RATE;
+
+// Leaf cells on the straight line from `from` to `to`, nearest first.
+function leavesOnLine(world, from, to) {
+  const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, d = Math.hypot(dx, dy, dz);
+  const out = [], seen = new Set();
+  for (let t = 0; t <= d; t += 0.25) {
+    const x = Math.floor(from.x + dx * t / d), y = Math.floor(from.y + dy * t / d), z = Math.floor(from.z + dz * t / d);
+    const k = `${x},${y},${z}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (world.getBlock(x, y, z) === BLOCK.LEAVES) out.push({ x, y, z });
+  }
+  return out;
+}
+import { BLOCK, isSolid, getBlockDef } from '../shared/blocks.js';
 import { playerBoxOf } from '../shared/physics.js';
 import { ENTITY_TYPE } from '../shared/protocol.js';
 import { raycastBlock } from '../shared/raycast.js';
@@ -73,6 +103,19 @@ export class Dragon {
     this.nextMeleeTick = 0;
     this.nextEngageTick = 0;
     this.hits = [];
+    this.smash = [];
+  }
+
+  // Soft blocks its body touches, to smash (Game breaks them, with drops).
+  smashBody(world) {
+    const s = this.state, h = DRAGON_BOX.halfW, seen = new Set(this.smash.map((c) => `${c.x},${c.y},${c.z}`));
+    for (let y = Math.floor(s.y); y <= Math.floor(s.y + DRAGON_BOX.height); y++)
+      for (let x = Math.floor(s.x - h); x <= Math.floor(s.x + h); x++)
+        for (let z = Math.floor(s.z - h); z <= Math.floor(s.z + h); z++) {
+          if (this.smash.length >= DRAGON_SMASH.perTick) return;
+          const k = `${x},${y},${z}`;
+          if (!seen.has(k) && dragonSmashable(world.getBlock(x, y, z))) { seen.add(k); this.smash.push({ x, y, z }); }
+        }
   }
 
   // Where a player is relative to the dragon: horizontal distance, and
@@ -145,7 +188,7 @@ export class Dragon {
       const from = { x: s.x, y: s.y + 1.4, z: s.z };
       const dx = aim.x - from.x, dy = aim.y - from.y, dz = aim.z - from.z, d = Math.hypot(dx, dy, dz) || 1;
       const dir = { x: dx / d, y: dy / d, z: dz / d };
-      const wall = raycastBlock(world, from, dir, d, isSolid);
+      const wall = raycastBlock(world, from, dir, d, isHard);
       if (wall && wall.t < d - 0.5) { this.swoop = null; return; }
       this.swoop = { phase: 'dive', dir, until: tick + Math.ceil((d + w.overshoot) / w.speed * TICK_RATE), hit: new Set() };
       s.yaw = Math.atan2(-dir.x, -dir.z);
@@ -155,12 +198,14 @@ export class Dragon {
     s.pitch = Math.max(-1.1, Math.atan2(sw.dir.y, Math.max(0.1, Math.hypot(sw.dir.x, sw.dir.z))));
     const step = w.speed * TICK_DT;
     const nx = s.x + sw.dir.x * step, ny = s.y + sw.dir.y * step, nz = s.z + sw.dir.z * step;
-    const ground = dragonSurface(world, nx, nz);
-    const blocked = isSolid(world.getBlock(Math.floor(nx), Math.floor(ny + 1.4), Math.floor(nz)))
+    // It crashes through soft blocks (smashing them); anything harder stops it.
+    const ground = world.getSurfaceY(Math.floor(nx), Math.floor(nz), isHard);
+    const blocked = isHard(world.getBlock(Math.floor(nx), Math.floor(ny + 1.4), Math.floor(nz)))
       || nx < 3 || nz < 3 || nx >= world.sizeX - 3 || nz >= world.sizeZ - 3;
     if (!blocked) {
       s.x = nx; s.z = nz;
       s.y = ground >= 0 ? Math.max(ground + WALK_HEIGHT, ny) : ny;
+      this.smashBody(world);
     }
     for (const p of players) {
       if (!huntable(p) || sw.hit.has(p.id)) continue;
@@ -227,6 +272,7 @@ export class Dragon {
     const target = this.chooseTarget(world, players, tick);
     this.target = target;
     this.hits = [];
+    this.smash = [];
     if (this.swoop) { this.breathTicks = 0; this.walking = false; this.stepSwoop(world, players, target, tick); return []; }
     if (this.grounded) { this.breathTicks = 0; if (this.stepGrounded(world, players, target, tick)) return []; }
     // A player walking up to a landed dragon gets a fight on the ground.
@@ -298,11 +344,19 @@ export class Dragon {
     const patrolRadius = 16 + 5 * Math.sin(tick * 0.003 + this.id);
     // Chasing, it holds off STANDOFF blocks from its target (on its own side),
     // facing them: straight overhead its breath cone can't reach them.
-    // (A lone attacker has no approach offset; several spread around.)
+    // (A lone attacker has no approach offset; several spread around.) If
+    // its target stays hidden behind cover, it circles to another side.
     let offset = this.approachOffset;
+    if (!target) { this.orbit = null; this.hiddenTicks = 0; }
+    else if (this.hiddenFrom(world, target)) {
+      this.hiddenTicks = (this.hiddenTicks ?? 0) + 1;
+      if (this.hiddenTicks % HIDDEN_RETRY_TICKS === 0)
+        this.orbit = Math.atan2(s.z - target.state.z, s.x - target.state.x) + Math.PI * 2 / 3;
+    } else this.hiddenTicks = 0;
     if (target && Math.hypot(offset?.x ?? 0, offset?.z ?? 0) < 0.5) {
       const ax = s.x - target.state.x, az = s.z - target.state.z, d = Math.hypot(ax, az);
-      offset = d > 0.5 ? { x: ax / d * STANDOFF, z: az / d * STANDOFF } : { x: Math.sin(s.yaw) * STANDOFF, z: Math.cos(s.yaw) * STANDOFF };
+      offset = this.orbit != null ? { x: Math.cos(this.orbit) * STANDOFF, z: Math.sin(this.orbit) * STANDOFF }
+        : d > 0.5 ? { x: ax / d * STANDOFF, z: az / d * STANDOFF } : { x: Math.sin(s.yaw) * STANDOFF, z: Math.cos(s.yaw) * STANDOFF };
     }
     const goal = target
       ? { x: target.state.x + (offset?.x ?? 0), y: target.state.y + 3.2, z: target.state.z + (offset?.z ?? 0) }
@@ -330,10 +384,13 @@ export class Dragon {
       s.x = nx;
       s.z = nz;
     }
-    const ground = dragonSurface(world, s.x, s.z);
+    // Pursuing, it only keeps clear of blocks it can't smash, and smashes the
+    // rest as it flies into them.
+    const ground = target ? world.getSurfaceY(Math.floor(s.x), Math.floor(s.z), isHard) : dragonSurface(world, s.x, s.z);
     const minimum = ground < 0 ? 10 : ground + 3.5;
     const wantedY = Math.max(minimum, Math.min(world.sizeY - DRAGON_BOX.height - 1, goal.y));
     s.y += Math.max(-CLIMB_SPEED * TICK_DT, Math.min(CLIMB_SPEED * TICK_DT, wantedY - s.y));
+    if (target) this.smashBody(world);
 
     if (target) this.aimAt(target);
     if (this.breathTicks > 0) {
@@ -358,22 +415,47 @@ export class Dragon {
     return [];
   }
 
+  // Something it can't burn or smash through is between its head and the
+  // target (it then circles to another side).
+  hiddenFrom(world, player) {
+    const s = this.state, p = player.state, from = { x: s.x, y: s.y + 1.7, z: s.z };
+    const dx = p.x - from.x, dy = p.y + playerBoxOf(p).height / 2 - from.y, dz = p.z - from.z, d = Math.hypot(dx, dy, dz);
+    if (d < 0.01) return false;
+    const wall = raycastBlock(world, from, { x: dx / d, y: dy / d, z: dz / d }, d, isCover);
+    return !!wall && wall.t < d - 0.4;
+  }
+
+  mouth() {
+    const s = this.state;
+    return { x: s.x - Math.sin(s.yaw) * 1.85, y: s.y + 1.7, z: s.z - Math.cos(s.yaw) * 1.85 };
+  }
+
+  // In the fire cone with nothing but leaves (which the fire burns away) in
+  // the way.
   canHit(world, player) {
     const s = this.state, p = player.state;
-    const from = { x: s.x - Math.sin(s.yaw) * 1.85, y: s.y + 1.7,
-      z: s.z - Math.cos(s.yaw) * 1.85 };
+    const from = this.mouth();
     const dx = p.x - from.x, dy = p.y + playerBoxOf(p).height / 2 - from.y, dz = p.z - from.z;
     const distance = Math.hypot(dx, dy, dz);
     if (distance > DRAGON_FIRE_RANGE || distance < 0.01) return false;
     const horizontal = Math.hypot(dx, dz);
     if (horizontal < 0.01 || (-Math.sin(s.yaw) * dx - Math.cos(s.yaw) * dz) / horizontal < Math.cos(0.48)) return false;
     const direction = { x: dx / distance, y: dy / distance, z: dz / distance };
-    const wall = raycastBlock(world, from, direction, distance, isSolid);
+    const wall = raycastBlock(world, from, direction, distance, isCover);
     return !wall || wall.t >= distance - 0.4;
   }
 
+  // A fire pulse: burns up to BURN_PER_PULSE leaves on the way to each player
+  // in the cone; those with no leaves left in the way are hit.
   fireTargets(world, players) {
-    return players.filter((player) => huntable(player) && this.canHit(world, player));
+    const hit = [];
+    for (const player of players) {
+      if (!huntable(player) || !this.canHit(world, player)) continue;
+      const p = player.state, leaves = leavesOnLine(world, this.mouth(), { x: p.x, y: p.y + playerBoxOf(p).height / 2, z: p.z });
+      for (const c of leaves.slice(0, BURN_PER_PULSE)) world.setBlock(c.x, c.y, c.z, BLOCK.AIR);
+      if (leaves.length <= BURN_PER_PULSE) hit.push(player);
+    }
+    return hit;
   }
 
   aimAt(player) {
