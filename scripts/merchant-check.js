@@ -188,11 +188,15 @@ assert.equal(depot.present, false);
 // ---- Losing the depot ----
 game.breakBlock(pos.x, pos.y, pos.z);
 assert.equal(game.merchants.record(host.team).depot, null);
-assert.match(game.merchants.requestDepot(host) ?? '', /lying on the ground/, 'request ignored the dropped depot');
-for (const e of [...game.items.values()]) if (e.item === BLOCK.MERCHANT_DEPOT) game.removeItem(e);
+// The broken depot lies on the ground: another can still be requested, since
+// none is placed (only one can be placed at a time anyway).
+assert.ok([...game.items.values()].some((e) => e.item === BLOCK.MERCHANT_DEPOT), 'the broken depot did not drop');
 game.tick += TICK_RATE * 10;
-assert.equal(game.merchants.requestDepot(host), null, 'replacement refused after the depot was lost');
+assert.equal(game.merchants.requestDepot(host), null, 'a depot was refused while the old one lay on the ground');
 assert.ok(host.inventory.slots.some((s) => s?.item === BLOCK.MERCHANT_DEPOT));
+// Even while carrying one, another can be requested; a placed one still blocks it.
+game.tick += TICK_RATE * 10;
+assert.equal(game.merchants.requestDepot(host), null, 'a depot was refused while carrying one');
 
 // ---- Saves keep depots, babies bought and quest progress ----
 const { serializeGame } = await import('../server/save.js');

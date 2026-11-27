@@ -638,7 +638,7 @@ Match players only, `{action, quest?}`.
 | Action | Fields | Behavior |
 |--------|--------|----------|
 | `claim` | `quest` | Claims a completed quest's reward for the team (once per team: the first claim is paid, any later one, even in the same tick, is refused), if it fits in your inventory; within 12 blocks of your Wise Monkey. The whole team gets the updated book at once |
-| `requestDepot` | — | Gives you a Merchant Depot if your team has none placed and none exists anywhere (carried, stored, on the ground); within 12 blocks of your Wise Monkey |
+| `requestDepot` | — | Gives you a Merchant Depot unless your team has one placed (depot items carried, stored or dropped don't matter: only one can be placed at a time); within 12 blocks of your Wise Monkey |
 | `close` | — | Closes the book |
 
 ### `machineAction`

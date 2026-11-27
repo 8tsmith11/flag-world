@@ -114,27 +114,14 @@ export class MerchantSystem {
       this.dirty = true;
     }
   }
-  // Where a depot item exists for a team, or null: a placed depot, or one
-  // carried, stored or lying on the ground.
-  depotItemWhere(team) {
-    const g = this.game, has = (stacks) => stacks.some((s) => s?.item === BLOCK.MERCHANT_DEPOT);
-    for (const p of g.players.values()) {
-      const inv = p.inventory;
-      if (p.team === team && has([...inv.slots, inv.cursor])) return `${p.name} is carrying one`;
-    }
-    for (const n of g.npcs.values()) if (n.team === team && n.inventory && has(n.inventory.slots)) return `${n.name} is carrying one`;
-    for (const [k, c] of g.world.tileEntities) if (has(c.slots ?? [])) return `there is one in a container at ${k.replaceAll(',', ', ')}`;
-    for (const e of g.items.values()) if (e.item === BLOCK.MERCHANT_DEPOT) return 'there is one lying on the ground';
-    return null;
-  }
-  // The Wise Monkey's "Request a Merchant Depot" button.
+  // The Wise Monkey's "Request a Merchant Depot" button: refused only while
+  // the team has a depot placed (depot items carried, stored or dropped
+  // don't count; only one can be placed at a time anyway).
   requestDepot(player) {
     const r = this.record(player.team), w = this.game.world;
     if (this.game.tick - r.lastRequest < TICK_RATE * 5) return 'Wait a moment before asking again.';
     if (r.depot && w.getBlock(r.depot.x, r.depot.y, r.depot.z) === BLOCK.MERCHANT_DEPOT)
       return `Your team's depot is still standing at ${r.depot.x}, ${r.depot.y}, ${r.depot.z}.`;
-    const where = this.depotItemWhere(player.team);
-    if (where) return `Your team already has a depot: ${where}.`;
     if (player.inventory.add(BLOCK.MERCHANT_DEPOT, 1) > 0) return 'Make room in your inventory first.';
     r.lastRequest = this.game.tick;
     player.inventoryDirty = true;

@@ -67,7 +67,7 @@ export class QuestScreen {
     head.append(el('h1', '', 'The Wise Monkey\'s Book'));
     this.depotBox = el('div', 'quest-depot');
     this.depotButton = el('button', '', 'Request a Merchant Depot'); this.depotButton.type = 'button';
-    this.depotButton.title = 'One depot per team. Ask again if yours is destroyed or lost.';
+    this.depotButton.title = 'One placed depot per team. Ask for another whenever none is placed.';
     this.depotButton.addEventListener('click', () => this.send('requestDepot'));
     this.depotStatus = el('span', 'quest-depot-status');
     this.depotBox.append(this.depotButton, this.depotStatus);
