@@ -370,9 +370,14 @@ export const EEL_LOSE_RANGE = 40;
 // A player within this many blocks of an island's edge is exposed to eels.
 export const EEL_EDGE_REACH = 2;
 // Wandering: every EEL_LURK_TIME seconds an eel picks a spot EEL_LURK_DEPTH
-// blocks under the lowest block of a random column (island or bridge) within
-// EEL_PLAY_MARGIN of the central/team islands, away from the elemental islands.
+// blocks under the lowest block of a column within EEL_PLAY_MARGIN of the
+// central/team islands, away from the elemental islands. The column is picked
+// by island (EEL_LURK_WEIGHTS): near the edge of a team island (between
+// `edge` of its radius and just past it), anywhere under a small island, or
+// now and then under the central island's edge, so they don't all crowd
+// under the huge central island.
 export const EEL_LURK_TIME = [12, 30];
+export const EEL_LURK_WEIGHTS = { team: 5, tiny: 4, center: 1, edge: 0.7 };
 export const EEL_LURK_DEPTH = [3, 9];
 export const EEL_PLAY_MARGIN = 20;
 export const RIFT_ORB = { durationSeconds: 10, maxStack: 4, throwSpeed: 13,

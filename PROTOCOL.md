@@ -840,11 +840,15 @@ for 3 (every 1 s, before armor) when within 0.6 blocks of the player's box. A
 dead Crawler drops 0–2 Silk.
 
 Void Eels: `eels` in `WORLD_SIZES` (8, 12, 16) have no patrol area. Every
-12–30 s (`EEL_LURK_TIME`) an eel picks a random column with a block in it
-(an island underside or a bridge, at any height) within 20 blocks
+12–30 s (`EEL_LURK_TIME`) an eel picks a column with a block in it (an
+island underside or a bridge, at any height) within 20 blocks
 (`EEL_PLAY_MARGIN`) of the central and team islands, never near the fire or
 ice islands, and lurks 3–9 blocks under its lowest block, drifting there
-until it chooses again. They start at such spots too. The void band (about
+until it chooses again. The column is picked by island (`EEL_LURK_WEIGHTS`):
+about half the time near a team island's edge, often anywhere under a small
+island, and only now and then under the central island's edge. Swimming, it
+dips under a step in an underside rather than pushing against it, and an eel
+wedged for a second picks another spot. They start at such spots too. The void band (about
 18 blocks under the central island, 12 under other islands) only bounds
 their spawn fallback and the way back after a chase. An eel detects a player
 in a 32-block-radius column extending 180 blocks above it (30% farther at

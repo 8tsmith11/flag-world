@@ -5,7 +5,7 @@ import {
   EEL_LUNGE_WINDUP, EEL_REACH, EEL_DETECT_RADIUS, EEL_DETECT_HEIGHT,
   EEL_NIGHT_DETECT_SCALE, EEL_NIGHT_RISE_SCALE, EEL_FORGET_TIME,
   EEL_LOSE_RANGE, EEL_WANDER_RADIUS, EEL_ATTACK_COOLDOWN,
-  EEL_LUNGE_DURATION, EEL_TURN_RATE, EEL_EDGE_REACH, EEL_LURK_TIME, EEL_LURK_DEPTH, EEL_PLAY_MARGIN,
+  EEL_LUNGE_DURATION, EEL_TURN_RATE, EEL_EDGE_REACH, EEL_LURK_TIME, EEL_LURK_DEPTH, EEL_PLAY_MARGIN, EEL_LURK_WEIGHTS,
 } from '../shared/config.js';
 import { playerBoxOf, playerFitsAt } from '../shared/physics.js';
 import { isSolid } from '../shared/blocks.js';
@@ -48,13 +48,35 @@ export function inEelPlayArea(world, x, z) {
   return Math.hypot(x - a.x, z - a.z) <= a.radius
     && !a.avoid.some(i => Math.hypot(x - i.x, z - i.z) <= i.radius + EEL_PLAY_MARGIN);
 }
-// A random point a few blocks under the lowest block of a random column
-// that has one, inside the play area; null when a few tries find nothing.
-export function underBlockSpot(world, band, tries = 12) {
-  const a = playArea(world);
-  for (let i = 0; i < tries; i++) {
+// A random column to lurk under: by island (EEL_LURK_WEIGHTS), near a team
+// island's edge, anywhere under a small island or under the central island's
+// edge; without islands, anywhere in the play area.
+function lurkColumn(world) {
+  const a = playArea(world), W = EEL_LURK_WEIGHTS;
+  const islands = (world.islands ?? []).filter((i) => (i.kind === 'team' || i.kind === 'tiny' || i.kind === 'center')
+    && inEelPlayArea(world, i.x, i.z));
+  // Each kind's weight is shared among its islands.
+  const count = {}; for (const i of islands) count[i.kind] = (count[i.kind] ?? 0) + 1;
+  const weight = (i) => W[i.kind] / count[i.kind];
+  const total = islands.reduce((n, i) => n + weight(i), 0);
+  if (!total) {
     const angle = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * a.radius;
-    const x = Math.floor(a.x + Math.cos(angle) * r), z = Math.floor(a.z + Math.sin(angle) * r);
+    return { x: Math.floor(a.x + Math.cos(angle) * r), z: Math.floor(a.z + Math.sin(angle) * r) };
+  }
+  let pick = Math.random() * total, island = islands[0];
+  for (const i of islands) { pick -= weight(i); if (pick <= 0) { island = i; break; } }
+  const angle = Math.random() * Math.PI * 2;
+  const r = island.kind === 'tiny' ? Math.sqrt(Math.random()) * island.radius
+    : island.radius * (W.edge + Math.random() * (1.05 - W.edge));
+  return { x: Math.floor(island.x + Math.cos(angle) * r), z: Math.floor(island.z + Math.sin(angle) * r) };
+}
+
+// A random point a few blocks under the lowest block of a lurk column
+// (lurkColumn) that has one, inside the play area; null when a few tries
+// find nothing.
+export function underBlockSpot(world, band, tries = 12) {
+  for (let i = 0; i < tries; i++) {
+    const { x, z } = lurkColumn(world);
     if (!inEelPlayArea(world, x, z) || x < 2 || z < 2 || x >= world.sizeX - 2 || z >= world.sizeZ - 2) continue;
     // Scan up from the bottom of the band for the first solid block.
     for (let y = Math.max(world.minY ?? 0, Math.floor(band.bottom)); y < world.sizeY; y++) {
@@ -88,6 +110,7 @@ export class VoidEel {
     this.lungeDirection = null;
     this.wanderGoal = null;
     this.wanderUntil = 0;
+    this.stuckTicks = 0;
     this.trail = Array.from({ length: 16 }, (_, i) => ({
       x: spawn.x + Math.sin(this.state.yaw) * i * 0.55,
       y: spawn.y + EEL_BOX.height / 2,
@@ -256,13 +279,22 @@ export class VoidEel {
     s.pitch = turnToward(s.pitch, Math.atan2(dy, Math.max(0.01, horizontal)));
     const step = Math.min(length, speed * (night && dy > 0 ? EEL_NIGHT_RISE_SCALE : 1) * TICK_DT);
     const vx = dx / length * step, vy = dy / length * step, vz = dz / length * step;
-    for (const [ox, oy, oz] of [[vx, vy, vz], [vx, 0, vz], [0, vy, 0],
-      [-vz, vy, vx], [vz, vy, -vx]]) {
+    // Straight on, level, dipping under, straight down, then sideways and
+    // straight up: what hangs in its way is an island's underside, so a
+    // one-block step down there must not stop it (going up or sliding along
+    // the step would only keep it pressed against it).
+    const down = -Math.max(Math.abs(vy), step * 0.7);
+    for (const [ox, oy, oz] of [[vx, vy, vz], [vx, 0, vz], [vx, down, vz], [0, down, 0],
+      [-vz, vy, vx], [vz, vy, -vx], [0, vy, 0]]) {
+      if (Math.abs(ox) + Math.abs(oy) + Math.abs(oz) < 1e-6) continue;
       if (!this.clear(world, s.x + ox, s.y + oy, s.z + oz)) continue;
       s.x += ox; s.y += oy; s.z += oz;
       this.rememberTrail();
+      this.stuckTicks = 0;
       return;
     }
+    // Wedged: after a second, give up on this spot and pick another.
+    if (++this.stuckTicks > TICK_RATE) { this.stuckTicks = 0; this.wanderGoal = null; this.wanderUntil = 0; }
   }
 
   rememberTrail() {
