@@ -31,6 +31,8 @@ import { S2C } from '../shared/protocol.js';
 import { MonkeyTaming } from './monkeyTaming.js';
 import { Inventory, clickSlot } from './inventory.js';
 import { modValue } from '../shared/modifiers.js';
+import { rodStats, isBait } from '../shared/fishing.js';
+import { FACING_DIRS } from '../shared/blocks.js';
 
 const key=p=>`${p.x},${p.y},${p.z}`;
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
@@ -305,7 +307,8 @@ export class MonkeyWorkers {
     // Fields added later default when a saved configuration lacks them.
     const waypoints=this.positions(input.waypoints??[],MONKEY_FIELDS.waypoints.max);
     if(!sources||!dests||!sites||!blocks||!waypoints)return null;
-    for(const f of ['cornerA','cornerB','home','post','workbench'])if(input[f]&&!this.position(input[f]))return null;
+    for(const f of ['cornerA','cornerB','home','post','workbench','fishSpot'])if(input[f]&&!this.position(input[f]))return null;
+    if(input.castDir!==undefined&&!int(input.castDir,0,3))return null;
     if(input.collect!==undefined&&typeof input.collect!=='boolean')return null;
     const recipe=input.recipe===null||input.recipe===undefined?null:getRecipe(input.recipe);
     if(input.recipe!==null&&input.recipe!==undefined&&(!recipe||recipe.creative))return null;
@@ -321,7 +324,7 @@ export class MonkeyWorkers {
       quarry:{shape:q.shape,axis:q.axis,depth:q.depth,radius:q.radius,returnAt:q.returnAt},
       radius:input.radius,filter:{mode:input.filter.mode,items:[...new Set(input.filter.items)]},sites:[],
       waypoints,post:this.position(input.post),workbench:this.position(input.workbench),recipe:recipe?.id??null,
-      collect:input.collect!==false,destSlots};
+      collect:input.collect!==false,destSlots,fishSpot:this.position(input.fishSpot),castDir:input.castDir??0};
     // A soil selection marks the cell above it (where the sapling goes).
     for(const pos of sites) {
       const site=[BLOCK.GRASS,BLOCK.DIRT].includes(this.game.world.getBlock(pos.x,pos.y,pos.z))?{...pos,y:pos.y+1}:pos;
@@ -384,6 +387,8 @@ export class MonkeyWorkers {
   reserve(m,item) {
     if(m.config.role==='lumberjack'&&item===ITEM.TREE_SEED)return 2;
     if(m.config.role==='farmer'&&CROP_SEEDS.has(item))return C.seedReserve;
+    // A fisherman keeps all its bait.
+    if(m.config.role==='fisherman'&&isBait(item))return Infinity;
     return 0;
   }
   // [{slot, stack, count}] of what it would deliver. A craftsman delivers
@@ -404,6 +409,7 @@ export class MonkeyWorkers {
   threshold(m) {
     if(m.config.role==='quarry')return m.config.quarry.returnAt;
     if(m.config.role==='courier'||m.config.role==='collector')return 1;
+    if(m.config.role==='fisherman')return C.fishermanReturnAt;
     return C.capacity;
   }
   // The slots of container c that `item` may go into with slot mode `mode`
@@ -608,12 +614,14 @@ export class MonkeyWorkers {
     if(role==='idle')return null;
     if(!m.config.dests.length&&this.collects(m)){m.status='Select a destination';return null;}
     if(role==='craftsman')return this.craftsmanWork(m);
+    if(role==='fisherman'&&m.task?.kind!=='fish'&&this.game.fishing?.bobberOf(m))return this.fishermanWork(m);
     const carried=this.carried(m);
     if(carried&&(carried>=this.threshold(m)||!this.room(m))&&m.config.dests.length) {
       const d=this.deliveryTask(m);if(d)return d;
     }
     const work=role==='courier'?this.courierWork(m):role==='collector'?this.collectorWork(m)
-      :role==='lumberjack'?this.lumberjackWork(m):role==='quarry'?this.quarryWork(m):role==='farmer'?this.farmerWork(m):null;
+      :role==='lumberjack'?this.lumberjackWork(m):role==='quarry'?this.quarryWork(m):role==='farmer'?this.farmerWork(m)
+      :role==='fisherman'?this.fishermanWork(m):null;
     if(work)return work;
     if(carried&&m.config.dests.length)return this.deliveryTask(m);
     return null;
@@ -628,7 +636,7 @@ export class MonkeyWorkers {
   }
   doTask(m,tick) {
     const t=m.task;
-    const result=this.approach(m,t.at);
+    const result=t.stand?this.standAt(m,t.at):this.approach(m,t.at);
     if(result==='going'){m.status=t.going??'On the way';return;}
     if(result==='waiting')return;
     if(result==='failed'){
@@ -636,7 +644,7 @@ export class MonkeyWorkers {
       t.onFail?.();this.dropTask(m);m.idleUntil=tick+C.idleRecheckTicks;return;
     }
     // In reach.
-    const s=m.state;s.yaw=Math.atan2(-(t.at.x+0.5-s.x),-(t.at.z+0.5-s.z));
+    const s=m.state;if(!t.stand)s.yaw=Math.atan2(-(t.at.x+0.5-s.x),-(t.at.z+0.5-s.z));
     const finished=this[`act_${t.kind}`](m,t);
     if(finished)this.dropTask(m);
   }
@@ -807,7 +815,78 @@ export class MonkeyWorkers {
     return !m.inventory.has(t.recipe.inputs);
   }
 
+  // Standing on block p (a fishing spot): 'going', 'waiting', 'failed', or
+  // undefined once there.
+  standAt(m,p) {
+    const s=m.state;
+    if(Math.hypot(s.x-p.x-0.5,s.z-p.z-0.5)<=0.6&&Math.abs(s.y-p.y-1)<1)return undefined;
+    const r=this.approachStand(m,p);
+    if(r==='going'&&m.arrived&&!m.path.length&&m.pathKey===`home:${key(p)}`)return undefined;
+    return r;
+  }
+
   // ---- Roles ----
+
+  // Fisherman: needs a rod in its tool slot, a fishing spot that casts into
+  // somewhere the rod can fish, and bait (fetched from its sources). The
+  // spot is checked before any bait is used. Fishing itself is
+  // server/fishing.js (bait, conservation, bites, catches).
+  fishermanWork(m) {
+    const fishing=this.game.fishing,stats=rodStats(m.gear[TOOL]);
+    if(!stats){m.status='Missing fishing rod';return null;}
+    const spot=m.config.fishSpot;
+    if(!spot){m.status='Select a fishing spot';return null;}
+    const where=fishing.castTarget(spot,m.config.castDir);
+    if(!where||!stats.environments.includes(where)){m.status='Invalid fishing location';return null;}
+    if(fishing.bobberOf(m))return {kind:'fish',at:spot,stand:true,cast:true,what:'its fishing spot',going:'Going back to its line'};
+    if(!fishing.monkeyBait(m)) {
+      const sources=m.config.sources;
+      if(!sources.length){m.status='Select a bait source';return null;}
+      if(!this.room(m)){m.status='Inventory is full';return null;}
+      for(let i=0;i<sources.length;i++) {
+        const index=(m.sourceIndex+i)%sources.length,c=this.container(sources[index]);
+        if(c&&this.sourceSlots(c).some(j=>c.slots[j]&&isBait(c.slots[j].item)&&!c.slots[j].mods?.length))
+          return {kind:'fetchBait',at:sources[index],index,what:'its bait source',going:'Retrieving bait'};
+      }
+      m.status='Missing bait';return null;
+    }
+    return {kind:'fish',at:spot,stand:true,what:'its fishing spot',going:'Going to its fishing spot'};
+  }
+  act_fetchBait(m,t) {
+    const c=this.container(t.at);
+    if(!c){m.status='Source is missing';return true;}
+    let taken=0;
+    for(const i of this.sourceSlots(c)) {
+      const s=c.slots[i];
+      if(!s||!isBait(s.item)||s.mods?.length)continue;
+      const want=Math.min(C.fishermanBait-taken,s.count),left=m.inventory.addStack(cloneStack(s,want)),n=want-left;
+      if(!n)break;
+      s.count-=n;taken+=n;if(!s.count)c.slots[i]=null;c.dirty=true;
+      if(taken>=C.fishermanBait)break;
+    }
+    m.sourceIndex=(t.index??0)+1;
+    m.status=taken?'Carrying bait':'Missing bait';
+    return true;
+  }
+  // At the spot: face the water and cast, then wait for the catch (the
+  // fishing system reels in on the bite). Done once the line is in again.
+  act_fish(m,t) {
+    const fishing=this.game.fishing,[dx,dz]=FACING_DIRS[m.config.castDir]??FACING_DIRS[0];
+    m.state.yaw=Math.atan2(-dx,-dz);
+    const bobber=fishing.bobberOf(m);
+    if(bobber) {
+      // Settled where nothing can be caught (or with no bait left): reel in.
+      if(!bobber.flying&&!bobber.attempt&&!bobber.bite){fishing.remove(bobber);m.status='Invalid fishing location';m.idleUntil=this.game.tick+C.idleRecheckTicks*4;return true;}
+      m.working=true;m.status=bobber.flying?'Fishing':'Waiting for a bite';return false;
+    }
+    if(t.cast)return true;
+    const stats=rodStats(m.gear[TOOL]),where=fishing.castTarget(m.config.fishSpot,m.config.castDir);
+    if(!stats||!where||!stats.environments.includes(where)){m.status=stats?'Invalid fishing location':'Missing fishing rod';return true;}
+    if(!fishing.monkeyBait(m)){m.status='Missing bait';return true;}
+    fishing.monkeyCast(m,m.config.castDir);
+    t.cast=true;m.status='Fishing';m.working=true;
+    return false;
+  }
 
   courierWork(m) {
     const sources=m.config.sources;

@@ -73,6 +73,9 @@ import { MerchantSystem, SkyMerchant } from './merchants.js';
 import { QuestBook } from './quests.js';
 import { Explosives } from './explosives.js';
 import { Spikes } from './spikes.js';
+import { Fishing } from './fishing.js';
+import { isBait, isRod } from '../shared/fishing.js';
+import { rollTable } from '../shared/loot.js';
 import { ChunkLoading } from './chunkLoading.js';
 import { TurretController } from './turrets.js';
 import { turretType } from '../shared/turrets.js';
@@ -310,6 +313,13 @@ export class Game {
       case C2S.MACHINE_ACTION:
         if (session.player) this.machineAction(session.player, msg);
         break;
+      case C2S.FISHING_BAIT:
+        // The bait this player's rods use (kept with their inventory).
+        if (session.player && isBait(msg.item)) {
+          session.player.inventory.bait = msg.item; session.player.inventoryDirty = true;
+          this.teamProgress.discover(session.player.team, 'baitChosen');
+        }
+        break;
       case C2S.SAVE_GAME:
         // Any match player can save now (the same file autosaves overwrite).
         if (session.player && this.tick - (this.lastManualSave ?? -Infinity) >= TICK_RATE * 2) {
@@ -501,6 +511,7 @@ export class Game {
     this.fluids = new FluidSystem(this);
     this.explosives = new Explosives(this);
     this.spikes = new Spikes(this);
+    this.fishing = new Fishing(this);
     this.farming = new Farming(this);
     this.world.onBlockChanged = (x, y, z, id, oldId) => {
       invalidateDragonSurface(this.world, x, z);
@@ -669,6 +680,7 @@ export class Game {
       player.inventory.slots = data.inventory.slots.map(restore);
       player.inventory.armor = restore(data.inventory.armor);
       player.inventory.accessory = restore(data.inventory.accessory);
+      if (isBait(data.inventory.bait)) player.inventory.bait = data.inventory.bait;
       player.inventory.cursor = null;
       if (data.inventory.cursor) player.inventory.addStack(restore(data.inventory.cursor));
       this.players.set(player.id, player);
@@ -828,7 +840,8 @@ export class Game {
       entities: [...[...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
         ...this.mobs.values(), ...this.npcs.values()].map((e) => ({ ...e.describe(), loaded: this.chunkLoading.has(e.state.x, e.state.z) })),
         ...[...this.merchants.ships.values()].map((ship) => ship.describe()),
-        ...[...this.explosives.grenades.values()].map((g) => g.describe())],
+        ...[...this.explosives.grenades.values()].map((g) => g.describe()),
+        ...[...this.fishing.bobbers.values()].map((b) => b.describe())],
       merchants: this.merchants.message().merchants,
       quests: this.quests.state(player.team),
       inventory: player.inventory,
@@ -870,6 +883,8 @@ export class Game {
       flyToggle: !!msg.flyToggle,
       scope: !!msg.scope,
       grenade: !!msg.grenade,
+      fish: !!msg.fish,
+      crate: !!msg.crate,
     });
   }
 
@@ -1536,7 +1551,30 @@ export class Game {
     for (const { item, count } of ANVIL_REROLL_COST) player.inventory.remove(item, count);
     anvil.reroll();
     anvil.dirty = true;
+    if (isRod(anvil.slots[0]?.item)) this.teamProgress.event(player.team, 'rodReforged');
     player.inventoryDirty = true;
+  }
+
+  // Opens the loot crate in the player's hand (its def's `crate` names the
+  // loot table): one crate used, its loot in their inventory (what doesn't
+  // fit drops at their feet).
+  stepCrate(player) {
+    if (player.dead || this.tick < (player.nextCrateTick ?? 0)) return null;
+    const def = getItemDef(player.held());
+    if (!def.crate) return null;
+    player.nextCrateTick = this.tick + Math.round(TICK_RATE * 0.25);
+    if (player.inventory.takeOne(player.selected) === null) return null;
+    const loot = rollTable(def.crate, Math.random);
+    for (const stack of loot) {
+      const left = player.inventory.add(stack.item, stack.count, stack.mods ?? null);
+      if (left > 0) this.spawnItem(stack.item, left, player.state.x, player.state.y + 1, player.state.z, 0, ITEM_POP_SPEED, 0, ITEM_PICKUP_DELAY, stack.mods ?? null);
+    }
+    player.inventoryDirty = true;
+    this.teamProgress.event(player.team, 'crateOpened');
+    this.send(player, { type: S2C.NOTICE, kind: 'win',
+      text: `${def.name[0].toUpperCase()}${def.name.slice(1)}: ${loot.map((s) => `${s.count} ${getItemDef(s.item).name}`).join(', ')}` });
+    this.swing(player);
+    return loot;
   }
 
   // Throws one item from `slot` the way the player is looking (a modded item
@@ -2609,6 +2647,8 @@ export class Game {
         if (input.spawnEgg) this.stepSpawnEgg(player, input.spawnEgg, input.slot);
         if (input.rift) this.stepRift(player);
         if (input.grenade && !input.scope) this.explosives.throwGrenade(player);
+        if (input.fish && !input.scope) this.fishing.use(player);
+        if (input.crate) this.stepCrate(player);
         if (input.drop) this.stepDrop(player, input.slot);
         this.stepBow(player, input.draw);
         this.stepCrossbow(player, input.draw, input.fire);
@@ -2641,6 +2681,7 @@ export class Game {
       ...this.updateMobs()];
     this.explosives.update();
     this.spikes.update(this.tick);
+    const movedBobbers = this.fishing.update();
     for (const mob of resolveMobOverlaps(this.world, livingMobs)) {
       for (const map of [this.cows, this.dragons, this.mobs, this.npcs]) if (map.has(mob.id)) map.relocate(mob);
       if (!movedItems.includes(mob)) movedItems.push(mob);
@@ -2669,6 +2710,8 @@ export class Game {
     ordinary.push(...this.merchants.snapshots());
     // Grenades are few and short-lived: everyone gets them every tick.
     ordinary.push(...this.explosives.snapshots());
+    // Bobbers are few: everyone gets each one that moved or got a bite.
+    ordinary.push(...movedBobbers.map((b) => b.snapshot()));
     this.entityInterest.collect(this);
     const flags = [...this.flags.values()].map((f) => f.snapshot());
     const turrets = this.turretController.snapshot();

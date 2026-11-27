@@ -225,6 +225,6 @@ export class Inventory {
   }
 
   toJSON() {
-    return { slots: this.slots, cursor: this.cursor, armor: this.armor, accessory: this.accessory };
+    return { slots: this.slots, cursor: this.cursor, armor: this.armor, accessory: this.accessory, bait: this.bait ?? null };
   }
 }

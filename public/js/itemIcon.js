@@ -10,7 +10,12 @@ import { attackStats, breakingStats, rangedStats, FROST } from '/shared/tools.js
 import { ARROW_DAMAGE, CROSSBOW_ARROW_DAMAGE, TICK_RATE, GRAPPLE_RANGE, GRAPPLE_COOLDOWN, ROPE_LENGTH,
   QUARRY_REGROW_TIME } from '/shared/config.js';
 
+import { rodStats, ENVIRONMENT_NAMES, BAIT } from '/shared/fishing.js';
+
 let tooltip = null;
+// Your chosen fishing bait (from the server's inventory message), for rod tooltips.
+let fishingBait = null;
+export function setFishingBait(item) { fishingBait = item ?? null; }
 let pointerX = 0, pointerY = 0;
 
 function showTooltip(slot, event) {
@@ -77,6 +82,15 @@ function tooltipDetails(stack) {
   } else if (def.tool === 'grapple') {
     stats.push(`Range          ${GRAPPLE_RANGE} blocks`, `Cooldown       ${GRAPPLE_COOLDOWN}s`);
     effects.push('Right click to pull yourself to a block');
+  }
+  const rod = rodStats(stack);
+  if (rod) {
+    // Effective values, modifiers included.
+    stats.push(`Fishing tier       ${rod.tier}`, `Fishing multiplier ${Number(rod.multiplier.toFixed(2))}×`,
+      `Fishing speed      ${Number(rod.speed.toFixed(2))}×`, `Bait conservation  ${pct(rod.conservation)}`);
+    effects.push(`Fishes in ${rod.environments.map((e) => ENVIRONMENT_NAMES[e]).join(', ').replace(/, ([^,]*)$/, ' and $1')}`);
+    effects.push(`Bait: ${fishingBait && BAIT[fishingBait] ? getItemDef(fishingBait).name : 'none chosen'}`,
+      'Right click it in your inventory to change bait', 'Right click to cast; right click again to reel in');
   }
   if (def.armorPoints) {
     stats.push(`Armor points   ${def.armorPoints + (stack.mods?.find((mod) => mod.id === 'sturdy')?.value ?? 0)}`);

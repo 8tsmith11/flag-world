@@ -24,6 +24,7 @@ export const C2S = {
   MERCHANT_ACTION: 'merchantAction', // {action,offer?,count?}: trade with your team's Sky Merchant
   QUEST_ACTION: 'questAction', // {action,quest?}: open the quest book, claim a reward, request a depot
   MACHINE_ACTION: 'machineAction', // {action,value?}: controls of the machine screen you have open (drawbridge)
+  FISHING_BAIT: 'fishingBait', // {item}: the bait your fishing rods use
 };
 
 // Server -> client
@@ -137,6 +138,7 @@ export const ENTITY_TYPE = {
   // The Sky Merchant's airship (the merchant himself is an NPC).
   AIRSHIP: 'airship',
   GRENADE: 'grenade',
+  BOBBER: 'bobber',
 };
 
 // Goblin worldgen plans remain server-side. Fortress poison shooters use the

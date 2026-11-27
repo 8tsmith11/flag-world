@@ -46,12 +46,13 @@ const riftOrb = { item: ITEM.RIFT_ORB, weight: 3, min: 1, max: 1 };
 // Loot-only gear: rope is common, the crossbow and grappling hook uncommon, and
 // the Wind Axe and Ice Sword rare (less so in central, dungeon and underside loot).
 const ropeBundles = { item: ITEM.ROPE_BUNDLE, weight: 8, min: 1, max: 3 };
+const fishingRod = { item: ITEM.WOOD_FISHING_ROD, weight: 2, min: 1, max: 1, modChance: COMMON_MODS };
 const uncommonGear = [
   { item: ITEM.CROSSBOW, weight: 3, min: 1, max: 1, modChance: IRON_MODS },
   { item: ITEM.GRAPPLING_HOOK, weight: 3, min: 1, max: 1 },
 ];
 const rareWeapons = (weight) => [ITEM.WIND_AXE, ITEM.ICE_SWORD].map((item) => ({ item, weight, min: 1, max: 1, modChance: RARE_MODS }));
-const lootGear = (rareWeight) => [ropeBundles, ...uncommonGear, ...rareWeapons(rareWeight)];
+const lootGear = (rareWeight) => [ropeBundles, fishingRod, ...uncommonGear, ...rareWeapons(rareWeight)];
 
 export const LOOT_TABLES = {
   looseChest: { rolls: [2, 3], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
@@ -78,7 +79,41 @@ export const LOOT_TABLES = {
     { ...uncommonGear[0], modChance: 0.6 }] },
   dungeonCentral: { rolls: [6, 9], entries: [...supplies, ...usefulGear, ...ironGear(2),
     { item: ITEM.IRON_INGOT, weight: 12, min: 2, max: 6 }, goldenBeef(5), ...accessoryEntries(6), riftOrb, ...lootGear(6)] },
+  // Fishing loot crates (opened from the inventory, Game.stepCrate): a
+  // modest mix like a loose chest's; the iron-bound crate (tier 2 fishing)
+  // is richer, near a central tower's. Fishing rods inside often carry a
+  // modifier.
+  lootCrate: { rolls: [2, 3], entries: [
+    { item: ITEM.GOLD_COIN, weight: 10, min: 2, max: 5 }, { item: ITEM.IRON_INGOT, weight: 7, min: 1, max: 2 },
+    { item: ITEM.COPPER_INGOT, weight: 8, min: 2, max: 4 }, { item: ITEM.TIN_INGOT, weight: 6, min: 1, max: 2 },
+    { item: ITEM.WHEAT_SEEDS, weight: 6, min: 2, max: 5 }, { item: ITEM.SULFUR_SEEDS, weight: 5, min: 1, max: 3 },
+    { item: ITEM.LEATHER, weight: 6, min: 1, max: 3 }, { item: ITEM.SILK, weight: 5, min: 1, max: 3 },
+    ropeBundles, goldenBeef(1.5), { item: ITEM.WOOD_FISHING_ROD, weight: 2, min: 1, max: 1, modChance: 0.6 },
+    ...usefulGear.slice(0, 2), ...accessoryEntries(0.5)] },
+  ironboundCrate: { rolls: [3, 4], entries: [
+    { item: ITEM.GOLD_COIN, weight: 10, min: 3, max: 7 }, { item: ITEM.IRON_INGOT, weight: 9, min: 2, max: 4 },
+    { item: ITEM.BRONZE_INGOT, weight: 5, min: 1, max: 3 }, goldenBeef(3), { ...riftOrb, weight: 2 },
+    { item: ITEM.WOOD_FISHING_ROD, weight: 2, min: 1, max: 1, modChance: 0.8 },
+    { item: ITEM.BRONZE_FISHING_ROD, weight: 1, min: 1, max: 1, modChance: 0.8 },
+    ...ironGear(1, 0.4), ...accessoryEntries(1.2), { item: ITEM.DRAGON_SCALE, weight: 0.8, min: 1, max: 2 }, ...uncommonGear] },
 };
+
+// The stacks a table gives with `random` (no chest slots): used for crates.
+export function rollTable(tableName, random) {
+  const table = LOOT_TABLES[tableName];
+  if (!table) throw new Error(`Unknown loot table: ${tableName}`);
+  const out = [];
+  const rolls = table.rolls[0] + Math.floor(random() * (table.rolls[1] - table.rolls[0] + 1));
+  const totalWeight = table.entries.reduce((total, entry) => total + entry.weight, 0);
+  for (let i = 0; i < rolls; i++) {
+    let choice = random() * totalWeight;
+    const entry = table.entries.find((candidate) => (choice -= candidate.weight) < 0) ?? table.entries.at(-1);
+    const stack = { item: entry.item, count: Math.min(getItemDef(entry.item).maxStack, entry.min + Math.floor(random() * (entry.max - entry.min + 1))) };
+    if (entry.modChance && random() < entry.modChance) { const mods = rollMods(entry.item, random); if (mods.length) stack.mods = mods; }
+    out.push(stack);
+  }
+  return out;
+}
 
 export function rollLoot(tableName, seed, x, y, z, slotCount = 27) {
   const table = LOOT_TABLES[tableName];

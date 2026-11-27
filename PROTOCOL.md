@@ -1951,3 +1951,15 @@ to the same successful world and record the resolved seed as `world.seed`.
   Missing construction materials, Obstructed. The
   crusher also keeps a small steam store (20), filled from its pipes and
   spent as it works; its view adds `steamStored`, `steamCapacity`.
+
+## Fishing
+
+- Rods, bait, bite timing and loot tables: `shared/fishing.js`; server
+  simulation: `server/fishing.js`; crates: `lootCrate`/`ironboundCrate` in
+  `shared/loot.js`. Inputs: `fish` (right click with a rod: cast, or reel
+  in), `crate` (right click with a crate: open it). `fishingBait` C2S
+  `{item}` sets the player's bait (kept on their inventory; the `inventory`
+  message carries `bait`). Bobbers are entities (type `"bobber"`, `{id,
+  owner, x, y, z, where, bite}`), sent to everyone when they move or a bite
+  starts or ends. Fisherman monkeys (role `fisherman`, config `fishSpot`,
+  `castDir` 0..3) use the same rules, ten times slower.

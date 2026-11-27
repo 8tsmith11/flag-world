@@ -44,7 +44,9 @@ import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { RECIPES } from './recipes.js';
 import { METALS, FLUID, MERCHANT, MONKEY_DUTY, REINFORCED_WALL, SMELT_TIME, FLAG_GRAB_TIME, FLAG_CAPTURE_TIME,
-  SAPLING_DROP_CHANCE, TURRET, FLAG_RETURN_TIME, EXPLOSIVES, SPIKES, DRAWBRIDGE, FARMING } from './config.js';
+  SAPLING_DROP_CHANCE, TURRET, FLAG_RETURN_TIME, EXPLOSIVES, SPIKES, DRAWBRIDGE, FARMING, FISHING } from './config.js';
+import { ROD_STATS, BAIT } from './fishing.js';
+import { MODIFIERS } from './modifiers.js';
 import { MERCHANT_SELLS } from './merchant.js';
 
 const obtained = (...ids) => ({ obtained: ids });
@@ -65,16 +67,16 @@ export const CHAPTERS = [
     regions: [region('Tools and building', 0, 0, 4, 1), region('Metalworking', 5, 1, 7, 2), region('Food and farming', 8, 1, 9, 1),
       region('Keep and combat', 0, 3, 2, 4), region('Iron and defenses', 3, 3, 6, 4),
       region('Monkeys', 0, 5, 4, 7), region('The Sky Merchant', 6, 5, 8, 7), region('Exploration and creatures', 0, 8, 5, 10),
-      region('Explosives', 7, 8, 10, 10)],
+      region('Explosives', 7, 8, 10, 10), region('Fishing', 8, 3, 11, 4)],
     intro: 'Everything you can do with wood, stone, copper, tin and iron: tools and buildings, your keep and flag, monkeys and their jobs, furnaces, fights and defenses, explosives, the Sky Merchant, and the islands around you.' },
   { id: 'business', name: 'Monkey Business', icon: ITEM.BRONZE_INGOT,
     unlock: { goal: obtained(ITEM.BRONZE_INGOT), text: 'Unlocks when anyone on your team first holds a bronze ingot (made in an Alloy Furnace).' },
-    regions: [region('Bronze', 0, 0, 2, 1), region('Steam power', 0, 3, 3, 4), region('Industry', 5, 1, 6, 3)],
+    regions: [region('Bronze', 0, 0, 2, 1), region('Steam power', 0, 3, 3, 4), region('Industry', 5, 1, 6, 3), region('Fishing', 5, 5, 6, 5)],
     intro: 'What bronze makes possible: bronze tools and iron mining, pumps, pipes, boilers, crushers and steam drawbridges, and monkey-run industry that feeds machines, works metal and sells it.' },
   { id: 'beyond', name: 'Beyond the Island', icon: ITEM.DRAGON_SCALE,
     unlock: { discovery: true, goal: event('encounter:dragon'), text: 'Found by discovering something remarkable out in the world.' },
     regions: [region('The fire island', 0, 0, 2, 0), region('Dragons', 4, 0, 5, 0), region('Treasures', 7, 1, 7, 1),
-      region('The frozen island', 0, 2, 1, 2), region('Ancient Monkeys', 3, 2, 5, 2)],
+      region('The frozen island', 0, 2, 1, 2), region('Ancient Monkeys', 3, 2, 5, 2), region('The deep void', 7, 3, 7, 3)],
     intro: 'Far islands, ancient secrets, dragons and the treasures they guard.' },
 ];
 
@@ -317,6 +319,31 @@ export const QUESTS = [
       `It blows apart stone and most blocks within about ${Math.floor(EXPLOSIVES.barrel.blastRadius * (1 - 1 / EXPLOSIVES.barrel.power))} blocks and hurts everything nearby (up to ${EXPLOSIVES.barrel.damage} damage). Stone bricks only crack, and reinforced walls take several barrels; damage adds up. Spike barricades go. Unbreakable blocks never do.`,
       'Another explosion lights any barrel in its blast with a short fuse, so rows of barrels go off one after another.'] },
 
+  // ---- Fishing ----
+  { id: 'fishingRod', chapter: 'adventure', x: 8, y: 3, icon: ITEM.WOOD_FISHING_ROD, title: 'Fishing Rod', goal: obtained(ITEM.WOOD_FISHING_ROD),
+    text: [`Craft a wooden fishing rod from ${FISHING.craft.woodRodWood} wood and ${FISHING.craft.woodRodSilk} silk (Crawlers drop silk) at a workbench. Hold it and right click to cast; right click again to reel in.`,
+      `Every rod has four attributes, shown in its tooltip. Fishing Tier decides what can bite and where it can fish (a wooden rod is tier ${ROD_STATS[ITEM.WOOD_FISHING_ROD].tier}: water and the void). Fishing Multiplier makes better catches more likely. Fishing Speed shortens the wait for a bite. Bait Conservation is the chance a cast doesn't use up its bait (${Math.round(ROD_STATS[ITEM.WOOD_FISHING_ROD].conservation * 100)}% on a wooden rod).`] },
+  { id: 'bait', chapter: 'adventure', x: 8, y: 4, deps: ['fishingRod'], icon: ITEM.BREAD, title: 'Bait', goal: event('baitChosen'),
+    text: ['Fishing takes bait. Right click your fishing rod in your inventory to choose it: the Bait list shows each kind, how many you have and what it does. Your choice is remembered for every cast; if you run out, you can\'t cast until you have more or choose another.',
+      `Bread is cheap, basic bait. Raw beef (×${BAIT[ITEM.BEEF].quality} luck) and golden beef (×${BAIT[ITEM.GOLDEN_BEEF].quality}) make the good catches much more likely. Bait never changes how long you wait or where you can fish.`,
+      'A cast that lands somewhere fishable uses one bait, unless the rod\'s Bait Conservation roll saves it. A cast that lands on the ground or runs out of line uses none.'] },
+  { id: 'waterFishing', chapter: 'adventure', x: 9, y: 3, deps: ['fishingRod'], icon: ITEM.FISH, title: 'Gone Fishing', goal: event('fishCaught:water'),
+    text: ['Cast into water: the bobber flies where you aim, falls, and floats on the surface. Then wait.',
+      `When something bites, the tip of your rod bends down a little, and the bobber dips under with a splash. Reel in straight away (within about a second) and you always catch something. Reel in before the bite, or too late, and it gets away, bait and all. Bites usually come after ${FISHING.bite.min}-${FISHING.bite.max} seconds.`,
+      'Water gives fish (eat them: hold right click), and now and then seeds, leather, rope, coins, iron or a loot crate.'] },
+  { id: 'voidFishing', chapter: 'adventure', x: 10, y: 3, links: ['waterFishing'], icon: ITEM.VOID_FISH, title: 'Fishing the Void', goal: event('fishCaught:void'),
+    text: [`Cast off the edge of an island into the void. Your line is very long (${FISHING.maxLine} blocks), and the bobber has to fall all the way down to the real void, far below the islands; the open air just under an island isn't deep enough.`,
+      'Down there you can\'t see the bobber, so watch the tip of your rod: it bends when something bites. The void gives void fish, which bite nowhere else, and other odd things.'] },
+  { id: 'lootCrates', chapter: 'adventure', x: 10, y: 4, links: ['waterFishing'], icon: ITEM.LOOT_CRATE, title: 'Loot Crates', goal: event('crateOpened'),
+    text: ['Now and then a catch is a loot crate. Hold it and right click to open it: coins, metal, seeds, leather and silk, sometimes gear, a fishing rod with a modifier, or an accessory.',
+      'Better rods, a higher Fishing Multiplier and better bait all make crates more likely. Tier 2 rods can also pull up iron-bound crates, which hold more.'] },
+  { id: 'reforgeRod', chapter: 'adventure', x: 9, y: 4, links: ['fishingRod'], icon: BLOCK.ANVIL, title: 'Reforged Rods', goal: event('rodReforged'),
+    text: [`Fishing rods can carry one modifier, like weapons and tools: Swift (+${Math.round(MODIFIERS.swift.value * 100)}% Fishing Speed), Lucky (+${Math.round(MODIFIERS.lucky.value * 100)}% Fishing Multiplier) or Thrifty (+${Math.round(MODIFIERS.thrifty.value * 100)}% Bait Conservation). Rods found in chests and crates often have one.`,
+      `Put a rod in an anvil and press Reroll (2 iron ingots) for a new modifier, to specialize it for speed, catches or saving bait. A modifier never changes the rod's tier or where it can fish, and Bait Conservation never goes above ${Math.round(FISHING.maxConservation * 100)}%.`] },
+  { id: 'fisherman', chapter: 'adventure', x: 11, y: 3, links: ['voidFishing'], icon: ITEM.MONKEY_EGG, title: 'Fisherman Monkeys', goal: event('monkeyFished'),
+    text: [`Fisherman: give a monkey a fishing rod in its tool slot, a fishing spot (the block it stands on), a casting direction, a source chest with bait and a destination for its catch. It casts about one block out from its spot, into whatever is below: water, lava or the void.`,
+      `It uses whatever bait its source holds, never misses a bite, and gets everything a player would (its rod's modifiers included), but it fishes at a tenth of your speed (more with a Swift rod). It stops when it runs out of bait, and won't cast where its rod can't fish.`] },
+
   // ======== Monkey Business ========
 
   // ---- Bronze ----
@@ -352,6 +379,12 @@ export const QUESTS = [
       `Put planks in its slot: each section is built once from ${DRAWBRIDGE.sectionPlanks} planks. Retracted sections are stored inside and laid again for free, so moving it back and forth costs nothing.`,
       `Pipe steam in from a boiler. The drawbridge keeps up to ${DRAWBRIDGE.steamStorage} steam in its own store, topped up from the pipes. Each extend or retract costs ${DRAWBRIDGE.steamPerSection} steam per block of length (${DRAWBRIDGE.steamPerSection * DRAWBRIDGE.defaultLength} for ${DRAWBRIDGE.defaultLength} blocks, ${DRAWBRIDGE.steamPerSection * DRAWBRIDGE.maxLength} for ${DRAWBRIDGE.maxLength}), all taken the moment you press the button: from its store first, then the pipes, boilers and tanks. Without enough it won't start. Once started it slides straight out (or in) a section every ${DRAWBRIDGE.sectionSeconds} seconds to the end, even if the steam runs out, and you can't change your mind until it stops.`,
       'It never builds into a block or anyone in the way. If the first section is blocked it just jogs (no steam used); if something is in the way further out it slides as far as it can and stops there, so nobody standing on it is dropped. Without planks it also stops where it is. A broken section drops its planks and leaves a gap; press Extend with planks supplied to replace it. Monkeys walk across an extended bridge.'] },
+
+  // ---- Fishing ----
+  { id: 'bronzeRod', chapter: 'business', x: 5, y: 5, icon: ITEM.BRONZE_FISHING_ROD, title: 'Bronze Fishing Rod', goal: obtained(ITEM.BRONZE_FISHING_ROD),
+    text: [`Craft one from a wooden fishing rod and ${FISHING.craft.bronzeRodBronze} bronze ingots at a workbench. It is tier ${ROD_STATS[ITEM.BRONZE_FISHING_ROD].tier} with a ×${ROD_STATS[ITEM.BRONZE_FISHING_ROD].multiplier} Fishing Multiplier: richer catches in water and the void (iron-bound crates among them), and it can fish in lava. It is no faster.`] },
+  { id: 'lavaFishing', chapter: 'business', x: 6, y: 5, deps: ['bronzeRod'], icon: ITEM.IRONBOUND_CRATE, title: 'Lava Fishing', goal: { all: [obtained(ITEM.BRONZE_FISHING_ROD), event('fishCaught:lava')] },
+    text: ['Cast a bronze fishing rod into lava: the bobber floats on top and bites come like anywhere else (watch for the fiery splash). Lava gives basalt, charcoal, obsidian, copper, tin and iron, and now and then an iron-bound crate or something rarer.'] },
 
   // ---- Industry ----
   { id: 'metalwork', chapter: 'business', x: 5, y: 1, icon: BLOCK.BRONZE_PIPE, title: 'Automated Metalwork', goal: anyEvent('monkeyCrafted', BRONZE_GOODS),
@@ -390,6 +423,12 @@ export const QUESTS = [
   { id: 'accessories', chapter: 'beyond', x: 7, y: 1, icon: ITEM.HEART_AMULET, title: 'Rare Accessories', goal: obtained(...ACCESSORY_ITEMS),
     text: ['Accessories go in the accessory slot of your inventory; you can wear one at a time. They come from loot chests; the Sky Merchant sometimes sells spring boots, and the Dragon Crown comes from the Dragon Lord.',
       'Wind boots: move faster. Spring boots: hold jump to charge a high leap. Heart amulet: +5 maximum health. Mending charm: start healing steadily 5 seconds after being hurt. Ember heart: when a blow would kill you (not a fall into the void) it burns up instead and leaves you with 10 health.'] },
+
+  // ---- The deep void ----
+  { id: 'eelCatch', chapter: 'beyond', x: 7, y: 3, icon: ITEM.VOID_EEL_EGG, title: 'Something Bit Back', hidden: true,
+    reveal: event('fishedEel'), goal: event('fishedEel'),
+    text: ['Fishing the deep void with a tier 2 rod, you hooked a Void Eel and pulled it up. It came up angry, right where your line was.',
+      'A Fisherman monkey working the void can hook one too: guard your fishing platforms.'] },
 
   // ---- The frozen island and the Ancient Monkeys ----
   { id: 'iceIsland', chapter: 'beyond', x: 0, y: 2, icon: BLOCK.PACKED_ICE, title: 'The Frozen Island', goal: event('visit:ice'),

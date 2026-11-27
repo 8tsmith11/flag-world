@@ -5,7 +5,7 @@
 // the inventory screen or a workbench) or 'workbench' (only at a workbench).
 // `id` is what the client sends to craft it.
 
-import { LIGHTING, METALS, FLUID, ELEMENTAL, REINFORCED_WALL, SPYGLASS, EXPLOSIVES, SPIKES, DRAWBRIDGE } from './config.js';
+import { LIGHTING, METALS, FLUID, ELEMENTAL, REINFORCED_WALL, SPYGLASS, EXPLOSIVES, SPIKES, DRAWBRIDGE, FISHING } from './config.js';
 import { BLOCK } from './blocks.js';
 import { ITEM } from './itemIds.js';
 import { creativeItemIds, getItemDef } from './items.js';
@@ -69,6 +69,10 @@ export const RECIPES = [
     inputs: needs([ITEM.SULFUR, EXPLOSIVES.gunpowder.craftSulfur], [ITEM.CHARCOAL, EXPLOSIVES.gunpowder.craftCharcoal]) },
   { id: 'grenade', station: 'workbench', output: ITEM.GRENADE, count: EXPLOSIVES.grenade.craftCount,
     inputs: needs([ITEM.GUNPOWDER, EXPLOSIVES.grenade.craftGunpowder], [ITEM.COPPER_INGOT, EXPLOSIVES.grenade.craftCopper]) },
+  { id: 'wood_fishing_rod', station: 'workbench', output: ITEM.WOOD_FISHING_ROD, count: 1,
+    inputs: needs([BLOCK.WOOD, FISHING.craft.woodRodWood], [ITEM.SILK, FISHING.craft.woodRodSilk]) },
+  { id: 'bronze_fishing_rod', station: 'workbench', output: ITEM.BRONZE_FISHING_ROD, count: 1,
+    inputs: needs([ITEM.WOOD_FISHING_ROD, 1], [ITEM.BRONZE_INGOT, FISHING.craft.bronzeRodBronze]) },
   { id: 'lighter', station: 'workbench', output: ITEM.LIGHTER, count: 1,
     inputs: needs([ITEM.GUNPOWDER, EXPLOSIVES.lighter.craftGunpowder], [ITEM.IRON_INGOT, EXPLOSIVES.lighter.craftIron]) },
   { id: 'explosive_barrel', station: 'workbench', output: BLOCK.EXPLOSIVE_BARREL, count: 1,

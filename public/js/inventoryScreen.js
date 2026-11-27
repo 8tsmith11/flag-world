@@ -21,7 +21,8 @@ import { C2S } from '/shared/protocol.js';
 import { getItemDef } from '/shared/items.js';
 import { recipesAt, browserRecipes, filterRecipesByOutput, canAfford, countItems, ANVIL_REROLL_COST } from '/shared/recipes.js';
 import { canHaveMods, modLines, stackName } from '/shared/modifiers.js';
-import { renderStack } from './itemIcon.js';
+import { renderStack, itemIcon } from './itemIcon.js';
+import { isRod, BAIT, BAIT_ITEMS } from '/shared/fishing.js';
 import { createPlayerModel, animatePlayer } from './render/models.js';
 import { MachineView, MACHINE_KINDS } from './machinePanels.js';
 
@@ -118,10 +119,51 @@ export class InventoryScreen {
     el.addEventListener('mousedown', (e) => {
       if (e.button !== 0 && e.button !== 2) return;
       e.preventDefault();
+      // Right click on one of your fishing rods (empty cursor): choose its bait.
+      if (e.button === 2 && !container && !this.inventory.cursor && isRod(this.inventory.slots[index]?.item)) {
+        this.openBait(el);
+        return;
+      }
+      this.closeBait();
       this.conn.send({
         type: C2S.INVENTORY_CLICK, slot: index, button: e.button === 2 ? 'right' : 'left', shift: e.shiftKey, container,
       });
     });
+  }
+
+  // The Bait popup: each kind of bait, how many you have and what it does.
+  // Picking one tells the server; the choice comes back with the inventory.
+  openBait(anchor) {
+    this.closeBait();
+    const box = document.createElement('div');
+    box.className = 'bait-popup';
+    const title = document.createElement('div'); title.className = 'bait-title'; title.textContent = 'Bait';
+    box.append(title);
+    for (const item of BAIT_ITEMS) {
+      const have = this.inventory.slots.reduce((n, s) => n + (s?.item === item && !s.mods?.length ? s.count : 0), 0);
+      const row = document.createElement('button'); row.type = 'button';
+      row.className = `bait-row${this.inventory.bait === item ? ' selected' : ''}${have ? '' : ' none'}`;
+      const icon = itemIcon(item);
+      const text = document.createElement('span');
+      const name = document.createElement('b'); name.textContent = `${getItemDef(item).name} ×${have}`;
+      const effect = document.createElement('small'); effect.textContent = BAIT[item].effect;
+      text.append(name, document.createElement('br'), effect);
+      row.append(icon, text);
+      row.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); this.conn.send({ type: C2S.FISHING_BAIT, item }); this.closeBait(); });
+      box.append(row);
+    }
+    const rect = anchor.getBoundingClientRect();
+    box.style.left = `${Math.min(rect.right + 6, window.innerWidth - 240)}px`;
+    box.style.top = `${Math.max(8, Math.min(rect.top, window.innerHeight - 200))}px`;
+    document.body.append(box);
+    this.baitPopup = box;
+    this.baitClose = (e) => { if (!box.contains(e.target)) this.closeBait(); };
+    setTimeout(() => window.addEventListener('mousedown', this.baitClose), 0);
+  }
+  closeBait() {
+    if (!this.baitPopup) return;
+    this.baitPopup.remove(); this.baitPopup = null;
+    window.removeEventListener('mousedown', this.baitClose);
   }
 
   // Built on first open, once we know the player's color.
@@ -215,6 +257,7 @@ export class InventoryScreen {
   // sendClose: tell the server (it puts the cursor stack back). Not needed when
   // the screen closes because we died; the server already emptied everything.
   hide(sendClose = true) {
+    this.closeBait();
     if (!this.open) return;
     this.open = false;
     if (sendClose) this.conn.send({ type: C2S.INVENTORY_CLOSE });

@@ -45,7 +45,7 @@ export function serializeGame(game) {
       x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.state.yaw, pitch: p.state.pitch,
       hp: p.hp, dead: p.dead, carrying: p.carrying ? p.carrying.team : null,
       inventory: { slots: p.inventory.slots.map(stack), armor: stack(p.inventory.armor),
-        accessory: stack(p.inventory.accessory), cursor: stack(p.inventory.cursor) },
+        accessory: stack(p.inventory.accessory), cursor: stack(p.inventory.cursor), bait: p.inventory.bait ?? null },
     })),
     flags: [...game.flags.values()].map(f => ({ team: f.team, state: f.state, x: f.body.x, y: f.body.y, z: f.body.z,
       droppedTick: f.droppedTick })),

@@ -503,6 +503,8 @@ export const MONKEY_WORK = {
   // Farmers keep this many seeds per crop for replanting; lumberjacks chop
   // connected wood up to treeRadius from the trunk (maxTreeBlocks at most).
   seedReserve: 16, treeRadius: 8, maxTreeBlocks: 600,
+  // Fisherman: bait it fetches at a time, and catches it carries before delivering.
+  fishermanBait: 16, fishermanReturnAt: 4,
   box: { halfW: 0.4, height: 1.4 }, speed: 0.75, capacity: 16, inventorySize: 9,
   thinkTicks: 10, pathNodes: 2500, pathsPerTick: 4, stuckTicks: 40,
   chopTicks: 60, chopBlocksPerThink: 12, maxTreeHeight: 64, configureReach: 32,
@@ -830,3 +832,29 @@ export const SPIKES = { hardness: 3, breakTime: 3, blastResistance: 2, contactDa
 export const DRAWBRIDGE = { maxLength: 16, defaultLength: 6, sectionPlanks: 3, steamPerSection: 4, sectionSeconds: 0.4,
   steamStorage: 96, fillPerSecond: 20, jogSeconds: 0.7,
   hardness: 3, breakTime: 2, deckHardness: 1, deckBreakTime: 1.2, craftBronze: 4, craftIron: 2, craftPipe: 1 };
+
+// ---- Fishing update ----
+
+// New item ids. Never renumber or reuse.
+export const FISHING_IDS = {
+  items: { woodRod: 337, bronzeRod: 338, fish: 339, voidFish: 340, lootCrate: 341, ironboundCrate: 342 },
+};
+
+// Fishing (shared/fishing.js has the rods, bait and loot tables).
+//   castSpeed, gravity, maxFall: the bobber's flight (blocks, seconds).
+//   maxLine: how far the bobber may get from where it was cast; long enough
+//     to reach the real void from an island.
+//   voidBelowIslands: void fishing counts only this far below the lowest
+//     island's underside (where Void Eels swim), not in the air just under
+//     an island.
+//   bite: base wait in seconds, the mean of `samples` uniform draws between
+//     min and max (bounded, bunched around the middle); divided by the rod's
+//     Fishing Speed. window: seconds to reel in after a bite. Monkeys wait
+//     monkeySlowdown times longer and never miss.
+//   maxConservation: Bait Conservation never goes above this.
+export const FISHING = {
+  castSpeed: 13, castLift: 0.25, gravity: 20, maxFall: 30, maxLine: 320, voidBelowIslands: 18,
+  bite: { min: 6, max: 24, samples: 3 }, window: 1.1, monkeySlowdown: 10, maxConservation: 0.5,
+  monkeyCastSpeed: 3, reelCooldown: 0.3,
+  craft: { woodRodWood: 2, woodRodSilk: 2, bronzeRodBronze: 3 },
+};

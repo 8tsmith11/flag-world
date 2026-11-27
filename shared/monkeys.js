@@ -3,7 +3,7 @@ import { MONKEY_WORK as C, MONKEY_DUTY as D } from './config.js';
 // Working monkey roles, what each does (shown when hovering in the monkey
 // screen), and the block selections each needs, in the order the selection
 // mode walks through them.
-export const MONKEY_ROLES=['idle','courier','collector','lumberjack','quarry','farmer','craftsman','guard','lookout'];
+export const MONKEY_ROLES=['idle','courier','collector','lumberjack','quarry','farmer','craftsman','fisherman','guard','lookout'];
 // Gathering roles that can leave what they gather on the ground (Collect drops off).
 export const GATHERING_ROLES=['lumberjack','quarry','farmer'];
 export const ROLE_INFO={
@@ -14,6 +14,7 @@ export const ROLE_INFO={
   quarry:{name:'Quarry',tip:'Digs out a box, a circle or single blocks with the tool you give it and brings the blocks back once it carries enough. It never digs a block that would open a hole into the void, and climbs walls to get out.'},
   farmer:{name:'Farmer',tip:'Harvests ripe crops on farmland inside its area and replants the same crop. It never tills new soil.'},
   craftsman:{name:'Craftsman',tip:'Takes the ingredients of one recipe from its sources, crafts it at its workbench and delivers what it makes. It only takes as many sets as it can finish and carry.'},
+  fisherman:{name:'Fisherman',tip:'Takes bait from its sources, stands on its fishing spot and casts a short way out in its direction, into water, lava or the void below. It reels in every bite, but fishes at a tenth of your speed (faster with a Swift rod), and brings the catch to its destinations. Give it a fishing rod.'},
   guard:{name:'Guard',tip:'Walks its patrol points in order and back to the first (or stands at a single point). Attacks enemy players and monkeys, goblins and hostile creatures it sees, but never chases far from its route. Give it a sword, axe or bow and armor.'},
   lookout:{name:'Lookout',tip:`Stands at its post and watches. When it sees an enemy player or goblin (up to ${D.lookout.range} blocks, ${D.lookout.spyglassRange} with a spyglass in its tool slot) it warns your whole team. With a spyglass it also says who it saw.`},
 };
@@ -30,7 +31,10 @@ export const MONKEY_FIELDS={
   waypoints:{name:'Patrol points',list:true,color:D.waypointColor,max:D.maxWaypoints,tip:'Blocks to stand on, visited in order and then back to the first. One point: it guards that spot.'},
   post:{name:'Lookout post',color:D.postColor,tip:'The block it stands on to keep watch. Somewhere high with a wide view works best.'},
   workbench:{name:'Workbench',color:D.workbenchColor,tip:'The workbench it crafts at.'},
+  fishSpot:{name:'Fishing spot',color:0x5ac8fa,tip:'The block it stands on to fish. It casts about one block out from here, in its casting direction: put water, lava or open void below that.'},
 };
+// Fisherman casting directions (FACING_DIRS order).
+export const CAST_DIRECTIONS=['North','East','South','West'];
 // Where a monkey may put items in a machine (dests' slot choice): only
 // machines with more than one kind of input slot get a choice.
 export const SLOT_MODES={auto:'Automatic',input:'Material input',fuel:'Fuel input'};
@@ -43,6 +47,7 @@ export function monkeyFields(config) {
     case 'lumberjack': return config.collect===false?['sites']:['sites','dests'];
     case 'farmer': return config.collect===false?['cornerA','cornerB']:['cornerA','cornerB','dests'];
     case 'craftsman': return ['sources','workbench','dests'];
+    case 'fisherman': return ['fishSpot','sources','dests'];
     case 'guard': return ['waypoints'];
     case 'lookout': return ['post'];
     case 'quarry': {
@@ -72,7 +77,7 @@ export const MONKEY_NAMES=['Mango','Pip','Coco','Bongo','Peanut','Nori','Mochi',
 export const MONKEY_GAMES=['simon','memory','cups'];
 export const defaultMonkeyConfig=()=>({role:'idle',sources:[],dests:[],sites:[],blocks:[],cornerA:null,cornerB:null,home:null,
   quarry:{shape:'box',axis:'down',depth:4,radius:3,returnAt:32},radius:C.defaultRadius,filter:{mode:'blacklist',items:[]},
-  waypoints:[],post:null,workbench:null,recipe:null,collect:true,destSlots:{}});
+  waypoints:[],post:null,workbench:null,recipe:null,collect:true,destSlots:{},fishSpot:null,castDir:0});
 export function monkeyFilter(config,item) {
   const included=config.filter.items.includes(item);
   return config.filter.mode==='whitelist'?included:!included;

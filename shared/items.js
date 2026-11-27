@@ -122,6 +122,16 @@ defineItem(ITEM.GUNPOWDER, 'gunpowder', { color: 0x3b3a38, icon: '/textures/gunp
 // Right click something ignitable (a block whose def has `ignite`) to light
 // it. Reusable: no durability, no fuel.
 defineItem(ITEM.LIGHTER, 'lighter', { maxStack: 1, tool: 'lighter', color: 0x9aa0a7, icon: '/textures/lighter.svg' });
+// Fishing (shared/fishing.js): rods are tools with fishing attributes and
+// rod modifiers; crates open into loot (the table named by `crate`).
+defineItem(ITEM.WOOD_FISHING_ROD, 'wooden fishing rod', { maxStack: 1, tool: 'rod', color: 0x8a5a2b, modCategory: 'rod',
+  icon: '/textures/wood-fishing-rod.svg' });
+defineItem(ITEM.BRONZE_FISHING_ROD, 'bronze fishing rod', { maxStack: 1, tool: 'rod', color: 0xc08a3e, modCategory: 'rod',
+  icon: '/textures/bronze-fishing-rod.svg' });
+defineItem(ITEM.FISH, 'fish', { color: 0x7fa6c4, icon: '/textures/fish.svg', food: 4 });
+defineItem(ITEM.VOID_FISH, 'void fish', { color: 0x4b3a7a, icon: '/textures/void-fish.svg' });
+defineItem(ITEM.LOOT_CRATE, 'loot crate', { maxStack: 16, crate: 'lootCrate', color: 0x8a6a3e, icon: '/textures/loot-crate.svg' });
+defineItem(ITEM.IRONBOUND_CRATE, 'iron-bound crate', { maxStack: 16, crate: 'ironboundCrate', color: 0x5c5f66, icon: '/textures/ironbound-crate.svg' });
 defineItem(ITEM.GRENADE, 'grenade', { maxStack: EXPLOSIVES.grenade.maxStack, throwable: true, color: 0x4b5a3a,
   icon: '/textures/grenade.svg' });
 
@@ -142,6 +152,10 @@ export const ITEM_TIPS = {
   [ITEM.GUNPOWDER]: ['Made from sulfur and charcoal', 'Goes into grenades and explosive barrels'],
   [ITEM.GRENADE]: ['Right click to throw; it bounces and goes off after a few seconds',
     'Hurts creatures and players nearby; breaks only soft blocks', 'Never damages spike barricades'],
+  [ITEM.FISH]: ['Caught in water', 'Hold right click to eat'],
+  [ITEM.VOID_FISH]: ['Only bites deep in the void', 'Strange and cold. Surely good for something...'],
+  [ITEM.LOOT_CRATE]: ['Fished up now and then', 'Right click with it in hand to open'],
+  [ITEM.IRONBOUND_CRATE]: ['Fished up with a tier 2 rod', 'Right click with it in hand to open: richer than a loot crate'],
   [ITEM.LIGHTER]: ['Right click an explosive barrel to light its fuse', 'Reusable: never wears out or runs dry'],
   [BLOCK.EXPLOSIVE_BARREL]: ['Light it by right clicking with a lighter', 'Blows apart even stone; nearby explosions light it too',
     'An unlit barrel can be picked back up by breaking it'],

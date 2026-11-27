@@ -1420,3 +1420,13 @@ body.scoped #hotbar, body.scoped #health { opacity: 0.35; }
 .drawbridge-ok { color: #9be39a; }
 .drawbridge-progress { width: 100%; max-width: 320px; }
 .drawbridge-note { margin: 0; }
+/* Fishing rod Bait popup (inventoryScreen.js). */
+.bait-popup { position: fixed; z-index: 60; background: #14181e; border: 1px solid #556070; border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 4px; width: 220px; box-shadow: 0 4px 16px #0008; }
+.bait-title { font-weight: bold; color: #ffd884; padding: 2px 4px; }
+.bait-popup .bait-row { display: flex; align-items: center; gap: 8px; text-align: left; background: #232a33; color: #e6ebef; border: 1px solid #3a4450; border-radius: 4px; padding: 4px 6px; cursor: pointer; }
+.bait-popup .bait-row:hover { background: #2f3945; }
+.bait-popup .bait-row.selected { outline: 2px solid #8fb8e8; background: #2d4258; }
+.bait-popup .bait-row.none { opacity: 0.55; }
+.bait-popup .bait-row .icon { width: 26px; height: 26px; flex: none; }
+.bait-popup .bait-row small { color: #aeb8c0; }
+.monkey-cast { display: flex; gap: 8px; align-items: center; margin: 4px 0; }

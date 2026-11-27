@@ -184,6 +184,16 @@ including the host, plays by opening `http://<host-ip>:3000`.
   effects in `public/js/render/explosionEffects.js`.
 - Check: `node scripts/explosives-check.js`.
 
+## Fishing
+
+- Rod attributes, bait, bite waits and loot tables are data in
+  `shared/fishing.js` (`ROD_STATS`, `BAIT`, `FISHING_LOOT`); rod modifiers
+  are the `rod` category in `shared/modifiers.js` (reforged at the anvil).
+  The server (`server/fishing.js`) decides casts, bait, conservation (one
+  roll per attempt), bites and catches; bait choice is per player
+  (`inventory.bait`). Fisherman monkeys: `fishermanWork` in
+  `server/monkeyWorkers.js`. Check: `node scripts/fishing-check.js`.
+
 ## Quest book design rules
 
 Permanent rules for the Wise Monkey's quest book (`shared/quests.js`,

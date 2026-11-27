@@ -82,6 +82,20 @@ function animateGrenade(object, dt, fuse, moving) {
   if (moving) { g.spin += dt * 9; object.children[0].rotation.z = g.spin; }
 }
 
+// A fishing bobber: red over white. Its inner group ('float') is moved by
+// fishingEffects.js (bobbing, and dipping when something bites).
+function createBobberModel() {
+  const group = new THREE.Group(), float = new THREE.Group();
+  const top = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xd8402e }));
+  const bottom = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xf2f2f2 }));
+  const stick = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.02), new THREE.MeshLambertMaterial({ color: 0x2b2b2b }));
+  stick.position.y = 0.15;
+  float.add(top, bottom, stick);
+  group.add(float);
+  group.userData.bobber = { float };
+  return group;
+}
+
 // Camera-facing sprite, for entity types that should render flat.
 export function createSpriteModel(texture, width, height) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
@@ -145,6 +159,7 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.NPC]: (info) => info.npc === 'skyMerchant' ? createMerchantModel(info) : createNpcModel(info),
   [ENTITY_TYPE.AIRSHIP]: createAirshipModel,
   [ENTITY_TYPE.GRENADE]: createGrenadeModel,
+  [ENTITY_TYPE.BOBBER]: createBobberModel,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
     const arrow = createArrowModel();
@@ -230,6 +245,7 @@ export class EntityRenderer {
       aimYaw: snap.aimYaw ?? 0, aimPitch: snap.aimPitch ?? 0,
       pose: snap.pose ?? null, look: snap.look ?? 0,
       thrust: snap.thrust ?? 0, pilot: !!snap.pilot, baby: !!snap.baby, fuse: snap.fuse ?? null,
+      bite: !!snap.bite, where: snap.where ?? null,
       team: snap.team ?? null, name: snap.name ?? entity.info.name,
       vx: snap.vx, vy: snap.vy, vz: snap.vz, dead,
     });

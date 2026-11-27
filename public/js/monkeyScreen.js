@@ -9,7 +9,7 @@
 // is still empty, a single field moves to the next empty one or returns.
 import { C2S, TEAMS } from '/shared/protocol.js';
 import { MONKEY_WORK as C, INVENTORY_SIZE, HOTBAR_SIZE } from '/shared/config.js';
-import { MONKEY_ROLES, ROLE_INFO, MONKEY_FIELDS, QUARRY_OPTIONS, monkeyFields, fieldName, quarryCells,
+import { MONKEY_ROLES, ROLE_INFO, MONKEY_FIELDS, QUARRY_OPTIONS, CAST_DIRECTIONS, monkeyFields, fieldName, quarryCells,
   GATHERING_ROLES, SLOT_OPTIONS, SLOT_MODES } from '/shared/monkeys.js';
 import { RECIPES } from '/shared/recipes.js';
 import { getItemDef } from '/shared/items.js';
@@ -176,6 +176,7 @@ export class MonkeyScreen {
     if(d.role==='quarry')this.details.append(this.quarryOptions());
     if(d.role==='collector')this.details.append(this.numberOption('Range','Picks up items within this many blocks of the first destination.',d.radius,1,C.maxRadius,v=>d.radius=v));
     if(d.role==='craftsman')this.details.append(this.recipeRow());
+    if(d.role==='fisherman')this.details.append(this.castRow());
     if(GATHERING_ROLES.includes(d.role))this.details.append(this.collectRow());
     for(const field of [...monkeyFields(d),'home']) {
       this.details.append(this.fieldRow(field));
@@ -210,6 +211,17 @@ export class MonkeyScreen {
     }
     select.value=d.recipe??'';
     select.onchange=()=>{d.recipe=select.value||null;this.saveDraft();};
+    label.append(select);return label;
+  }
+  // Fisherman: which way it casts from its fishing spot (drawn as a line on
+  // the spot while selecting).
+  castRow() {
+    const d=this.draft,label=element('label','monkey-cast','Casting direction');
+    label.dataset.tip='It casts about one block out from its fishing spot this way, and the bobber drops into whatever is below: water, lava or the void.';
+    const select=element('select','');
+    CAST_DIRECTIONS.forEach((name,i)=>{const o=element('option','',name);o.value=String(i);select.append(o);});
+    select.value=String(d.castDir??0);
+    select.onchange=()=>{d.castDir=Number(select.value);this.saveDraft();};
     label.append(select);return label;
   }
   // Gatherers: keep what they gather, or leave it on the ground.
@@ -306,6 +318,15 @@ export class MonkeyScreen {
     if(d.role==='guard'&&d.waypoints.length>1) {
       const top=p=>({x:p.x+0.5,y:p.y+1.05,z:p.z+0.5});
       d.waypoints.forEach((p,i)=>out.push({line:[top(p),top(d.waypoints[(i+1)%d.waypoints.length])],color:MONKEY_FIELDS.waypoints.color}));
+    }
+    // A fisherman's cast: an arrow from its spot out to where the line drops.
+    if(d.role==='fisherman'&&d.fishSpot) {
+      const [dx,dz]=[[0,-1],[1,0],[0,1],[-1,0]][d.castDir??0]??[0,-1],p=d.fishSpot,y=p.y+1.6;
+      const from={x:p.x+0.5,y,z:p.z+0.5},to={x:p.x+0.5+dx*1.5,y,z:p.z+0.5+dz*1.5};
+      out.push({line:[from,to],color:MONKEY_FIELDS.fishSpot.color});
+      out.push({line:[to,{x:to.x,y:y-3,z:to.z}],color:MONKEY_FIELDS.fishSpot.color});
+      out.push({line:[to,{x:to.x-dz*0.3-dx*0.3,y,z:to.z+dx*0.3-dz*0.3}],color:MONKEY_FIELDS.fishSpot.color});
+      out.push({line:[to,{x:to.x+dz*0.3-dx*0.3,y,z:to.z-dx*0.3-dz*0.3}],color:MONKEY_FIELDS.fishSpot.color});
     }
     // The whole area it will dig or farm, as one faint box.
     const cells=d.role==='quarry'&&d.quarry.shape!=='blocks'?quarryCells(d):d.role==='farmer'&&d.cornerA&&d.cornerB?[d.cornerA,d.cornerB]:[];

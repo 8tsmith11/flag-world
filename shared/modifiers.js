@@ -26,12 +26,18 @@ export const MODIFIERS = {
   fleet: { name: 'Fleet', category: 'accessory', value: 0.08, text: (v) => `+${pct(v)} move speed` },
   cushioned: { name: 'Cushioned', category: 'accessory', value: 0.3, text: (v) => `-${pct(v)} fall damage` },
   efficient: { name: 'Efficient', category: 'hammer', value: 0.3, text: (v) => `+${pct(v)} break speed` },
+  // Fishing rods (shared/fishing.js reads them): speed only shortens the wait,
+  // lucky only changes what bites, thrifty only saves bait. None changes a
+  // rod's Fishing Tier or where it can fish.
+  swift: { name: 'Swift', category: 'rod', value: 0.25, text: (v) => `+${pct(v)} fishing speed` },
+  lucky: { name: 'Lucky', category: 'rod', value: 0.3, text: (v) => `+${pct(v)} fishing multiplier` },
+  thrifty: { name: 'Thrifty', category: 'rod', value: 0.15, text: (v) => `+${pct(v)} bait conservation` },
 };
 
 const POOLS = {};
 for (const [id, { category }] of Object.entries(MODIFIERS)) (POOLS[category] ??= []).push(id);
 
-// 'melee', 'ranged', 'armor', 'accessory', 'hammer', or null (no modifiers).
+// 'melee', 'ranged', 'armor', 'accessory', 'hammer', 'rod', or null (no modifiers).
 export function modCategory(item) {
   return item === null || item === undefined ? null : getItemDef(item).modCategory ?? null;
 }

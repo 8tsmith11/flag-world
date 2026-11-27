@@ -50,6 +50,9 @@ import { TurretRenderer } from './render/turretRenderer.js';
 import { QuarryEffects } from './render/quarryEffects.js';
 import { ExplosionEffects } from './render/explosionEffects.js';
 import { DrawbridgeEffects } from './render/drawbridgeEffects.js';
+import { FishingEffects } from './render/fishingEffects.js';
+import { isRod } from '/shared/fishing.js';
+import { setFishingBait } from './itemIcon.js';
 import { LobbyMusic } from './lobbyMusic.js';
 import { MatchFullscreen, enterFullscreen } from './fullscreen.js';
 import { downloadLobbyView } from './render/capture.js';
@@ -121,6 +124,7 @@ const audioSettings = new AudioSettings();
 const audioMixer = new AudioMixer(audioSettings);
 const sounds = new Sounds(audioMixer);
 const explosionEffects = new ExplosionEffects(scene, sounds);
+const fishingEffects = new FishingEffects(scene, sounds);
 const drawbridgeEffects = new DrawbridgeEffects(scene, sounds, (x, y, z) => quarryEffects?.steam(x, y, z));
 entities.onGrenade = (id, position, fuse) => explosionEffects.grenade(id, position, fuse);
 const dialogue = new Dialogue(document.getElementById('subtitle'), audioSettings, audioMixer);
@@ -409,6 +413,7 @@ function closeInventory(relock, tellServer = true) {
 
 function setInventory(inv) {
   inventory = inv;
+  setFishingBait(inv.bait ?? null);
   if (player) player.state.accessory = inv.accessory?.item ?? null;
   hotbar.setInventory(inv.slots);
   inventoryScreen.update(inv);
@@ -1059,6 +1064,12 @@ function frame(now) {
     if (controls.glide) controls.place = false;
     controls.rift = heldItem() === ITEM.RIFT_ORB && controls.place;
     if (controls.rift) { controls.place = false; viewModel.push(); }
+    // Right click with a fishing rod casts, or reels in what is out; with a
+    // loot crate, opens it (the server decides everything).
+    controls.fish = isRod(heldItem()) && controls.place && !(target && stationKind(target.id));
+    if (controls.fish) { controls.place = false; viewModel.push(); }
+    controls.crate = !!getItemDef(heldItem()).crate && controls.place && !(target && stationKind(target.id));
+    if (controls.crate) controls.place = false;
     // Right click with a grenade throws it (the server applies the cooldown).
     controls.grenade = heldItem() === ITEM.GRENADE && controls.place && !(target && stationKind(target.id));
     if (controls.grenade) { controls.place = false; viewModel.push(); }
@@ -1130,7 +1141,8 @@ function frame(now) {
   const pipeFaces=target?.id===BLOCK.BRONZE_PIPE ? fluidRenderer?.modeAt(target.x,target.y,target.z) : undefined;
   const pipeFace=pipeFaces ? chosenPipeFace(world,target.x,target.y,target.z,dir,fluidKind) : -1;
   const pipeMode=pipeFace>=0 ? pipeFaces[pipeFace] : undefined;
-  selectionOutlines.update(monkeyScreen.picking ? monkeyScreen.outlines() : null);
+  // While selecting blocks, and while a Fisherman's screen is open (its cast arrow).
+  selectionOutlines.update(monkeyScreen.picking || (monkeyScreen.open && monkeyScreen.draft?.role === 'fisherman') ? monkeyScreen.outlines() : null);
   pipeModeHint.hidden=!(playing&&pipeMode!==undefined);
   if(!pipeModeHint.hidden)pipeModeHint.textContent=`${getBlockDef(world.getBlock(target.x+FLUID_FACES[pipeFace][0],target.y+FLUID_FACES[pipeFace][1],target.z+FLUID_FACES[pipeFace][2])).name.toUpperCase()} CONNECTION: ${pipeMode===1?'INPUT':pipeMode===2?'OUTPUT':'AUTOMATIC'} · Shift + Right-click`;
   // Looking away (or the block breaking) resets progress, as on the server.
@@ -1207,6 +1219,7 @@ function frame(now) {
     dayClock ? dayClock.tick + (now - dayClock.at) / 1000 * TICK_RATE : 0);
   battleMusic.update(dt);
   entities.update(dt, world, chunks.daylight, camera);
+  fishingEffects.update(dt, entities, self?.id ?? null, viewModel, camera);
   turretRenderer.update(dt,world,chunks.daylight);
   audioMixer.update(dt, camera.position, input.yaw, audioDayTime);
   sounds.update(dt, camera.position, player.state, world, entities,

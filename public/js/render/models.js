@@ -825,6 +825,23 @@ export function createItemModel(item, blockSize = 0.25) {
     lens.position.y = 0.88 * blockSize * 2.4; group.add(lens);
     return group;
   }
+  if (def.tool === 'rod') {
+    // A fishing rod along +Y: a cork grip, a reel, the shaft, and a thinner
+    // tip on a pivot ('rodTip', bent by a bite) ending at 'rodEnd', where the
+    // line is tied.
+    const group = new THREE.Group(), u = blockSize * 2.4;
+    const bronze = item === ITEM.BRONZE_FISHING_ROD, shaft = lambert(def.color), cork = lambert(0xc9a46a);
+    const box = (w, h, d, y, material, parent = group) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w * u, h * u, d * u), material); m.position.y = y * u; parent.add(m); return m; };
+    box(0.07, 0.3, 0.07, 0.15, cork);
+    const reel = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * u, 0.07 * u, 0.05 * u, 10), lambert(bronze ? 0xd4a24c : 0x55585e));
+    reel.rotation.z = Math.PI / 2; reel.position.set(0.06 * u, 0.24 * u, 0); group.add(reel);
+    box(0.045, 0.85, 0.045, 0.72, shaft);
+    for (const y of [0.55, 0.85, 1.1]) box(0.06, 0.02, 0.06, y, lambert(bronze ? 0x9c7330 : 0x3a3c40));
+    const tip = new THREE.Group(); tip.name = 'rodTip'; tip.position.y = 1.15 * u; group.add(tip);
+    box(0.028, 0.55, 0.028, 0.275, shaft, tip);
+    const end = new THREE.Object3D(); end.name = 'rodEnd'; end.position.y = 0.55 * u; tip.add(end);
+    return group;
+  }
   if (def.tool === 'lighter') {
     // A steel flip lighter: a body, a darker lid and a striker wheel, with a
     // little flame on top.
@@ -965,6 +982,7 @@ export function setHandItem(hand, item) {
     model.position.set(0, 0.07, -0.15);
   }
   else if (tool === 'bow') model.position.set(0, -0.02, 0); // built in the hand's frame already
+  else if (tool === 'rod') model.rotation.x = -Math.PI / 2 + 0.45; // out of the fist, tip raised
   else if (getItemDef(item).places === 'torch') {
     model.rotation.x = -Math.PI / 2;
     model.position.set(0, 0, -0.06);
