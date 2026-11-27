@@ -137,4 +137,19 @@ f.place(0,-7,BLOCK.AIR);
 f.ticks(300,350);
 assert.equal(crusher.lastReceived,0);
 
-console.log('OK: pump, tank, boiler, steam tank, crusher, dust smelting, fluid exclusion, fair sharing and pipe break');
+// The creative steam source: endless steam into its pipes, and an endless
+// store for machines that pay up front (the drawbridge); no recipe.
+{
+  const h=fixture();
+  h.place(0,0,BLOCK.STEAM_SOURCE);h.place(0,1,BLOCK.BRONZE_PIPE);h.place(0,2,BLOCK.BRONZE_PIPE);
+  const c=h.place(0,3,BLOCK.CRUSHER);c.insert({item:BLOCK.STONE,count:64});
+  h.ticks(TICK_RATE*60);
+  assert.equal(h.fluids.networks[0].fluid,'steam','no steam from the steam source');
+  assert.ok(c.progress>0||c.slots?.some?.(s=>s&&s.item!==BLOCK.STONE),'the crusher never ran on the steam source');
+  const node=h.fluids.nodes.get('0,0,3');
+  assert.ok(h.fluids.available(node,'steam')>1e6,'the steam source is not an endless store');
+  assert.ok(h.fluids.draw(node,'steam',5000)&&h.fluids.draw(node,'steam',5000),'drawing from the steam source ran out');
+  assert.ok(!RECIPES.some(r=>r.output===BLOCK.STEAM_SOURCE),'the creative steam source has a recipe');
+}
+
+console.log('OK: pump, tank, boiler, steam tank, crusher, dust smelting, fluid exclusion, fair sharing, pipe break and the creative steam source');

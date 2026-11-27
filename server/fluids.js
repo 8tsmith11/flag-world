@@ -116,6 +116,8 @@ export class FluidSystem {
         for(const member of tank.members)if(member.container)member.container.dirty=true;}
       return {fluid:sourceFluid,amount};
     }
+    // The creative steam source: as much steam as the network has room for.
+    if(node.kind==='steamSource')return !fluid||fluid==='steam'?{fluid:'steam',amount:space}:null;
     if(node.kind==='boiler'&&(!fluid||fluid==='steam')) {
       const amount=node.container?.output('steam',Math.min(space,this.outputBudget.get(node)??0))??0;
       this.outputBudget.set(node,(this.outputBudget.get(node)??0)-amount);
@@ -139,7 +141,7 @@ export class FluidSystem {
       this.inputBudget.set(node,(this.inputBudget.get(node)??0)-amount);}
   }
   canSource(port) {
-    return port.mode!==FLUID.faceOutput && ['pump','tank','boiler'].includes(port.node.kind);
+    return port.mode!==FLUID.faceOutput && ['pump','tank','boiler','steamSource'].includes(port.node.kind);
   }
   canSink(port,fluid) {
     if(port.mode===FLUID.faceInput)return false;
@@ -164,7 +166,7 @@ export class FluidSystem {
       // Pumps and stocked tanks fill an empty network before boilers offer
       // steam, so an automatic boiler port can accept water on another line.
       const sources=ports.filter(p=>this.canSource(p)).sort((a,b)=>
-        ({pump:0,tank:1,boiler:2}[a.node.kind]-{pump:0,tank:1,boiler:2}[b.node.kind]));
+        ({pump:0,tank:1,boiler:2,steamSource:2}[a.node.kind]-{pump:0,tank:1,boiler:2,steamSource:2}[b.node.kind]));
       for(const port of sources) {
         if(port.node.kind==='tank'&&!ports.some(other=>other.node.tank!==port.node.tank
           &&this.canSink(other,port.node.tank.fluid)
@@ -222,6 +224,9 @@ export class FluidSystem {
           if(!tank||tank.fluid!==fluid||seen.has(tank))continue;seen.add(tank);
           out.push({amount:tank.amount,take:(n)=>{n=Math.min(n,tank.amount);tank.amount-=n;if(tank.amount<epsilon){tank.amount=0;tank.fluid=null;}
             for(const m of tank.members)if(m.container)m.container.dirty=true;return n;}});
+        } else if(p.node.kind==='steamSource'&&fluid==='steam') {
+          if(seen.has(p.node))continue;seen.add(p.node);
+          out.push({amount:1e9,take:(n)=>n}); // endless
         } else if(p.node.kind==='boiler'&&fluid==='steam') {
           const boiler=p.node.container;
           if(!boiler||seen.has(boiler))continue;seen.add(boiler);

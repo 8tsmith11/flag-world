@@ -106,7 +106,7 @@ front that faces the player who placed them. They have one id per facing
 | 124–127 | alloy furnace (hardness 2) | 124, 125, 126, 127 |
 | 130–133 | fluid pump (hardness 3) | 130, 131, 132, 133 |
 
-Blocks 128–129 are Bronze Pipe and Fluid Tank; 134–135 are Boiler and Crusher.
+Blocks 128–129 are Bronze Pipe and Fluid Tank; 134–135 are Boiler and Crusher. Block 172 is the creative steam source (creative inventory only, no recipe): it gives unlimited steam to every pipe network touching it and counts as an endless steam store for machines that pay up front (the drawbridge).
 Connected tanks share a frame and expose glass only on their outside faces;
 their fluid surface joins across blocks. Pipes, the Fluid Pump, Boiler and
 Crusher have distinct block and held-item models. Pumps output through any

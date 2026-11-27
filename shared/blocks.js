@@ -117,6 +117,8 @@ export const BLOCK = {
   SPIKE_BARRICADE: EXPLOSIVES_IDS.blocks.spikeBarricade,
   DRAWBRIDGE: EXPLOSIVES_IDS.blocks.drawbridge,
   BRIDGE_DECK: EXPLOSIVES_IDS.blocks.bridgeDeck,
+  // Creative only (no recipe): endless steam for testing machines.
+  STEAM_SOURCE: 172,
 };
 
 export function isWater(id) {
@@ -171,6 +173,7 @@ export function fluidKind(id) {
   if (base === BLOCK.BOILER) return 'boiler';
   if (base === BLOCK.CRUSHER) return 'crusher';
   if (base === BLOCK.DRAWBRIDGE) return 'drawbridge';
+  if (base === BLOCK.STEAM_SOURCE) return 'steamSource';
   return null;
 }
 
@@ -353,6 +356,10 @@ define(BLOCK.DRAWBRIDGE, 'drawbridge', { color: 0x6b5a3e, transparent: true, har
   tileEntity: 'drawbridge', shape: 'drawbridge', icon: '/textures/drawbridge.svg' });
 define(BLOCK.BRIDGE_DECK, 'bridge deck', { color: 0x9a6f3c, transparent: true, hardness: DRAWBRIDGE.deckHardness, breakTime: DRAWBRIDGE.deckBreakTime,
   drops: BLOCK.PLANKS, dropCount: DRAWBRIDGE.sectionPlanks, shape: 'bridgeDeck', icon: '/textures/bridge-deck.svg' });
+// Creative testing: gives unlimited steam to every pipe network touching it
+// (server/fluids.js). Not craftable; only in the creative inventory.
+define(BLOCK.STEAM_SOURCE, 'creative steam source', { color: 0xb46ad8, hardness: 1, breakTime: 0.3,
+  icon: '/textures/steam-source.svg' });
 define(BLOCK.SHRINE_BRICKS, 'shrine bricks', { color: 0x9a8f78, breakable: false, hardness: Infinity, drops: null,
   blastResistance: Infinity });
 // Where the Sky Merchant's airship docks (one per team). A container: items
