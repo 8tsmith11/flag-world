@@ -532,7 +532,7 @@ BlockPos or null; `recipe` is a non-creative recipe id or null (craftsman);
 `collect` (default true) is whether a lumberjack, quarry or farmer keeps what
 it gathers; `destSlots` maps a destination's `"x,y,z"` to `"input"` or
 `"fuel"` for furnaces and alloy furnaces (anything else, or `"auto"`, is
-dropped). Baby monkeys refuse `configure`.
+dropped). Baby monkeys accept `configure` only for the `idle` role (with its home).
 Lists are BlockPos arrays: `sources` and `dests` up to 8, `sites` up to 16
 (a grass/dirt selection becomes the cell above it), `blocks` up to 64.
 `cornerA`, `cornerB` and `home` are BlockPos or null. `quarry` is
@@ -1872,8 +1872,8 @@ to the same successful world and record the resolved seed as `world.seed`.
 - **Depot selling**: while docked, every 5 ticks one full batch of the first
   sellable stack is sold if its coins fit the coin slots.
 - **Baby monkeys**: 48 coins for a team's first, ×1.5 (rounded) for each one
-  after, all match (merchant deaths don't reset it). They grow up after 20
-  minutes; until then they take no role and nothing targets them. A bought
+  after, all match (merchant deaths don't reset it). They grow up after 5
+  minutes; until then they take no role but Idle and nothing targets them. A bought
   baby starts wild and is tamed by winning its game, like any wild monkey.
 - **Quests** (`shared/quests.js`, `server/quests.js`): three chapters, in no
   fixed order. "A Brand New Adventure" is open from the start. "Monkey

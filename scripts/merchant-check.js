@@ -143,9 +143,16 @@ assert.equal(babyPrice(1) > before, true);
 game.merchants.action(host, { action: 'baby' });
 assert.equal(coins(), 142 - before - babyPrice(1), 'second baby did not cost more');
 assert.equal(game.merchants.record(host.team).babies, 2);
-// Babies can't be configured and nothing hostile targets them.
+// Babies take no job but Idle, and nothing hostile targets them.
 game.monkeys.action(host, { id: baby.id, action: 'configure', revision: 0, config: { ...baby.config, role: 'guard' } });
 assert.equal(baby.config.role, 'idle', 'a baby took a role');
+// Idle (with a home spot) is the one job a baby takes, and it goes there.
+const home = { x: Math.floor(baby.state.x) + 2, y: Math.floor(baby.state.y) - 1, z: Math.floor(baby.state.z) };
+const revision = baby.revision;
+game.monkeys.action(host, { id: baby.id, action: 'configure', revision, config: { ...baby.config, role: 'idle', home } });
+assert.equal(baby.revision, revision + 1, 'a baby could not be set to Idle');
+assert.deepEqual(baby.config.home, home, 'a baby\'s home spot was not kept');
+assert.ok(baby.baby);
 baby.growAt = game.tick + 2; run(TICK_RATE);
 assert.equal(baby.baby, false, 'baby did not grow up');
 

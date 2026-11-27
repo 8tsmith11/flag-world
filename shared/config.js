@@ -750,7 +750,7 @@ export const MONKEY_DUTY = {
     arrowSpeed: 24, arrowDamage: 4, patrolPause: 2, arriveDistance: 1.5, retargetTicks: 10 },
   lookout: { range: 40, spyglassRange: 80, cooldownSeconds: 30, scanTicks: 10 },
   craftsman: { craftTicks: 10, maxSets: 64 },
-  baby: { growSeconds: 1200, scale: 0.6 },
+  baby: { growSeconds: 300, scale: 0.6 },
   // Wild monkeys in the central island's big trees: 0 to max per world (on
   // trunks at least minHeight tall), so team and tiny islands stay the main source.
   centralTrees: { max: 3, minHeight: 9 },

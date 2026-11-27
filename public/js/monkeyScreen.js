@@ -116,19 +116,19 @@ export class MonkeyScreen {
     this.babyEl=null;
     if(this.data.baby) {
       const box=element('div','monkey-baby');
-      box.append(element('strong','','Baby monkey'),element('p','hint','Too young to work or fight. When it grows up you can give it any role here.'));
+      box.append(element('strong','','Baby monkey'),element('p','hint','Too young to work or fight: it can only be Idle (waiting at its home spot, if you set one). When it grows up you can give it any role here.'));
       const bar=element('div','monkey-baby-bar'),fill=element('div','fill');bar.append(fill);
       this.babyEl={fill,text:element('span','monkey-baby-time')};box.append(bar,this.babyEl.text);
       this.panel.append(box);
     }
     // Roles: one button each, the description on hover.
     const roles=element('div','monkey-roles');
-    for(const role of MONKEY_ROLES) {
+    for(const role of this.data.baby?['idle']:MONKEY_ROLES) {
       const b=button(ROLE_INFO[role].name,()=>{this.draft.role=role;this.renderDraft();this.saveDraft();},ROLE_INFO[role].tip);
       b.dataset.role=role;roles.append(b);
     }
     this.roles=roles;this.details=element('div','monkey-details');
-    if(!this.data.baby)this.panel.append(roles,this.details);
+    this.panel.append(roles,this.details);
     // Gear and the two inventories.
     const gear=element('div','monkey-gear');
     this.gearSlots=[];

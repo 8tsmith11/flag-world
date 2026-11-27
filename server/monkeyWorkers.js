@@ -217,7 +217,8 @@ export class MonkeyWorkers {
     }
     if(m.team!==player.team){this.view(player,m,'Only its team can configure this monkey.');return;}
     if(msg.action==='inventory') this.inventoryClick(player,m,msg);
-    else if(msg.action==='configure'&&m.baby) this.view(player,m,'It is too young to work. Wait until it grows up.');
+    // Babies can be Idle (waiting at a home spot), but no other job yet.
+    else if(msg.action==='configure'&&m.baby&&msg.config?.role!=='idle') this.view(player,m,'It is too young to work. It can only be Idle until it grows up.');
     else if(msg.action==='configure') {
       if(msg.revision!==m.revision){this.view(player,m,'A teammate changed these settings. Review and save again.');return;}
       const config=this.parseConfig(msg.config);
@@ -572,7 +573,7 @@ export class MonkeyWorkers {
     } else m.stuck=0;
     if(!m.path.length&&m.pathKey)m.arrived=true;
     m.pose=m.climbing?'climb':m.walking?'walk':m.working||tick<(m.swingUntil??0)?'work':m.team!==null&&m.config.role!=='idle'&&!m.baby?'ready':'sit';
-    if(m.team===null||m.baby||fighting||tick%C.thinkTicks!==m.id%C.thinkTicks)return;
+    if(m.team===null||(m.baby&&m.config.role!=='idle')||fighting||tick%C.thinkTicks!==m.id%C.thinkTicks)return;
     m.working=false;
     if(m.config.role==='guard'){guardPatrol(this,m,tick);return;}
     if(m.config.role==='lookout'){lookoutWatch(this,m,tick);return;}
