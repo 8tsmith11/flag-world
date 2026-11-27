@@ -448,22 +448,26 @@ export function createDragonModel() {
   const underbelly = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), belly);
   underbelly.scale.set(0.6, 0.25, 1.1);
   underbelly.position.set(0, 1.19, 0);
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.42, 0.9, 8), scales);
-  neck.position.set(0, 1.62, -0.93);
+  // The neck and head hang from a pivot at the base of the neck (they lunge
+  // for a bite), and the jaw (muzzle) from the head, so it opens.
+  const headPivot = new THREE.Group();
+  headPivot.position.set(0, 1.5, -0.7);
+  const at = (mesh, x, y, z) => { mesh.position.set(x, y - 1.5, z + 0.7); headPivot.add(mesh); return mesh; };
+  const neck = at(new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.42, 0.9, 8), scales), 0, 1.62, -0.93);
   neck.rotation.x = -0.55;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.5, 0.76), scales);
-  head.position.set(0, 1.82, -1.42);
+  at(new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.5, 0.76), scales), 0, 1.82, -1.42);
+  const jaw = new THREE.Group();
+  jaw.position.set(0, 1.72 - 1.5, -1.62 + 0.7);
   const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.25, 0.48), belly);
-  muzzle.position.set(0, 1.66, -1.85);
-  group.add(body, underbelly, neck, head, muzzle);
+  muzzle.position.set(0, -0.06, -0.23);
+  jaw.add(muzzle);
+  headPivot.add(jaw);
+  group.add(body, underbelly, headPivot);
   const legs = [];
   const eyeMaterial = lambert(0xffd650);
   for (const side of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.03), eyeMaterial);
-    eye.position.set(side * 0.18, 1.91, -1.82);
-    const hornMesh = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.42, 6), horn);
-    hornMesh.position.set(side * 0.23, 2.25, -1.27);
-    group.add(eye, hornMesh);
+    at(new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.03), eyeMaterial), side * 0.18, 1.91, -1.82);
+    at(new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.42, 6), horn), side * 0.23, 2.25, -1.27);
     for (const front of [false, true]) {
       const pivot = new THREE.Group();
       pivot.position.set(side * 0.52, 1.23, front ? -0.65 : 0.72);
@@ -474,12 +478,16 @@ export function createDragonModel() {
       legs.push({ pivot, side, front });
     }
   }
+  // The tail swings from a pivot at its root (the tail whip).
+  const tailPivot = new THREE.Group();
+  tailPivot.position.set(0, 1.4, 1.05);
   for (let i = 0; i < 3; i++) {
     const tail = new THREE.Mesh(new THREE.ConeGeometry(0.32 - i * 0.08, 0.82, 8), scales);
     tail.rotation.x = Math.PI / 2;
-    tail.position.set(0, 1.4 - i * 0.08, 1.38 + i * 0.62);
-    group.add(tail);
+    tail.position.set(0, -i * 0.08, 0.33 + i * 0.62);
+    tailPivot.add(tail);
   }
+  group.add(tailPivot);
   const wingGeometry = new THREE.BufferGeometry();
   wingGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
     0, 0, -0.2, 2.15, 0.25, -0.35, 1.48, -0.15, 1.05, 0.25, -0.12, 0.8,
@@ -511,17 +519,40 @@ export function createDragonModel() {
   flame.add(outer, inner);
   flame.visible = false;
   group.add(flame);
-  group.userData.dragon = { wings, legs, flame, phase: 0 };
+  group.userData.dragon = { wings, legs, flame, headPivot, jaw, tailPivot, phase: 0, bite: 0, whip: 0, lastAttack: null };
   mergeStaticMeshes(group);
   return group;
 }
 
-export function animateDragon(model, dt, breathing, walking, aimYaw = 0, aimPitch = 0) {
+// swoop: 1 rising for a swoop (wings high, beating hard), 2 diving (wings
+// swept back); attack: 'bite' or 'tail' winding up (head reared with the jaw
+// open, or tail cocked), then the strike plays out when it clears.
+export function animateDragon(model, dt, breathing, walking, aimYaw = 0, aimPitch = 0, { swoop = 0, attack = null } = {}) {
   const dragon = model.userData.dragon;
-  dragon.phase += dt * (walking ? 8 : 5);
+  dragon.phase += dt * (swoop === 1 ? 11 : walking ? 8 : 5);
   for (const { pivot, side } of dragon.wings) {
+    if (swoop === 2) { pivot.scale.x = side * 0.55; pivot.rotation.z = side * 0.55; continue; }
     pivot.scale.x = side * (walking ? 0.4 : 1);
-    pivot.rotation.z = side * (walking ? 0.1 : 0.1 + Math.sin(dragon.phase) * 0.28);
+    pivot.rotation.z = side * (walking ? 0.1 : swoop === 1 ? 0.35 + Math.sin(dragon.phase) * 0.45 : 0.1 + Math.sin(dragon.phase) * 0.28);
+  }
+  // Bite and tail whip: wind up while `attack` is set, strike when it clears.
+  if (dragon.headPivot) {
+    if (dragon.lastAttack && dragon.lastAttack !== attack) dragon[dragon.lastAttack === 'bite' ? 'bite' : 'whip'] = -1;
+    dragon.lastAttack = attack;
+    const toward = (v, goal, rate) => v + (goal - v) * Math.min(1, dt * rate);
+    if (attack === 'bite') dragon.bite = toward(dragon.bite, 1, 6);
+    else if (dragon.bite < 0) { dragon.bite = Math.min(0, dragon.bite + dt * 3.5); }
+    else dragon.bite = toward(dragon.bite, 0, 8);
+    if (attack === 'tail') dragon.whip = toward(dragon.whip, 1, 6);
+    else if (dragon.whip < 0) { dragon.whip = Math.min(0, dragon.whip + dt * 3); }
+    else dragon.whip = toward(dragon.whip, 0, 8);
+    // Rear back (positive) or lunge (negative), jaw open in both.
+    dragon.headPivot.rotation.x = dragon.bite * 0.45;
+    dragon.headPivot.position.z = -0.7 + (dragon.bite > 0 ? dragon.bite * 0.25 : dragon.bite * 0.7);
+    dragon.jaw.rotation.x = Math.abs(dragon.bite) * 0.7;
+    // Cocked to one side (positive), then swept across (negative).
+    dragon.tailPivot.rotation.y = dragon.whip > 0 ? dragon.whip * 0.9 : -Math.sin(-dragon.whip * Math.PI) * 1.3 + dragon.whip * 0.2;
+    dragon.tailPivot.rotation.x = dragon.whip > 0 ? -dragon.whip * 0.3 : 0;
   }
   for (const { pivot, side, front } of dragon.legs) {
     pivot.rotation.x = walking ? Math.sin(dragon.phase + (front === (side > 0) ? 0 : Math.PI)) * 0.35 : 0;

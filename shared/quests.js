@@ -416,10 +416,10 @@ export const QUESTS = [
 
   // ---- Dragons and treasures ----
   { id: 'dragons', chapter: 'beyond', x: 4, y: 0, icon: ITEM.DRAGON_SCALE, title: 'Dragons', goal: { any: [event('kill:dragon'), obtained(ITEM.DRAGON_SCALE)] },
-    text: ['Dragons patrol islands of their own, land to rest and breathe fire at anyone nearby. Hurting one makes it hunt you.',
+    text: ['Dragons patrol islands of their own, land to rest and breathe fire at anyone nearby. They also swoop down through you (watch for the roar as one climbs), and bite and whip their tails on the ground. Hurting one makes it hunt you.',
       'They drop iron, leather and Dragon Scales.'] },
   { id: 'dragonscale', chapter: 'beyond', x: 5, y: 0, deps: ['dragons'], icon: ITEM.DRAGONSCALE_ARMOR, title: 'Dragonscale Armor', goal: obtained(ITEM.DRAGONSCALE_ARMOR),
-    text: ['8 Dragon Scales make dragonscale armor at a workbench: the best armor there is, and it shrugs off dragon fire.'] },
+    text: ['8 Dragon Scales make dragonscale armor at a workbench: the best armor there is, and it shrugs off dragon fire (but not a dragon\'s swoop, bite or tail).'] },
   { id: 'accessories', chapter: 'beyond', x: 7, y: 1, icon: ITEM.HEART_AMULET, title: 'Rare Accessories', goal: obtained(...ACCESSORY_ITEMS),
     text: ['Accessories go in the accessory slot of your inventory; you can wear one at a time. They come from loot chests; the Sky Merchant sometimes sells spring boots, and the Dragon Crown comes from the Dragon Lord.',
       'Wind boots: move faster. Spring boots: hold jump to charge a high leap. Heart amulet: +5 maximum health. Mending charm: start healing steadily 5 seconds after being hurt. Ember heart: when a blow would kill you (not a fall into the void) it burns up instead and leaves you with 10 health.'] },

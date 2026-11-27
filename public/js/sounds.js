@@ -11,6 +11,7 @@ export class Sounds {
     this.mixer = mixer;
     this.motion = new Map();
     this.wings = new Map();
+    this.dragonMoves = new Map();
     this.context = null;
     this.noise = null;
     this.time = 0;
@@ -220,9 +221,17 @@ export class Sounds {
           this.noiseBurst(0.75,2600,0.18,position,listener);
         }
         if(snap?.breathing)this.firing.add(id);else this.firing.delete(id);
+        // Physical attacks: a roar as a swoop starts rising, a rush of air as
+        // it dives, a growl as a bite or tail whip winds up and a crack as it lands.
+        const was=this.dragonMoves.get(id)??{},now={swoop:snap?.swoop??0,attack:snap?.attack??null};
+        if(now.swoop===1&&was.swoop!==1)this.mixer.play(sounds.attack,C.dragonGain,position,range);
+        if(now.swoop===2&&was.swoop!==2)this.noiseBurst(0.6,900,0.22,position,listener);
+        if(now.attack&&now.attack!==was.attack)this.tone(110,70,0.4,0.12,position,listener);
+        if(was.attack&&!now.attack)this.noiseBurst(0.12,was.attack==='bite'?2200:1200,0.2,position,listener);
+        this.dragonMoves.set(id,now);
       }
     }
-    for(const map of [this.motion,this.mobCalls,this.wings,this.poses,this.roars])for(const id of map.keys())if(!present.has(id))map.delete(id);
+    for(const map of [this.motion,this.mobCalls,this.wings,this.poses,this.roars,this.dragonMoves])for(const id of map.keys())if(!present.has(id))map.delete(id);
     for(const id of this.firing)if(!present.has(id))this.firing.delete(id);
   }
 }

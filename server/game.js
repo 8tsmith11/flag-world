@@ -730,7 +730,11 @@ export class Game {
       const cow = new Cow(this.nextId++, herds.get(c.herd), c.x, c.y, c.z);
       cow.hp = c.hp; this.cows.set(cow.id, cow);
     }
+    // Older saves had a dragon on each team island; starter islands no longer
+    // get one, so those are left out.
+    const teamIsland = (h) => this.world.islands.some((i) => i.kind === 'team' && i.x === h.x && i.z === h.z);
     for (const d of save.dragons) {
+      if (teamIsland(d.homeIsland)) continue;
       const dragon = new Dragon(this.nextId++, d.home.x, d.home.y, d.home.z, d.homeIsland, d.leashRadius - d.homeIsland.radius);
       Object.assign(dragon.state, { x: d.x, y: d.y, z: d.z }); dragon.hp = d.hp;
       this.dragons.set(dragon.id, dragon);
@@ -1898,9 +1902,9 @@ export class Game {
   }
 
   // Dragons at match start, each leashed to its home island (DRAGON_LEASH):
-  // centralDragons spread around the central island, teamDragons on each
-  // team island (well away from its keep, preferably on the far side), and
-  // one at each roost's nest. All spawn above open grass; none respawn.
+  // centralDragons spread around the central island and one at each roost's
+  // nest. Team (starter) islands get none. All spawn above open grass; none
+  // respawn.
   spawnDragons() {
     const config = WORLD_SIZES[this.worldSize];
     const rand = mulberry32(this.seed ^ 0x8a7f219d);
@@ -1925,41 +1929,6 @@ export class Game {
         break;
       }
     }
-    for (const island of this.world.islands.filter((entry) => entry.kind === 'team')) {
-      const keep = this.world.keeps[island.teamIndex];
-      const spawn = this.keepSpawn(keep);
-      const awayAngle = Math.atan2(island.z - keep.cz, island.x - keep.cx);
-      for (let dragonIndex = 0; dragonIndex < config.teamDragons; dragonIndex++) {
-        let site = null;
-        const validSite = (x, z) => {
-          if (Math.hypot(x - keep.cx, z - keep.cz) < 25
-            || Math.hypot(x + 0.5 - spawn.x, z + 0.5 - spawn.z) < 25) return null;
-          const ground = this.world.getSurfaceY(x, z, isSolid);
-          return ground >= 0 && this.world.getBlock(x, ground, z) === BLOCK.GRASS
-            ? { x, z, ground } : null;
-        };
-        for (let tries = 0; tries < 120; tries++) {
-          const angle = awayAngle + (rand() - 0.5) * Math.PI;
-          const distance = island.radius * (0.5 + rand() * 0.3);
-          const x = Math.floor(island.x + Math.cos(angle) * distance);
-          const z = Math.floor(island.z + Math.sin(angle) * distance);
-          site = validSite(x, z);
-          if (site) break;
-        }
-        if (!site) {
-          for (let z = Math.floor(island.z - island.radius); z <= island.z + island.radius; z += 2) {
-            for (let x = Math.floor(island.x - island.radius); x <= island.x + island.radius; x += 2) {
-              if (Math.hypot(x - island.x, z - island.z) > island.radius * 0.85) continue;
-              const candidate = validSite(x, z);
-              if (candidate && (!site || Math.hypot(x - keep.cx, z - keep.cz)
-                > Math.hypot(site.x - keep.cx, site.z - keep.cz))) site = candidate;
-            }
-          }
-        }
-        if (!site) continue;
-        add(site.x, site.ground, site.z, island, DRAGON_LEASH.team);
-      }
-    }
     for (const roost of this.world.roosts) {
       add(roost.x, roost.y, roost.z, this.world.islands[roost.island], DRAGON_LEASH.roost);
     }
@@ -1971,6 +1940,17 @@ export class Game {
     for (const dragon of this.dragons.activeValues()) {
       for (const target of dragon.step(this.world, players, this.tick)) {
         if (!target.fireImmune()) this.damage(target, DRAGON_FIRE_DAMAGE, dragon, DEATH_CAUSE.MOB);
+      }
+      // Swoops, bites and tail whips: physical, with knockback (armor
+      // reduces them; fire immunity doesn't).
+      for (const { player, damage, knockback, dir } of dragon.hits) {
+        this.meleeHit(player, damage, dragon, knockback);
+        // A swoop throws you along its dive, not just away from its body.
+        const len = dir && Math.hypot(dir.x, dir.z);
+        if (len > 0.1 && !player.dead) {
+          player.state.kx = dir.x / len * KNOCKBACK_SPEED * knockback;
+          player.state.kz = dir.z / len * KNOCKBACK_SPEED * knockback;
+        }
       }
       this.dragons.relocate(dragon);
     }

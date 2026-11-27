@@ -68,7 +68,8 @@ defineItem(ITEM.LEATHER_ARMOR, 'leather armor', { maxStack: 1, shape: 'armor', c
 defineItem(ITEM.IRON_ARMOR, 'iron armor', { maxStack: 1, shape: 'armor', color: IRON_COLOR, armorPoints: 8, modCategory: 'armor' });
 defineItem(ITEM.BRONZE_ARMOR, 'bronze armor', { maxStack: 1, shape: 'armor', color: BRONZE_COLOR,
   armorPoints: METALS.bronzeArmorPoints, texture: 'bronze', modCategory: 'armor' });
-// Crafted from Dragon Scales (dropped by dragons); shrugs off dragon fire.
+// Crafted from Dragon Scales (dropped by dragons); shrugs off dragon fire
+// (not their swoops, bites or tail whips).
 defineItem(ITEM.DRAGONSCALE_ARMOR, 'dragonscale armor', {
   maxStack: 1, shape: 'armor', color: 0x3a2a30, armorPoints: 9, fireImmune: true, texture: 'scales', modCategory: 'armor',
 });

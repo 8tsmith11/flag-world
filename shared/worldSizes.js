@@ -13,7 +13,7 @@ const TINY_TREES = { minRadius: 7, count: [1, 2] };
 export const WORLD_SIZES = {
   small: {
     label: 'Small', centralRadius: 110, teamRadius: 45, gap: 35,
-    tinyCount: [22, 30], tinyRadius: [4, 10, 14], teamHeightOffset: 15, teamDragons: 0, centralDragons: 2, eels: 8,
+    tinyCount: [22, 30], tinyRadius: [4, 10, 14], teamHeightOffset: 15, centralDragons: 2, eels: 8,
     roosts: { ...ROOSTS, max: 1 }, crawlers: CRAWLERS, tinyTrees: TINY_TREES, tinyStackOffset: 15,
     centralSurfaceY: 86, teamAngleJitterDegrees: 15, keepInnerRadius: 0.7,
     islandSpacing: 12, verticalClearance: 20, tinyKeepClearance: 25,
@@ -30,7 +30,7 @@ export const WORLD_SIZES = {
   },
   medium: {
     label: 'Medium', centralRadius: 155, teamRadius: 65, gap: 55,
-    tinyCount: [34, 45], tinyRadius: [5, 12, 17], teamHeightOffset: 22, teamDragons: 1, centralDragons: 3, eels: 12,
+    tinyCount: [34, 45], tinyRadius: [5, 12, 17], teamHeightOffset: 22, centralDragons: 3, eels: 12,
     roosts: { ...ROOSTS, max: 2 }, crawlers: CRAWLERS, tinyTrees: TINY_TREES, tinyStackOffset: 15,
     centralSurfaceY: 86, teamAngleJitterDegrees: 15, keepInnerRadius: 0.7,
     islandSpacing: 20, verticalClearance: 20, tinyKeepClearance: 25,
@@ -47,7 +47,7 @@ export const WORLD_SIZES = {
   },
   large: {
     label: 'Large', centralRadius: 210, teamRadius: 90, gap: 80,
-    tinyCount: [50, 66], tinyRadius: [5, 15, 20], teamHeightOffset: 30, teamDragons: 1, centralDragons: 5, eels: 16,
+    tinyCount: [50, 66], tinyRadius: [5, 15, 20], teamHeightOffset: 30, centralDragons: 5, eels: 16,
     roosts: { ...ROOSTS, max: 4 }, crawlers: CRAWLERS, tinyTrees: TINY_TREES, tinyStackOffset: 15,
     centralSurfaceY: 86, teamAngleJitterDegrees: 15, keepInnerRadius: 0.7,
     islandSpacing: 20, verticalClearance: 20, tinyKeepClearance: 25,

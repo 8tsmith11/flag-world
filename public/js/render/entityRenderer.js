@@ -415,7 +415,7 @@ export class EntityRenderer {
       if (object.userData.airship) animateAirship(object, dt, { thrust: b.thrust, pilot: b.pilot });
       if (object.userData.grenade) { animateGrenade(object, dt, b.fuse ?? 50, Math.hypot(b.vx ?? 0, b.vz ?? 0) > 0.2); this.onGrenade?.(entity.id, object.position, b.fuse ?? 50); }
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
-        b.aimYaw, b.aimPitch);
+        b.aimYaw, b.aimPitch, { swoop: b.swoop ?? 0, attack: b.attack ?? null });
       // A renamed player gets a new tag (relit with the body below).
       if (object.userData.nametag && b.name && object.userData.nametag.userData.nametag !== b.name) {
         object.remove(object.userData.nametag);

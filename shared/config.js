@@ -298,6 +298,21 @@ export const DRAGON_FIRE_DURATION = 1.2;
 export const DRAGON_FIRE_COOLDOWN = 4;
 export const DRAGON_FIRE_INTERVAL = 0.3;
 export const DRAGON_DROPS = { iron: [2, 5], leather: [2, 4], scales: [2, 4] };
+// Physical dragon attacks (armor reduces them; dragonscale's fire immunity
+// doesn't stop them).
+//   swoop: it rises `rise` blocks with a screech for `windup` seconds, then
+//     dives in a straight line at where its target was, at `speed`, hitting
+//     anyone within `reach` of its body once (damage, knockback scale).
+//     Used instead of breathing on a fire-immune target, or with `chance`
+//     otherwise, at most every `cooldown` seconds.
+//   melee: on the ground (after a low dive, or when a player walks up to a
+//     landed dragon) it stays down for groundSeconds, biting players in
+//     front within biteReach and whipping its tail at players behind within
+//     tailReach, each after a `windup`, every `cooldown` seconds.
+export const DRAGON_SWOOP = { cooldown: 7, windup: 1.2, rise: 7, speed: 16, damage: 6, knockback: 2.2, reach: 2.6,
+  chance: 0.35, overshoot: 5, landBelow: 4 };
+export const DRAGON_MELEE = { biteReach: 3.6, tailReach: 4.4, windup: 0.55, biteDamage: 4, tailDamage: 3,
+  biteKnockback: 0.8, tailKnockback: 1.6, cooldown: 1.6, groundSeconds: 4, engage: 7 };
 // How far past its island a leashed dragon roams unless chasing: team
 // islands, the central island and roosts (measured from the island's edge).
 export const DRAGON_LEASH = { team: 15, center: 20, roost: 20 };

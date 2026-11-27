@@ -274,6 +274,8 @@ promptly for every player.
 | `breathing` | bool | Fire cone is active |
 | `walking` | bool | On the ground with folded wings and walking legs |
 | `aimYaw`,`aimPitch` | number | Fire aim angles toward the target's collision-box center, relative to body yaw and world horizontal |
+| `swoop` | 1 \| 2, optional | A swoop: 1 while rising with a roar (the telegraph), 2 while diving. Absent otherwise |
+| `attack` | `"bite"` \| `"tail"`, optional | A bite or tail whip winding up on the ground; it strikes the tick the field disappears |
 
 **PlayerInfo** — PlayerSnapshot plus:
 
@@ -773,21 +775,38 @@ blocks (steps of one up or down, no water). Punches and arrows hit them (10 HP,
 knockback like players). When one is hurt, its whole herd runs away from the
 attacker for 5 s. A dead cow drops 0-2 leather and 1-3 beef.
 
-Dragons (`centralDragons`, `teamDragons` and `roosts` in `WORLD_SIZES`): 2,
-3 or 5 spread around the central island (Small, Medium, Large), one on each
-team island in Medium and Large (at least 25 blocks from the keep and team
-spawn, preferably on the far side), and one at each dragon roost. Every dragon
-is leashed to its home island: it roams within the island's radius plus 20
-blocks (central, roost) or 15 (team), and only goes after players inside that
-radius. It returns home after losing a target. All dragons spawn above open
+Dragons (`centralDragons` and `roosts` in `WORLD_SIZES`): 2, 3 or 5 spread
+around the central island (Small, Medium, Large) and one at each dragon roost.
+Team (starter) islands have none on any world size. Every dragon is leashed
+to its home island: it roams within the island's radius plus 20 blocks, and
+only goes after players inside that radius. It returns home after losing a target. All dragons spawn above open
 grass away from keeps. They wander around their spawn when no live, connected
 player is in range, occasionally landing and walking on grass. For a player
 within 45 blocks (and inside the leash), they take off, fly toward the
-nearest, and breathe fire through a 14-block cone aimed at that player's
-center when they have clear sight. The fire effect is sent to every player in
-the dragon's state. The server applies 2.5 damage per fire pulse before armor
-reduction; Dragonscale Armor is immune. Punches and arrows can hurt them (30
-HP), and provoke them (see **Provocation**). A dead dragon drops 2–5 iron
+nearest, hold off about 5 blocks from them facing them, and breathe fire
+through a 14-block cone aimed at that player's center when they have clear
+sight. The fire effect is sent to every player in the dragon's state. The
+server applies 2.5 damage per fire pulse before armor reduction; Dragonscale
+Armor is immune to it, so dragons never breathe at a fire-immune target.
+
+Dragons also attack physically (`DRAGON_SWOOP`, `DRAGON_MELEE`): armor reduces
+these, and fire immunity doesn't stop them.
+- Swoop: always the choice against a fire-immune target, and 35% of the time
+  instead of fire otherwise, at most every 7 s. It rises 7 blocks above the
+  target for 1.2 s with a roar (`swoop: 1`), then dives in a straight line at
+  where the target's body was, at 16 blocks/s, overshooting 5 blocks
+  (`swoop: 2`). Anyone within 2.6 blocks of it during the dive is hit once
+  for 6 damage, with heavy knockback along the dive (it can throw players off
+  an edge). A wall in the way at the start cancels it.
+- On the ground: a dive that ends on grass within 7 blocks of its target, or
+  a player walking up to a landed dragon, starts a 4 s fight on the ground.
+  It turns to face its target and bites anyone within 3.6 blocks in front
+  (4 damage) or whips its tail at anyone within 4.4 blocks behind (3 damage,
+  more knockback), each after a 0.55 s wind-up (`attack`), at most every
+  1.6 s. Then it takes off.
+
+Punches and arrows can hurt them (120 HP), and provoke them (see
+**Provocation**). A dead dragon drops 2–5 iron
 ingots, 2–4 leather and 2–4 Dragon Scales. Dragons do not respawn.
 
 Crawlers: spider-like mobs, 3–5 in every cave dungeon and underside ruin, and
