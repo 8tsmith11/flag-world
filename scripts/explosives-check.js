@@ -1,7 +1,7 @@
 // Full-match checks for the explosives and defensive infrastructure update:
 // sulfur farming (renewable, farmer monkeys), sulfur seed sources (merchant
 // and loot), gunpowder and grenades from craftsman monkeys, grenade flight
-// and explosions, explosive barrels (fuse, falling when lit, chain reactions, structural damage,
+// and explosions, explosive barrels (fuse, lit barrels moving and pushed like primed TNT, chain reactions flung, structural damage,
 // reinforced walls), spike barricades (geometry, contact, breaking, arrows,
 // teams), steam-powered drawbridges (lengths, directions, steam, obstruction,
 // broken sections, no duplication, pathfinding) and what reaches clients.
@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { Game } from '../server/game.js';
 import { TEAMS, S2C, C2S, ENTITY_TYPE } from '../shared/protocol.js';
 import { drawbridgeCell } from '../shared/drawbridge.js';
+import { itemToughness } from '../shared/items.js';
 import { BLOCK, CROPS, getBlockDef, blockDrops, FACING_DIRS } from '../shared/blocks.js';
 import { ITEM, getItemDef } from '../shared/items.js';
 import { TICK_RATE, EXPLOSIVES as X, SPIKES as SP, DRAWBRIDGE as DB, FARMING } from '../shared/config.js';
@@ -192,22 +193,27 @@ const fuse = Math.round(X.barrel.fuseSeconds * TICK_RATE);
   const lighter = getRecipe('lighter');
   assert.deepEqual(lighter.inputs.map((i) => [i.item, i.count]).sort(), [[ITEM.GUNPOWDER, 1], [ITEM.IRON_INGOT, 1]].sort());
   assert.equal(getItemDef(ITEM.LIGHTER).tool, 'lighter');
-  // A lighter lights it: visible to everyone, can't be broken, goes off
-  // after its fuse. The lighter is not used up.
+  // A lighter lights it: the block becomes a lit barrel entity (seen by
+  // everyone) that hops and lands, then goes off after its fuse. The lighter
+  // is not used up.
   host.inventory.slots[host.selected] = { item: ITEM.LIGHTER, count: 1 };
   sent.clear();
   game.stepUse(host, p);
-  assert.equal(world.getBlock(p.x, p.y, p.z), BLOCK.LIT_BARREL, 'the lighter did not light the barrel');
+  const litNear = (x, z, r = 0.6) => [...game.explosives.barrels.values()].find((b) => Math.abs(b.state.x - x - 0.5) < r && Math.abs(b.state.z - z - 0.5) < r);
+  assert.equal(world.getBlock(p.x, p.y, p.z), BLOCK.AIR, 'the lit barrel stayed a block');
+  const litOne = litNear(p.x, p.z);
+  assert.ok(litOne, 'the lighter did not light the barrel');
   assert.deepEqual(host.inventory.slots[host.selected], { item: ITEM.LIGHTER, count: 1 }, 'the lighter was used up or worn');
   game.stepUse(host, at(51, 11, 0));
   assert.equal(world.getBlock(ox + 51, Y, oz + 11), BLOCK.STONE, 'the lighter did something to stone');
   run(1);
-  for (const id of [1, 2, 3]) assert.ok(messages(id, S2C.BLOCK_CHANGES).some((m) => m.changes.some((c) => c.x === p.x && c.id === BLOCK.LIT_BARREL)), `player ${id} was not shown the lit fuse`);
-  assert.equal(getBlockDef(BLOCK.LIT_BARREL).breakable, false);
+  for (const id of [1, 2, 3]) assert.ok(messages(id, S2C.ENTITY_SPAWN).some((m) => m.entity.id === litOne.id && m.entity.type === 'litBarrel'), `player ${id} was not shown the lit barrel`);
+  assert.ok(messages(1, S2C.STATE).some((m) => m.entities.some((e) => e.id === litOne.id)), 'the lit barrel\'s movement was not sent');
   run(fuse - 3);
-  assert.equal(world.getBlock(p.x, p.y, p.z), BLOCK.LIT_BARREL, 'the barrel went off early');
+  assert.ok(game.explosives.barrels.has(litOne.id), 'the barrel went off early');
+  assert.ok(Math.abs(litOne.state.y - p.y) < 0.05 && litOne.state.onGround, 'the lit barrel did not land back where it was');
   run(4);
-  assert.equal(world.getBlock(p.x, p.y, p.z), BLOCK.AIR, 'the barrel did not go off');
+  assert.ok(!game.explosives.barrels.has(litOne.id), 'the barrel did not go off');
   assert.ok(messages(2, S2C.EXPLOSION).some((m) => m.kind === 'barrel'));
   park(host, 2, 2);
   // An unlit barrel breaks into its item.
@@ -259,7 +265,7 @@ const fuse = Math.round(X.barrel.fuseSeconds * TICK_RATE);
       while (times.length < n) times.push(game.tick);
       // (Lit, it may be falling: the blast can take the floor out from under it.)
       if (times.length === 1) for (const q of ps.slice(1, 2))
-        assert.ok([...game.explosives.lit.values()].some((e) => e.x === q.x && e.z === q.z), 'the next barrel was not lit by the blast');
+        assert.ok(world.getBlock(q.x, q.y, q.z) === BLOCK.AIR && [...game.explosives.barrels.values()].length > 0, 'the next barrel was not lit by the blast');
       return n >= 4;
     });
     for (let x = ox + 40; x < ox + 64; x++) for (let z = oz + 20; z < oz + 32; z++)
@@ -622,24 +628,77 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   assert.equal(back, owed, `breaking the mechanism gave back ${back} of ${owed} planks`);
 }
 
-// ---- A lit barrel falls like sand and goes off where it lands ----
+// ---- Lit barrels move like primed TNT; blasts push loose things; item
+// toughness; fewer block drops from explosions ----
 {
-  clear(50, 50, 52, 52, 1, 12);
-  const top = at(51, 51, 8); world.setBlock(top.x, top.y - 1, top.z, BLOCK.STONE); // a ledge to light it on
-  world.setBlock(top.x, top.y, top.z, BLOCK.EXPLOSIVE_BARREL);
-  world.setBlock(top.x, Y + 1, top.z, BLOCK.RED_FLOWER); // on the ground below
   const booms = [], explode = game.explosives.explode.bind(game.explosives);
-  game.explosives.explode = (x, y, z, ...rest) => { booms.push({ x, y, z }); return explode(x, y, z, ...rest); };
+  game.explosives.explode = (x, y, z, ...rest) => { booms.push({ x, y, z, kind: rest[0] }); return explode(x, y, z, ...rest); };
+  // Lit on a ledge, then the ledge goes: it falls to the ground and goes off there.
+  clear(50, 50, 52, 52, 1, 12);
+  const top = at(51, 51, 8); world.setBlock(top.x, top.y - 1, top.z, BLOCK.STONE);
+  world.setBlock(top.x, top.y, top.z, BLOCK.EXPLOSIVE_BARREL);
   assert.ok(game.explosives.ignite(top.x, top.y, top.z));
-  run(5);
-  assert.equal(world.getBlock(top.x, top.y, top.z), BLOCK.LIT_BARREL, 'a supported lit barrel moved');
-  world.setBlock(top.x, top.y - 1, top.z, BLOCK.AIR); // its support goes
-  assert.ok(run(TICK_RATE * 2, () => world.getBlock(top.x, Y + 1, top.z) === BLOCK.LIT_BARREL), 'the lit barrel did not fall to the ground');
-  for (let y = Y + 2; y <= top.y; y++) assert.equal(world.getBlock(top.x, y, top.z), BLOCK.AIR, 'the falling barrel left a block behind');
-  assert.equal([...game.items.values()].filter((e) => e.item === BLOCK.RED_FLOWER).length, 0, 'the crushed flower dropped (no hoe)');
+  const lit = [...game.explosives.barrels.values()].at(-1);
+  run(15);
+  assert.ok(Math.abs(lit.state.y - top.y) < 0.05, 'a supported lit barrel fell');
+  world.setBlock(top.x, top.y - 1, top.z, BLOCK.AIR);
+  assert.ok(run(TICK_RATE * 2, () => lit.state.onGround && lit.state.y < Y + 1.05), 'the lit barrel did not fall to the ground');
   assert.ok(run(fuse + 5, () => booms.length > 0), 'the fallen barrel never went off');
-  assert.ok(Math.abs(booms[0].y - (Y + 1.5)) < 0.01 && Math.abs(booms[0].x - (top.x + 0.5)) < 0.01, 'it went off somewhere other than where it landed');
+  assert.ok(Math.abs(booms[0].y - (Y + 1.5)) < 0.05 && Math.abs(booms[0].x - (top.x + 0.5)) < 0.3, 'it went off somewhere other than where it landed');
+  for (let x = ox + 44; x < ox + 60; x++) for (let z = oz + 44; z < oz + 60; z++) if (world.getBlock(x, Y, z) === BLOCK.AIR) world.setBlock(x, Y, z, BLOCK.STONE);
+  clear(44, 44, 59, 59, 1, 12);
+  // A blast pushes lit barrels and dropped items away; a grenade destroys no
+  // items, a barrel destroys the ones it beats (fireproof ones survive).
+  for (const id of [...game.items.keys()]) game.removeItem(game.items.get(id));
+  const c = at(52, 52), drop = (dx, item) => game.spawnItem(item, 1, c.x + 0.5 + dx, Y + 1.1, c.z + 0.5, 0, 0, 0, 0);
+  const wood = drop(1.2, BLOCK.PLANKS);
+  world.setBlock(c.x - 2, Y + 1, c.z, BLOCK.EXPLOSIVE_BARREL); game.explosives.ignite(c.x - 2, Y + 1, c.z, { seconds: 30 });
+  const pushed = [...game.explosives.barrels.values()].at(-1);
+  run(10);
+  const x0 = pushed.state.x;
+  game.explosives.explode(c.x + 0.5, Y + 1.3, c.z + 0.5, 'grenade', null);
+  assert.ok(game.items.has(wood.id), 'a grenade destroyed a dropped item');
+  run(6);
+  assert.ok(wood.state.x > c.x + 1.8, 'a grenade did not push a dropped item');
+  assert.ok(pushed.state.x < x0 - 0.3, 'a grenade did not push a lit barrel');
+  game.explosives.barrels.delete(pushed.id);
+  const near = drop(0.6, BLOCK.PLANKS), stone = drop(-0.6, BLOCK.STONE), scale = drop(0, ITEM.DRAGON_SCALE), far = drop(3.5, ITEM.IRON_INGOT);
+  game.explosives.explode(c.x + 0.5, Y + 1.3, c.z + 0.5, 'barrel', null);
+  assert.ok(!game.items.has(near.id) && !game.items.has(stone.id), 'a barrel blast did not destroy items close to it');
+  assert.ok(game.items.has(scale.id), 'a barrel blast destroyed a fireproof item');
+  assert.ok(game.items.has(far.id), 'a barrel blast destroyed a tough (metal) item further out it should only push');
+  assert.equal(getItemDef(ITEM.DRAGON_SCALE) && itemToughness(ITEM.DRAGON_SCALE), 3);
+  // Barrels lit by a blast are flung away from it.
+  for (let x = ox + 44; x < ox + 60; x++) for (let z = oz + 44; z < oz + 60; z++) if (world.getBlock(x, Y, z) === BLOCK.AIR) world.setBlock(x, Y, z, BLOCK.STONE);
+  clear(44, 44, 59, 59, 1, 12);
+  world.setBlock(c.x + 2, Y + 1, c.z, BLOCK.EXPLOSIVE_BARREL);
+  game.explosives.explode(c.x + 0.5, Y + 1.5, c.z + 0.5, 'barrel', null);
+  const flung = [...game.explosives.barrels.values()].at(-1);
+  assert.ok(flung && flung.state.vx > 1 && flung.state.vy > X.barrel.hop, 'a barrel lit by the blast was not flung away');
+  game.explosives.barrels.delete(flung.id);
+  // Lava burns flammable and metal items, not fireproof ones.
+  for (const [item, survives] of [[BLOCK.PLANKS, false], [ITEM.IRON_INGOT, false], [ITEM.DRAGON_SCALE, true]]) {
+    const pool = at(55, 47, 0); world.setBlock(pool.x, Y, pool.z, BLOCK.LAVA);
+    const e = game.spawnItem(item, 1, pool.x + 0.5, Y + 0.6, pool.z + 0.5, 0, 0, 0, 0);
+    run(3);
+    assert.equal(game.items.has(e.id), survives, `lava ${survives ? 'destroyed' : 'did not destroy'} item ${item}`);
+    if (game.items.has(e.id)) game.removeItem(e);
+    world.setBlock(pool.x, Y, pool.z, BLOCK.STONE);
+  }
+  // Explosion drop decay: blocks a barrel breaks drop about a quarter of the time.
+  for (const id of [...game.items.keys()]) game.removeItem(game.items.get(id));
+  let broken = 0, dropped = 0;
+  for (let i = 0; i < 400; i++) {
+    const b = at(48, 48); world.setBlock(b.x, b.y, b.z, BLOCK.DIRT);
+    game.explosives.damage.delete(`${b.x},${b.y},${b.z}`);
+    const before = game.items.size;
+    if (game.explosives.damageBlock(b.x, b.y, b.z, 5, X.barrel.dropChance)) { broken++; dropped += game.items.size - before; }
+    for (const id of [...game.items.keys()]) game.removeItem(game.items.get(id));
+  }
+  assert.ok(broken === 400 && dropped > 60 && dropped < 140, `explosion-broken blocks dropped ${dropped} of ${broken} (wanted ~25%)`);
   game.explosives.explode = explode;
+  for (let x = ox + 44; x < ox + 60; x++) for (let z = oz + 44; z < oz + 60; z++) if (world.getBlock(x, Y, z) === BLOCK.AIR) world.setBlock(x, Y, z, BLOCK.STONE);
+  clear(44, 44, 59, 59, 1, 12);
 }
 
 // ---- Saves: lit barrels, spike owners, drawbridges ----
@@ -648,7 +707,7 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   const s = spikeAt(44, 40, enemy.team);
   const { serializeGame } = await import('../server/save.js');
   const save = JSON.parse(JSON.stringify(serializeGame(game)));
-  assert.ok(save.explosives.lit.some(([x, y, z]) => x === p.x && z === p.z), 'a lit barrel was not saved');
+  assert.ok(save.explosives.barrels.some(([x, y, z]) => Math.abs(x - p.x - 0.5) < 0.6 && Math.abs(z - p.z - 0.5) < 0.6), 'a lit barrel was not saved');
   assert.ok(save.spikes.some(([k, team]) => k === `${s.x},${s.y},${s.z}` && team === enemy.team), 'a spike\'s owner was not saved');
 }
 

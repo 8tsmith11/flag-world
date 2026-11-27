@@ -3,7 +3,7 @@
 //   - explode(): a bright flash, a fireball, smoke and debris, a boom and a
 //     camera shake that fades with distance (EXPLOSION messages)
 //   - lit barrels: sparks from the fuse and a crackling hiss while a block is
-//     BLOCK.LIT_BARREL (fed by block changes and the join message's blocks)
+//     a lit barrel entity (litBarrel, every frame it is drawn)
 //   - grenades: beeps that speed up as the fuse runs out (entity snapshots)
 import * as THREE from 'three';
 import { BLOCK } from '/shared/blocks.js';
@@ -57,11 +57,12 @@ export class ExplosionEffects {
     }
   }
 
-  // Keeps track of burning barrels from block changes.
-  blockChanged(x, y, z, id) {
-    const key = `${x},${y},${z}`;
-    if (id === BLOCK.LIT_BARREL) this.barrels.set(key, { x, y, z, next: 0, hiss: 0 });
-    else this.barrels.delete(key);
+  // A lit barrel entity's fuse, every frame it is drawn (position: its
+  // bottom center). Sparks and hiss come from update().
+  litBarrel(id, position) {
+    const b = this.barrels.get(id) ?? { next: 0, hiss: 0 };
+    b.x = position.x - 0.5; b.y = position.y; b.z = position.z - 0.5; b.seen = performance.now();
+    this.barrels.set(id, b);
   }
 
   // A grenade's fuse (ticks left), every frame it is drawn.
@@ -74,7 +75,9 @@ export class ExplosionEffects {
   }
 
   update(dt) {
-    for (const barrel of this.barrels.values()) {
+    const now = performance.now();
+    for (const [id, barrel] of this.barrels) {
+      if (now - barrel.seen > 250) { this.barrels.delete(id); continue; } // gone (went off, or out of view)
       barrel.next -= dt; barrel.hiss -= dt;
       if (barrel.next <= 0) {
         barrel.next = 0.04;

@@ -475,9 +475,11 @@ export function createItemState(x, y, z, vx = 0, vy = 0, vz = 0) {
 }
 
 // Advances a dropped item by one tick: gravity, drag and block collision.
-export function stepItem(state, world) {
+// `box` lets other loose things use item physics (a lit barrel is a whole
+// block: server/explosives.js).
+export function stepItem(state, world, box = ITEM_BOX) {
   // A block placed on top of an item pushes it up out of the way.
-  if (collidesAt(world, ITEM_BOX, state.x, state.y, state.z)) {
+  if (collidesAt(world, box, state.x, state.y, state.z)) {
     state.y = Math.floor(state.y) + 1;
     state.vy = 0;
   }
@@ -494,5 +496,5 @@ export function stepItem(state, world) {
   }
   if (Math.abs(state.vx) < ITEM_REST_SPEED) state.vx = 0;
   if (Math.abs(state.vz) < ITEM_REST_SPEED) state.vz = 0;
-  moveBody(state, world, ITEM_BOX);
+  moveBody(state, world, box);
 }

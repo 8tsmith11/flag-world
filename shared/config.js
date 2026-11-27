@@ -827,12 +827,21 @@ export const EXPLOSIVES = {
   cover: 0.4, maxBlocks: 600,
   grenade: { throwSpeed: 15, lift: 0.18, gravity: 22, radius: 0.14, bounce: 0.35, friction: 0.65,
     fuseSeconds: 2.5, cooldownSeconds: 0.6, power: 1.2, blastRadius: 2.5, damage: 9, damageRadius: 4,
-    knockback: 1.3, maxStack: 16, craftGunpowder: 2, craftCopper: 1, craftCount: 2 },
+    knockback: 1.3, maxStack: 16, craftGunpowder: 2, craftCopper: 1, craftCount: 2,
+    // Blocks it breaks drop 40% of the time; it never destroys dropped items
+    // (so it stays useful for killing things), only pushes them.
+    dropChance: 0.4, itemStrength: 0 },
   barrel: { fuseSeconds: 3, chainFuseSeconds: [0.5, 0.9], power: 9, blastRadius: 4.5, damage: 14,
     damageRadius: 5.5, knockback: 1.8, craftGunpowder: 6, craftPlanks: 4, craftCopper: 1,
-    // A lit barrel falls (block by block) while nothing solid is under it:
-    // blocks/s² and blocks/s.
-    fallGravity: 20, fallSpeed: 30 },
+    // Lit, it becomes a moving entity (like primed TNT) that hops up by
+    // `hop` blocks/s; a barrel lit by a blast is flung away from it at up to
+    // `chainPush` blocks/s (and up by `chainLift`).
+    hop: 3, chainPush: 7, chainLift: 4,
+    // A block broken by its blast drops 1 time in 4 (Minecraft's explosion
+    // decay: 1 / power); dropped items within damageRadius are destroyed when
+    // the blast there (itemStrength, falling off with distance) beats their
+    // toughness (shared/items.js itemToughness).
+    dropChance: 0.25, itemStrength: 3 },
   gunpowder: { craftSulfur: 1, craftCharcoal: 1, craftCount: 2 },
   lighter: { craftGunpowder: 1, craftIron: 1 },
 };

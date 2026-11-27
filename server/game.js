@@ -27,7 +27,7 @@ import {
   ladderBlock, isLadder, ladderFacing, doorBlock, isDoor, doorState,
   isCrop, isMatureCrop, cropAt, blockDrops, CROPS,
 } from '../shared/blocks.js';
-import { getItemDef, ITEM } from '../shared/items.js';
+import { getItemDef, ITEM, itemToughness, HAZARD } from '../shared/items.js';
 import { accessoryDef } from '../shared/accessories.js';
 import { eggForItem } from '../shared/mobEggs.js';
 import { RIFT_ORB } from '../shared/accessories.js';
@@ -848,7 +848,7 @@ export class Game {
       entities: [...[...this.items.values(), ...this.arrows.values(), ...this.riftOrbs.values(), ...this.cows.values(), ...this.dragons.values(),
         ...this.mobs.values(), ...this.npcs.values()].map((e) => ({ ...e.describe(), loaded: this.chunkLoading.has(e.state.x, e.state.z) })),
         ...[...this.merchants.ships.values()].map((ship) => ship.describe()),
-        ...[...this.explosives.grenades.values()].map((g) => g.describe()),
+        ...[...this.explosives.grenades.values(), ...this.explosives.barrels.values()].map((g) => g.describe()),
         ...[...this.fishing.bobbers.values()].map((b) => b.describe())],
       merchants: this.merchants.message().merchants,
       quests: this.quests.state(player.team),
@@ -1048,18 +1048,20 @@ export class Game {
   // Removes a block and pops out its drop. A door goes as a pair (one drop);
   // ladders hanging on the block and a door standing on it fall off too.
   // tool: the breaking item's tool kind (see blockDrops), or null.
-  breakBlock(x, y, z, tool = null) {
-    const id = this.world.getBlock(x, y, z);
+  // dropChance: how likely the block itself drops (explosions pass less than
+  // 1); a container's contents always drop.
+  breakBlock(x, y, z, tool = null, { dropChance = 1 } = {}) {
+    const id = this.world.getBlock(x, y, z), drops = dropChance >= 1 || Math.random() < dropChance;
     if (isDoor(id)) {
       const state = doorState(id);
       const lower = state.upper ? y - 1 : y;
       if (state.reinforced) this.world.doorTeams.delete(`${x},${lower},${z}`);
       this.world.setBlock(x, lower, z, BLOCK.AIR);
       this.world.setBlock(x, lower + 1, z, BLOCK.AIR);
-      this.dropAt(state.reinforced ? ITEM.REINFORCED_DOOR : ITEM.DOOR, x, lower, z);
+      if (drops) this.dropAt(state.reinforced ? ITEM.REINFORCED_DOOR : ITEM.DOOR, x, lower, z);
     } else {
       this.world.setBlock(x, y, z, BLOCK.AIR);
-      for (const stack of blockDrops(id, Math.random, tool)) this.dropAt(stack.item, x, y, z, stack.count);
+      if (drops) for (const stack of blockDrops(id, Math.random, tool)) this.dropAt(stack.item, x, y, z, stack.count);
     }
     FACING_DIRS.forEach(([dx, dz], facing) => {
       // A ladder on the west side of this block faces east, toward it.
@@ -1604,6 +1606,7 @@ export class Game {
     const entity = new ItemEntity(this.nextId++, item, count, x, y, z, vx, vy, vz, pickupDelay, mods);
     this.items.set(entity.id, entity);
     this.broadcast({ type: S2C.ENTITY_SPAWN, entity: entity.describe() });
+    return entity;
   }
 
   removeItem(entity) {
@@ -1623,7 +1626,9 @@ export class Game {
       const s = entity.state;
       const { x, y, z } = s;
       stepItem(s, this.world);
-      if (isLava(this.world.getBlock(Math.floor(s.x),Math.floor(s.y+ITEM_SIZE/2),Math.floor(s.z)))) {
+      // Lava burns up items not tough enough for it (itemToughness).
+      if (isLava(this.world.getBlock(Math.floor(s.x),Math.floor(s.y+ITEM_SIZE/2),Math.floor(s.z)))
+        && itemToughness(entity.item) < HAZARD.lava) {
         this.removeItem(entity);
         continue;
       }

@@ -248,6 +248,11 @@ Sent in `entitySpawn`, then in every `state` tick to every player (grenades
 are few and short-lived) until it explodes (`entityDespawn`, then an
 `explosion`) or falls into the void.
 
+**LitBarrelSnapshot** — a lit explosive barrel (entity type `"litBarrel"`,
+like primed TNT): `{id, type, x, y, z, vx, vy, vz, fuse}`, its bottom center,
+velocity and ticks left. Sent like grenades (`entitySpawn`, every `state`
+tick, `entityDespawn` then `explosion`).
+
 **RiftOrbSnapshot** — a thrown Rift Orb in flight. Sent in `entitySpawn` and
 each `state` tick until it lands or falls into the void.
 
@@ -1971,14 +1976,27 @@ to the same successful world and record the resolved seed as `world.seed`.
   `power * (1 - d / blastRadius) / resistance`, where resistance is
   `blastResistance * max(0.5, hardness / 2)` (dirt and wood 0.5, stone 1,
   stone bricks 7.5, reinforced walls 15, spike barricades 3, unbreakable
-  blocks never); damage adds up across explosions and a block breaks at 1
-  (dropping like any broken block). Grenades never damage spike barricades.
-  An explosion lights barrels in its blast with a 0.5-0.9 s fuse.
+  blocks never); damage adds up across explosions and a block breaks at 1.
+  A block broken by an explosion drops only `dropChance` of the time
+  (barrels 25%, grenades 40%: Minecraft's explosion decay); a broken
+  container's contents always drop. Grenades never damage spike barricades.
+  Explosions push everything loose within `damageRadius`: players and mobs
+  (knockback), dropped items, grenades and lit barrels. A barrel's blast
+  destroys dropped items when `itemStrength` (3) scaled down with distance
+  beats their toughness (`itemToughness` in `shared/items.js`: 0 flammable,
+  1 most blocks, 2 metal and accessories, 3 fireproof dragon/fire things); a
+  grenade's never destroys items. Lava destroys dropped items below
+  toughness 3 (`HAZARD`; fire, later, will be 1). An explosion lights
+  barrels in its blast with a 0.5-0.9 s fuse and flings them away from it.
 - **Barrels**: `use` on one while holding a lighter lights it (any block whose
   def has `ignite`, dispatched by `Explosives.light`); right clicking with
-  anything else does nothing. A lit barrel is `BLOCK.LIT_BARREL`
-  (unbreakable, glowing fuse) for 3 s, then explodes. Unlit barrels break
-  into their item. Lit barrels and accumulated block damage are saved.
+  anything else does nothing. Lit, the block becomes a lit barrel entity
+  (`litBarrel`, like primed TNT): it hops, falls, slides and gets pushed
+  like a block-sized item for its 3 s fuse, then explodes where it is
+  (over the void it falls out and is gone). Unlit barrels break into their
+  item. Lit barrels (position, velocity, fuse) and accumulated block damage
+  are saved; lit barrel blocks from older saves become lit barrels again.
+  Block 168 (`LIT_BARREL`) is no longer placed.
 - **Spike barricades** (`server/spikes.js`, `SPIKES`): solid blocks owned by
   the placing team (saved). Anything hostile to that team (`isHostileTo`)
   touching one takes 3 damage and knockback, at most every 0.75 s; an enemy

@@ -180,7 +180,10 @@ including the host, plays by opening `http://<host-ip>:3000`.
   seconds })`, the single trigger entry point for later pressure plates or
   remote detonators. Players light things only with the lighter: a block
   def's `ignite` kind plus an `IGNITERS` entry (server/explosives.js) makes a
-  new block lightable. Grenades never damage spike barricades.
+  new block lightable. Grenades never damage spike barricades. Lit barrels are entities
+  (`LitBarrel`, like primed TNT) that blasts push; blasts push loose items
+  and destroy them by toughness (`itemToughness`, shared/items.js; grenades
+  never destroy items), and broken blocks drop only `dropChance` of the time.
 - Spike barricades (`server/spikes.js`) remember the placing team and use
   `isHostileTo` for contact, breaking and arrow damage; their caltrop shape
   (four body diagonals, eight points) is `shared/spikeGeometry.js`.

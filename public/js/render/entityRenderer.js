@@ -24,6 +24,7 @@ import { getItemDef } from '/shared/items.js';
 import { createMerchantModel, animateMerchant, createAirshipModel, animateAirship } from './merchantModels.js';
 import { MONKEY_DUTY } from '/shared/config.js';
 import { NPC_DEFS } from '/shared/npcs.js';
+import { LIT_BARREL_PARTS } from './defenseParts.js';
 
 const COW_BOX = { halfW: COW_WIDTH / 2, height: COW_HEIGHT };
 const DRAGON_BOX = { halfW: 1.1, height: 2.8 };
@@ -80,6 +81,28 @@ function animateGrenade(object, dt, fuse, moving) {
   const rate = fuse > 30 ? 3 : fuse > 12 ? 6 : 12;
   g.lamp.visible = Math.sin(g.age * rate * Math.PI * 2) > 0;
   if (moving) { g.spin += dt * 9; object.children[0].rotation.z = g.spin; }
+}
+
+// A lit explosive barrel (like primed TNT): the lit barrel block's parts,
+// origin at the bottom center; it swells and flashes as the fuse runs out.
+function createLitBarrelModel() {
+  const group = new THREE.Group(), body = new THREE.Group(), materials = [];
+  for (const { box: [x0, y0, z0, x1, y1, z1], color } of LIT_BARREL_PARTS) {
+    const material = new THREE.MeshLambertMaterial({ color }); materials.push(material);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), material);
+    mesh.position.set((x0 + x1) / 2 - 0.5, (y0 + y1) / 2, (z0 + z1) / 2 - 0.5);
+    body.add(mesh);
+  }
+  group.add(body);
+  group.userData.litBarrel = { body, materials };
+  return group;
+}
+function animateLitBarrel(object, fuse) {
+  const { body, materials } = object.userData.litBarrel, t = performance.now() / 1000;
+  const late = Math.max(0, 1 - fuse / 20);
+  body.scale.setScalar(1 + late * 0.12 * (0.5 + 0.5 * Math.sin(t * 30)));
+  const flash = Math.sin(t * (fuse < 20 ? 24 : 8)) > 0.6 ? 0x6a6a6a : 0x000000;
+  for (const m of materials) m.emissive.setHex(flash);
 }
 
 // A fishing bobber: red over white. Its inner group ('float') is moved by
@@ -168,6 +191,7 @@ const MODEL_FACTORIES = {
   [ENTITY_TYPE.NPC]: (info) => info.npc === 'skyMerchant' ? createMerchantModel(info) : createNpcModel(info),
   [ENTITY_TYPE.AIRSHIP]: createAirshipModel,
   [ENTITY_TYPE.GRENADE]: createGrenadeModel,
+  [ENTITY_TYPE.LIT_BARREL]: createLitBarrelModel,
   [ENTITY_TYPE.BOBBER]: createBobberModel,
   // Arrows point along their velocity (userData.arrow) instead of a yaw.
   [ENTITY_TYPE.ARROW]: () => {
@@ -425,6 +449,7 @@ export class EntityRenderer {
         talking: now < (entity.talkUntil ?? 0) });
       if (object.userData.airship) animateAirship(object, dt, { thrust: b.thrust, pilot: b.pilot });
       if (object.userData.grenade) { animateGrenade(object, dt, b.fuse ?? 50, Math.hypot(b.vx ?? 0, b.vz ?? 0) > 0.2); this.onGrenade?.(entity.id, object.position, b.fuse ?? 50); }
+      if (object.userData.litBarrel) { animateLitBarrel(object, b.fuse ?? 60); this.onLitBarrel?.(entity.id, object.position); }
       if (object.userData.dragon) animateDragon(object, dt, b.breathing, b.walking,
         b.aimYaw, b.aimPitch, { swoop: b.swoop ?? 0, attack: b.attack ?? null });
       // A renamed player gets a new tag (relit with the body below).

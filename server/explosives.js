@@ -2,13 +2,19 @@
 // (tuning in EXPLOSIVES, shared/config.js).
 //
 // Grenades are projectiles with gravity that bounce off blocks and go off
-// when their fuse runs out. Barrels are blocks: lighting one swaps it for
-// BLOCK.LIT_BARREL (so every client sees the burning fuse through ordinary
-// block changes) and schedules its explosion; an explosion lights any barrel
-// in its blast with a short chain fuse instead of destroying it. A lit barrel
-// falls like sand (block by block, speeding up) while nothing solid is under
-// it, breaking plants it lands on, and goes off wherever it ends up; lit
-// over the void it falls out of the world and is gone.
+// when their fuse runs out. Barrels are blocks; lighting one turns it into a
+// LitBarrel entity (like Minecraft's primed TNT): it hops, falls, slides and
+// gets pushed like a block-sized item, and goes off where it is when its fuse
+// ends (lit over the void it falls out of the world and is gone). An
+// explosion lights any barrel in its blast with a short chain fuse, flinging
+// it away, instead of destroying it.
+//
+// Explosions push everything loose: players and mobs (knockback), dropped
+// items, grenades and lit barrels. A barrel's blast destroys dropped items
+// it beats (itemStrength by distance against itemToughness, shared/items.js);
+// a grenade's never does. Blocks a blast breaks drop only `dropChance` of the
+// time (Minecraft's explosion decay); a broken container's contents always
+// drop.
 //
 // Triggers: anything that should set a barrel off calls ignite(x, y, z,
 // { source, seconds }). A lighter (light(), through the block's `ignite`
@@ -28,7 +34,8 @@ import { BLOCK, getBlockDef, isSolid, isLiquid } from '../shared/blocks.js';
 import { ITEM } from '../shared/itemIds.js';
 import { ENTITY_TYPE, S2C, DEATH_CAUSE } from '../shared/protocol.js';
 import { raycastBlock, lookDirection } from '../shared/raycast.js';
-import { playerBoxOf, eyeHeight } from '../shared/physics.js';
+import { playerBoxOf, eyeHeight, createItemState, stepItem } from '../shared/physics.js';
+import { itemToughness } from '../shared/items.js';
 
 const key = (x, y, z) => `${x},${y},${z}`;
 const ticks = (seconds) => Math.max(1, Math.round(seconds * TICK_RATE));
@@ -91,12 +98,33 @@ export class Grenade {
   }
 }
 
+// A lit barrel: a block-sized loose body with a burning fuse.
+export const LIT_BARREL_BOX = { halfW: 0.49, height: 0.98 };
+export class LitBarrel {
+  constructor(id, x, y, z, fuse, source, velocity = {}) {
+    this.id = id; this.fuse = fuse; this.source = source;
+    this.state = createItemState(x, y, z, velocity.x ?? 0, velocity.y ?? X.barrel.hop, velocity.z ?? 0);
+  }
+  // 'explode', 'lost' or null.
+  step(world) {
+    stepItem(this.state, world, LIT_BARREL_BOX);
+    if (this.state.y < world.voidY) return 'lost';
+    return --this.fuse <= 0 ? 'explode' : null;
+  }
+  push(vx, vy, vz) { const s = this.state; s.vx += vx; s.vy = Math.max(s.vy, 0) + vy; s.vz += vz; s.onGround = false; }
+  describe() { return this.snapshot(); }
+  snapshot() {
+    const { x, y, z, vx, vy, vz } = this.state;
+    return { id: this.id, type: ENTITY_TYPE.LIT_BARREL, x, y, z, vx, vy, vz, fuse: this.fuse };
+  }
+}
+
 export class Explosives {
   constructor(game) {
     this.game = game;
     this.grenades = new Map();
-    // key -> { x, y, z, at (tick it goes off), source }
-    this.lit = new Map();
+    // id -> LitBarrel
+    this.barrels = new Map();
     // key -> accumulated blast damage (1 breaks the block)
     this.damage = new Map();
   }
@@ -123,20 +151,22 @@ export class Explosives {
     return grenade;
   }
 
-  // Lights the barrel at x, y, z: it goes off after `seconds` (its fuse by
-  // default). Lighting a lit barrel never makes it later. True if lit.
-  ignite(x, y, z, { source = null, seconds = X.barrel.fuseSeconds } = {}) {
-    const id = this.world.getBlock(x, y, z), k = key(x, y, z), at = this.game.tick + ticks(seconds);
-    if (id === BLOCK.LIT_BARREL) {
-      const entry = this.lit.get(k);
-      if (entry && at < entry.at) entry.at = at;
-      return true;
-    }
-    if (id !== BLOCK.EXPLOSIVE_BARREL) return false;
-    this.lit.set(k, { x, y, z, at, source });
-    this.world.setBlock(x, y, z, BLOCK.LIT_BARREL);
+  // Lights the barrel block at x, y, z: it becomes a LitBarrel that goes off
+  // after `seconds` (its fuse by default), hopping up, plus `push` (blocks/s)
+  // if a blast flung it. True if lit.
+  ignite(x, y, z, { source = null, seconds = X.barrel.fuseSeconds, push = null } = {}) {
+    const id = this.world.getBlock(x, y, z);
+    if (id !== BLOCK.EXPLOSIVE_BARREL && id !== BLOCK.LIT_BARREL) return false;
+    this.world.setBlock(x, y, z, BLOCK.AIR);
+    this.spawnBarrel(x + 0.5, y, z + 0.5, ticks(seconds), source, push ?? {});
     if (source?.type === 'player') this.game.teamProgress?.event(source.team, 'barrelLit');
     return true;
+  }
+  spawnBarrel(x, y, z, fuse, source, velocity = {}) {
+    const barrel = new LitBarrel(this.game.nextId++, x, y, z, fuse, source, velocity);
+    this.barrels.set(barrel.id, barrel);
+    this.game.broadcast({ type: S2C.ENTITY_SPAWN, entity: barrel.describe() });
+    return barrel;
   }
 
   // A lighter used on the block at x, y, z by `source`. True if it lit.
@@ -145,42 +175,18 @@ export class Explosives {
     return !!kind && !!IGNITERS[kind]?.(this, x, y, z, source);
   }
 
-  // A lit barrel with nothing solid under it falls, one block at a time.
-  fall(entry) {
-    const w = this.world;
-    if (isSolid(w.getBlock(entry.x, entry.y - 1, entry.z))) { entry.vy = 0; entry.drop = 0; return; }
-    entry.vy = Math.min(X.barrel.fallSpeed, (entry.vy ?? 0) + X.barrel.fallGravity * TICK_DT);
-    entry.drop = (entry.drop ?? 0) + entry.vy * TICK_DT;
-    while (entry.drop >= 1) {
-      const { x, y, z } = entry, below = w.getBlock(x, y - 1, z);
-      if (isSolid(below)) { entry.vy = 0; entry.drop = 0; return; }
-      this.lit.delete(key(x, y, z));
-      if (y - 1 < w.minY) { w.setBlock(x, y, z, BLOCK.AIR); return; } // out of the world
-      // Plants, torches and the like under it break; liquids it just sinks into.
-      if (below !== BLOCK.AIR && !isLiquid(below)) this.game.breakBlock(x, y - 1, z);
-      entry.y--; entry.drop -= 1;
-      this.lit.set(key(x, entry.y, z), entry);
-      w.setBlock(x, entry.y, z, BLOCK.LIT_BARREL);
-      w.setBlock(x, y, z, BLOCK.AIR);
-    }
-  }
-
   // A block changed: forget damage and fuses that no longer apply.
-  changed(x, y, z, id) {
-    const k = key(x, y, z);
-    this.damage.delete(k);
-    if (id !== BLOCK.LIT_BARREL) this.lit.delete(k);
-  }
+  changed(x, y, z) { this.damage.delete(key(x, y, z)); }
 
   // Adds blast damage to a block (arrows on spikes use this too); breaks it
   // at 1. True if it broke.
-  damageBlock(x, y, z, amount) {
+  damageBlock(x, y, z, amount, dropChance = 1) {
     const id = this.world.getBlock(x, y, z);
     if (blastResistance(id) === Infinity || amount <= 0) return false;
     const k = key(x, y, z), total = (this.damage.get(k) ?? 0) + amount;
     if (total < 1 - 1e-9) { this.damage.set(k, total); return false; }
     this.damage.delete(k);
-    this.game.breakBlock(x, y, z);
+    this.game.breakBlock(x, y, z, null, { dropChance });
     return true;
   }
 
@@ -195,18 +201,18 @@ export class Explosives {
       this.game.broadcast({ type: S2C.ENTITY_DESPAWN, id: grenade.id });
       if (result === 'explode') this.explode(grenade.x, grenade.y, grenade.z, 'grenade', grenade.thrower);
     }
-    for (const entry of [...this.lit.values()]) this.fall(entry);
-    for (const entry of [...this.lit.values()]) {
-      if (tick < entry.at) continue;
-      this.lit.delete(key(entry.x, entry.y, entry.z));
-      if (this.world.getBlock(entry.x, entry.y, entry.z) !== BLOCK.LIT_BARREL) continue;
-      this.world.setBlock(entry.x, entry.y, entry.z, BLOCK.AIR);
-      this.explode(entry.x + 0.5, entry.y + 0.5, entry.z + 0.5, 'barrel', entry.source);
+    for (const barrel of [...this.barrels.values()]) {
+      const result = barrel.step(this.world);
+      if (!result) { moving.push(barrel); continue; }
+      this.barrels.delete(barrel.id);
+      this.game.broadcast({ type: S2C.ENTITY_DESPAWN, id: barrel.id });
+      const st = barrel.state;
+      if (result === 'explode') this.explode(st.x, st.y + 0.5, st.z, 'barrel', barrel.source);
     }
     return moving;
   }
 
-  snapshots() { return [...this.grenades.values()].map((g) => g.snapshot()); }
+  snapshots() { return [...this.grenades.values(), ...this.barrels.values()].map((e) => e.snapshot()); }
 
   // Everything an explosion can hurt.
   *targets() {
@@ -247,6 +253,29 @@ export class Explosives {
       }
       game.hurt(t, amount, source, DEATH_CAUSE.EXPLOSION);
     }
+    // Loose things: dropped items (destroyed if the blast beats them),
+    // grenades and lit barrels, all pushed away.
+    const fling = (dx, dy, dz, d) => {
+      const f = KNOCKBACK_SPEED * k.knockback * (1 - d / k.damageRadius) / (d || 1);
+      return { x: dx * f, y: Math.max(0, dy * f) + KNOCKBACK_UP * (1 - d / k.damageRadius), z: dz * f };
+    };
+    for (const item of [...game.items.values()]) {
+      const s = item.state, dx = s.x - x, dy = s.y - y, dz = s.z - z, d = Math.hypot(dx, dy, dz);
+      if (d >= k.damageRadius) continue;
+      if ((k.itemStrength ?? 0) * (1 - d / k.damageRadius) > itemToughness(item.item)) { game.removeItem(item); continue; }
+      const v = fling(dx, dy, dz, d);
+      s.vx += v.x; s.vy = Math.max(s.vy, 0) + v.y; s.vz += v.z; s.onGround = false; item.forceSnapshot = true;
+    }
+    for (const g of this.grenades.values()) {
+      const dx = g.x - x, dy = g.y - y, dz = g.z - z, d = Math.hypot(dx, dy, dz);
+      if (d >= k.damageRadius || d < 1e-6) continue;
+      const v = fling(dx, dy, dz, d); g.vx += v.x; g.vy += v.y; g.vz += v.z;
+    }
+    for (const b of this.barrels.values()) {
+      const s = b.state, dx = s.x - x, dy = s.y + 0.5 - y, dz = s.z - z, d = Math.hypot(dx, dy, dz);
+      if (d >= k.damageRadius) continue;
+      const v = fling(dx, dy, dz, d); b.push(v.x, v.y, v.z);
+    }
     // Blocks.
     const reach = Math.ceil(k.blastRadius), cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z);
     let budget = X.maxBlocks;
@@ -259,30 +288,35 @@ export class Explosives {
           if (id === BLOCK.AIR || isLiquid(id) || id === BLOCK.LIT_BARREL) continue;
           budget--;
           if (id === BLOCK.EXPLOSIVE_BARREL) {
-            const [lo, hi] = X.barrel.chainFuseSeconds;
-            this.ignite(bx, by, bz, { source, seconds: lo + Math.random() * (hi - lo) });
+            // Lit with a short fuse and flung away from the blast.
+            const [lo, hi] = X.barrel.chainFuseSeconds, dx = bx + 0.5 - x, dz = bz + 0.5 - z, flat = Math.hypot(dx, dz) || 1;
+            const f = X.barrel.chainPush * (1 - d / k.blastRadius);
+            this.ignite(bx, by, bz, { source, seconds: lo + Math.random() * (hi - lo),
+              push: { x: dx / flat * f, y: X.barrel.chainLift * (1 - d / k.blastRadius) + X.barrel.hop, z: dz / flat * f } });
             continue;
           }
           if (kind === 'grenade' && id === BLOCK.SPIKE_BARRICADE) continue;
           const resistance = blastResistance(id);
           if (resistance === Infinity) continue;
-          this.damageBlock(bx, by, bz, k.power * (1 - d / k.blastRadius) / resistance);
+          this.damageBlock(bx, by, bz, k.power * (1 - d / k.blastRadius) / resistance, k.dropChance ?? 1);
         }
   }
 
   save() {
-    const tick = this.game.tick;
-    return { lit: [...this.lit.values()].map((e) => [e.x, e.y, e.z, Math.max(1, e.at - tick)]), damage: [...this.damage] };
+    return { barrels: [...this.barrels.values()].map((b) => { const t = b.state; return [t.x, t.y, t.z, t.vx, t.vy, t.vz, b.fuse]; }),
+      damage: [...this.damage] };
   }
   load(data) {
-    for (const [x, y, z, left] of data?.lit ?? []) if (this.world.getBlock(x, y, z) === BLOCK.LIT_BARREL)
-      this.lit.set(key(x, y, z), { x, y, z, at: this.game.tick + left, source: null });
+    for (const [x, y, z, vx, vy, vz, fuse] of data?.barrels ?? []) this.spawnBarrel(x, y, z, Math.max(1, fuse), null, { x: vx, y: vy, z: vz });
     for (const [k, v] of data?.damage ?? []) this.damage.set(k, v);
-    // A barrel saved mid-fuse without its timer still goes off.
-    for (const [k, ] of [...this.game.blockChanges ?? []]) {
+    // Saves from before lit barrels were entities: their lit barrel blocks
+    // (with or without a saved timer) become lit barrels again.
+    const left = new Map((data?.lit ?? []).map(([x, y, z, t]) => [key(x, y, z), t]));
+    for (const [k] of [...(this.game.blockChanges ?? [])]) {
       const [x, y, z] = k.split(',').map(Number);
-      if (this.world.getBlock(x, y, z) === BLOCK.LIT_BARREL && !this.lit.has(k))
-        this.lit.set(k, { x, y, z, at: this.game.tick + ticks(X.barrel.fuseSeconds), source: null });
+      if (this.world.getBlock(x, y, z) !== BLOCK.LIT_BARREL) continue;
+      this.world.setBlock(x, y, z, BLOCK.AIR);
+      this.spawnBarrel(x + 0.5, y, z + 0.5, left.get(k) ?? ticks(X.barrel.fuseSeconds), null, { y: 0 });
     }
   }
 }

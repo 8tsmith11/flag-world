@@ -200,3 +200,39 @@ export function creativeItemIds() {
   });
   return [...new Set(ids.filter(id => id !== null))];
 }
+
+// ---- Toughness of dropped items ----
+// What can destroy an item lying on the ground: a hazard of a given strength
+// destroys items whose toughness is lower. Fire (later) is strength 1, lava
+// 3, and an explosion its kind's itemStrength scaled down with distance
+// (EXPLOSIVES in shared/config.js; grenades are 0, so they never destroy
+// items).
+//   0 flammable: wood, plants, food, leather, cloth, powder, crates
+//   1 sturdy: stone, earth, glass and most blocks
+//   2 tough: metal (ores, ingots, metal gear, coins), accessories
+//   3 fireproof: dragon and fire things (dragon scales and armor, the crown,
+//     dragon heart, ember heart), basalt and magma
+export const HAZARD = { fire: 1, lava: 3 };
+const FLAMMABLE_ITEMS = new Set([ITEM.WOOD_HAMMER, ITEM.WOOD_SWORD, ITEM.WOOD_HOE, ITEM.WOOD_FISHING_ROD, ITEM.BOW,
+  ITEM.CROSSBOW, ITEM.LADDER, ITEM.DOOR, ITEM.LEATHER, ITEM.LEATHER_ARMOR, ITEM.BEEF, ITEM.COOKED_BEEF, ITEM.GOLDEN_BEEF,
+  ITEM.BREAD, ITEM.WHEAT, ITEM.WHEAT_SEEDS, ITEM.SULFUR_SEEDS, ITEM.SULFUR, ITEM.GUNPOWDER, ITEM.GRENADE, ITEM.TREE_SEED,
+  ITEM.SILK, ITEM.ROPE_BUNDLE, ITEM.GLIDER, ITEM.CHARCOAL, ITEM.FISH, ITEM.VOID_FISH, ITEM.LOOT_CRATE, ITEM.IRONBOUND_CRATE]);
+const FIREPROOF_ITEMS = new Set([ITEM.DRAGON_SCALE, ITEM.DRAGONSCALE_ARMOR, ITEM.DRAGON_CROWN, ITEM.DRAGON_HEART,
+  ITEM.EMBER_HEART, ITEM.LAVA_BUCKET]);
+const FLAMMABLE_BLOCKS = new Set([BLOCK.WOOD, BLOCK.PLANKS, BLOCK.LEAVES, BLOCK.WORKBENCH, BLOCK.CHEST, BLOCK.BRANCH,
+  BLOCK.EXPLOSIVE_BARREL, BLOCK.BRIDGE_DECK, BLOCK.ROPE].filter((id) => id !== undefined));
+export function itemToughness(id) {
+  const def = getItemDef(id);
+  if (def.toughness !== undefined) return def.toughness;
+  if (FIREPROOF_ITEMS.has(id)) return 3;
+  if (FLAMMABLE_ITEMS.has(id)) return 0;
+  if (id < 256) {
+    const block = getBlockDef(id);
+    if (FLAMMABLE_BLOCKS.has(id) || block.shape === 'plant' || plantLike(id)) return 0;
+    if (id === BLOCK.BASALT || id === BLOCK.MAGMA) return 3;
+    if (id === BLOCK.IRON_ORE || id === BLOCK.COPPER_ORE || id === BLOCK.TIN_ORE) return 2;
+    return 1;
+  }
+  return 2;
+}
+function plantLike(id) { return id === BLOCK.SAPLING || getBlockDef(id).plantArt !== undefined; }

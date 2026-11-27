@@ -128,6 +128,7 @@ const explosionEffects = new ExplosionEffects(scene, sounds);
 const fishingEffects = new FishingEffects(scene, sounds);
 const drawbridgeEffects = new DrawbridgeEffects(scene, sounds, (x, y, z) => quarryEffects?.steam(x, y, z));
 entities.onGrenade = (id, position, fuse) => explosionEffects.grenade(id, position, fuse);
+entities.onLitBarrel = (id, position) => explosionEffects.litBarrel(id, position);
 const dialogue = new Dialogue(document.getElementById('subtitle'), audioSettings, audioMixer);
 const music=new LobbyMusic(audioSettings);
 const battleMusic = new BattleMusic(audioSettings);
@@ -610,7 +611,6 @@ function startGame(msg, generated) {
   explosionEffects.clear();
   for (const { x, y, z, id } of msg.blocks) {
     if (id === BLOCK.QUARRY_STONE) quarryEffects.changed(x, y, z, id);
-    if (id === BLOCK.LIT_BARREL) explosionEffects.blockChanged(x, y, z, id);
   }
   for (const { x, y, z } of msg.litFurnaces ?? []) furnaceEffects.setLit(x, y, z, true);
   for (const portal of msg.portals ?? []) portals.add(portal);
@@ -794,7 +794,6 @@ function applyBlockChange(msg) {
   if (isFurnace(oldId) && !isFurnace(msg.id)) {
     furnaceEffects?.setLit(msg.x, msg.y, msg.z, false);
   }
-  explosionEffects.blockChanged(msg.x, msg.y, msg.z, msg.id);
   world.setBlock(msg.x, msg.y, msg.z, msg.id);
   if (oldId === BLOCK.QUARRY_STONE || msg.id === BLOCK.QUARRY_STONE) {
     quarryEffects?.changed(msg.x, msg.y, msg.z, msg.id);

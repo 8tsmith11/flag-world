@@ -138,6 +138,8 @@ export const ENTITY_TYPE = {
   // The Sky Merchant's airship (the merchant himself is an NPC).
   AIRSHIP: 'airship',
   GRENADE: 'grenade',
+  // A lit explosive barrel: a moving entity until it goes off (like primed TNT).
+  LIT_BARREL: 'litBarrel',
   BOBBER: 'bobber',
 };
 
