@@ -153,6 +153,10 @@ game.monkeys.action(host, { id: baby.id, action: 'configure', revision, config: 
 assert.equal(baby.revision, revision + 1, 'a baby could not be set to Idle');
 assert.deepEqual(baby.config.home, home, 'a baby\'s home spot was not kept');
 assert.ok(baby.baby);
+// It can be sent back to the keep, like an adult.
+game.monkeys.action(host, { id: baby.id, action: 'teleportHome' });
+assert.ok(Math.hypot(baby.state.x - host.keep.cx - 0.5, baby.state.z - host.keep.cz - 0.5) <= 4.5, 'a baby could not be sent back to the keep');
+Object.assign(host.state, { x: baby.state.x + 1, y: baby.state.y, z: baby.state.z });
 baby.growAt = game.tick + 2; run(TICK_RATE);
 assert.equal(baby.baby, false, 'baby did not grow up');
 
