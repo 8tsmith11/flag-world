@@ -655,6 +655,7 @@ placed one may use them. The reply is a fresh `container` view, with
 | `extend` / `retract` / `toggle` | — | Starts a move if it isn't moving, has something to do and the whole steam cost can be paid now (then it finishes on its own); refused otherwise |
 | `length` | int 1..16 | Bridge length; refused unless fully retracted |
 | `direction` | int 0..3 | North, east, south, west (`FACING_DIRS`); refused unless fully retracted |
+| `side` | 1 or -1 | The bridge runs beside the mechanism on its right (1) or left (-1) side; refused unless fully retracted |
 
 ### `reclaim`
 
@@ -1243,17 +1244,22 @@ entities as `damage`.
 ### `drawbridgeJog`
 
 An obstructed drawbridge was told to move (to every match player): `{x, y, z,
-dir}`, the mechanism and its direction. Clients slide a deck section a little
-way out of it and back, with a clank and a puff of steam.
+dx, dz}`, the mechanism and the way to its first section's cell. Clients
+slide a deck section a little way out of it that way and back, with a clank
+and a puff of steam.
 
 ### `drawbridgeSlide`
 
-A drawbridge section is sliding (to every match player): `{x, y, z, dir,
-from, to, seconds}`: the mechanism, its direction, and the section's start
-and end, in cells out from the mechanism (0 is the mechanism itself), over
-`seconds`. Extending, a section slides from `i - 1` to `i` and its solid deck
+A drawbridge section is sliding (to every match player): `{from, to,
+laying, seconds}`: the section's start and end blocks (`{x, y, z}`) over
+`seconds`, `laying` when going out. Extending, section `i` slides from cell
+`i - 1` (the mechanism itself for the first) to cell `i` and its solid deck
 block arrives as a block change when it gets there; retracting, the deck
-block at `i` goes at once and the section slides from `i` to `i - 1`.
+block at `i` goes at once and the section slides back. Cells come from
+`drawbridgeCell` (`shared/drawbridge.js`): the first section sits beside the
+mechanism on its `side`, the rest run straight out in its direction, so the
+walkway never crosses the mechanism (drawbridges saved before sides existed
+keep `side: 0`, straight out of the front).
 
 ### `quests`
 
@@ -1977,7 +1983,7 @@ to the same successful world and record the resolved seed as `world.seed`.
   add 0.2 block damage per hit (crossbow bolts 0.4).
 - **Drawbridges** (`server/drawbridge.js`, `DRAWBRIDGE`): a container
   (`kind: "drawbridge"`) on the steam network, owned by the placing team and
-  facing the way they looked. Its view adds `team, dir, length, target
+  facing the way they looked. Its view adds `team, dir, side, length, target
   ("extended"/"retracted"), stored, extended, progress, moving,
   steamStored, steamStorage, steamAvailable, steamCost, planks, required,
   status` and `message` (a refusal). It keeps its own steam store (up to

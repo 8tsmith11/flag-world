@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 import { Game } from '../server/game.js';
 import { TEAMS, S2C, C2S, ENTITY_TYPE } from '../shared/protocol.js';
+import { drawbridgeCell } from '../shared/drawbridge.js';
 import { BLOCK, CROPS, getBlockDef, blockDrops, FACING_DIRS } from '../shared/blocks.js';
 import { ITEM, getItemDef } from '../shared/items.js';
 import { TICK_RATE, EXPLOSIVES as X, SPIKES as SP, DRAWBRIDGE as DB, FARMING } from '../shared/config.js';
@@ -403,6 +404,10 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   bridge = world.tileEntities.get(key);
   assert.ok(bridge?.kind === 'drawbridge' && bridge.team === host.team, 'the drawbridge has no owner');
   assert.deepEqual(FACING_DIRS[bridge.dir], [1, 0], 'the drawbridge does not face the way it was placed');
+  assert.equal(bridge.side, 1, 'a new drawbridge does not run along its right side');
+  // These checks use the straight-out layout (side 0, as saved bridges from
+  // before sides keep); the side layout is checked at the end.
+  bridge.side = 0;
   run(2);
   const deck = () => { let n = 0; for (let i = 1; i <= DB.maxLength; i++) if (world.getBlock(mx + i, Y, mz) === BLOCK.BRIDGE_DECK) n++; return n; };
   const action = (who, action, value) => { sent.clear(); game.handleMessage(sessions.get(who.id), JSON.stringify({ type: C2S.MACHINE_ACTION, action, value })); return messages(who.id, S2C.CONTAINER).at(-1); };
@@ -527,7 +532,7 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   fill(); sent.clear();
   view = action(host, 'extend');
   assert.match(view.message ?? '', /Obstructed/);
-  for (const id of [1, 2, 3]) assert.ok(messages(id, S2C.DRAWBRIDGE_JOG).some((m) => m.x === mx && m.z === mz && m.dir === bridge.dir), `player ${id} did not see the jog`);
+  for (const id of [1, 2, 3]) assert.ok(messages(id, S2C.DRAWBRIDGE_JOG).some((m) => m.x === mx && m.z === mz && m.dx === 1 && m.dz === 0), `player ${id} did not see the jog`);
   assert.equal(steam(), 4000, 'a jog took steam'); assert.equal(deck(), 0); assert.ok(!bridge.moving);
   assert.equal(world.getBlock(mx + 1, Y, mz), BLOCK.STONE);
   world.setBlock(mx + 1, Y, mz, BLOCK.AIR);
@@ -541,7 +546,10 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   assert.equal(world.getBlock(mx + 3, Y, mz), BLOCK.STONE, 'the bridge removed a block in its way');
   for (const id of [1, 2, 3]) {
     const slides = messages(id, S2C.DRAWBRIDGE_SLIDE);
-    assert.ok(slides.length >= 2 && slides[0].from === 0 && slides[0].to === 1 && slides[1].from === 1 && slides[1].to === 2, `player ${id} did not see the sections slide out`);
+    // Cells out along x from the mechanism (from/to are blocks).
+    const out = (c) => c.z === mz ? c.x - mx : NaN;
+    assert.ok(slides.length >= 2 && out(slides[0].from) === 0 && out(slides[0].to) === 1 && out(slides[1].from) === 1 && out(slides[1].to) === 2
+      && slides[0].laying, `player ${id} did not see the sections slide out`);
   }
   run(whole);
   assert.equal(deck(), 2, 'it went back after the obstruction');
@@ -566,7 +574,8 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   fill(); sent.clear(); action(host, 'retract'); run(whole);
   assert.equal(deck(), 0);
   const inward = messages(1, S2C.DRAWBRIDGE_SLIDE);
-  assert.ok(inward.length === L && inward[0].from === L && inward[0].to === L - 1 && inward.at(-1).to === 0, 'retracting sections did not slide back in');
+  assert.ok(inward.length === L && inward[0].from.x - mx === L && inward[0].to.x - mx === L - 1 && inward.at(-1).to.x === mx && !inward[0].laying,
+    'retracting sections did not slide back in');
   fill(); action(host, 'extend'); run(whole);
   assert.equal(deck(), L);
   // Another length and direction once retracted: 3 north, at a smaller cost.
@@ -580,6 +589,27 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   for (let i = 1; i <= 3; i++) assert.equal(world.getBlock(mx, Y, mz - i), BLOCK.BRIDGE_DECK, `no north section ${i}`);
   assert.equal(world.getBlock(mx, Y, mz - 4), BLOCK.STONE);
   assert.equal(bridge.stored, L - 3, 'a shorter bridge did not keep the spare sections');
+  // Beside the mechanism: on its right (facing north, that's east) the first
+  // section sits next to it and the rest run north; switching sides only
+  // while retracted; the mechanism's own line stays clear.
+  fill(); action(host, 'retract'); run(sectionTicks * 6);
+  view = action(host, 'side', 1);
+  assert.equal(view.side, 1);
+  const cells = (side) => [1, 2, 3].map((i) => drawbridgeCell({ x: mx, y: Y, z: mz }, 0, side, i));
+  assert.deepEqual(cells(1)[0], { x: mx + 1, y: Y, z: mz }, 'the first section is not right beside the mechanism');
+  assert.deepEqual(cells(1)[2], { x: mx + 1, y: Y, z: mz - 2 });
+  for (const c of [...cells(1), ...cells(-1)]) world.setBlock(c.x, c.y, c.z, BLOCK.AIR);
+  fill(); action(host, 'extend'); run(sectionTicks * 6);
+  for (const c of cells(1)) assert.equal(world.getBlock(c.x, c.y, c.z), BLOCK.BRIDGE_DECK, `no right-side section at ${c.x},${c.z}`);
+  for (let i = 1; i <= 3; i++) assert.notEqual(world.getBlock(mx, Y, mz - i), BLOCK.BRIDGE_DECK, 'a section went straight out of the front');
+  assert.match(action(host, 'side', -1).message ?? '', /Retract/, 'the side changed while extended');
+  fill(); action(host, 'retract'); run(sectionTicks * 6);
+  assert.equal(action(host, 'side', -1).side, -1);
+  fill(); action(host, 'extend'); run(sectionTicks * 6);
+  for (const c of cells(-1)) assert.equal(world.getBlock(c.x, c.y, c.z), BLOCK.BRIDGE_DECK, `no left-side section at ${c.x},${c.z}`);
+  for (const c of cells(1)) assert.notEqual(world.getBlock(c.x, c.y, c.z), BLOCK.BRIDGE_DECK, 'the right side kept a section');
+  // A saved bridge from before sides keeps the straight layout.
+  { const { Drawbridge } = await import('../server/drawbridge.js'); const old = new Drawbridge(); old.migrate({ dir: 1, length: 3 }); assert.equal(old.side, 0); }
   // Breaking the mechanism gives back the slot and the stored sections' planks.
   fill(); action(host, 'retract'); run(sectionTicks * 6);
   for (const i of [...game.items.keys()]) { game.items.delete(i); }
@@ -639,7 +669,7 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
 
 console.log('OK: sulfur seeds from the merchant and loot, a renewable sulfur farm run by a farmer monkey, gunpowder and grenades from a',
   'craftsman, grenade throwing, flight, fuse and falloff damage (soft blocks only, never spikes), barrels (lit only by a lighter, fuse, structure,',
-  'reinforced walls, chain reactions), spike geometry, contact, breaking, arrows and teams, drawbridges (steam paid up front per move,',
+  'reinforced walls, chain reactions), spike geometry, contact, breaking, arrows and teams, drawbridges (beside the mechanism on either side, steam paid up front per move,',
   'refused without it, moves finish without it, no orders while moving, materials, no duplication, broken sections, obstruction,',
   'lengths and directions, pathfinding, ownership), saves, quests, sync');
 process.exit(0);

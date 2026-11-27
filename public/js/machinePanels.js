@@ -217,43 +217,48 @@ export class MachineView {
     this.setView({ slots: Array(MERCHANT.depotInput + MERCHANT.depotOutput).fill(null), present: false, status: '' });
   }
 
-  // The drawbridge: planks slot and materials, direction and length (only
-  // while retracted), extend/retract, progress, steam and status.
+  // The drawbridge, kept short: planks, one row of settings (direction,
+  // side, length; only while retracted), extend/retract with their steam
+  // cost, one steam gauge and progress. Details live in the tooltips.
   buildDrawbridge() {
     const head = el('div', 'machine-head');
     const icon = el('div', 'machine-icon'); icon.append(itemIcon(BLOCK.DRAWBRIDGE));
-    head.append(icon, el('h2', '', 'Steam Drawbridge'));
-    this.root.append(head, el('p', 'machine-about',
-      'Lays a bridge out from its front, one section at a time. Each extend or retract is paid for in steam up front; then it runs to the end on its own. Sections are built once from planks and stored inside when it retracts.'));
-    const button = (label, onClick, className = '') => { const b = el('button', className, label); b.type = 'button'; b.addEventListener('click', onClick); return b; };
-    const config = el('div', 'drawbridge-config');
-    this.dirButtons = DIRECTIONS.map((name, i) => button(name, () => this.sendAction('direction', i), 'drawbridge-dir'));
-    const dirs = el('div', 'drawbridge-row'); dirs.append(el('span', 'drawbridge-label', 'Direction'), ...this.dirButtons);
+    this.status = el('span', 'machine-status');
+    head.append(icon, el('h2', '', 'Steam Drawbridge'), this.status);
+    this.root.append(head);
+    const button = (label, onClick, className = '', title = '') => {
+      const b = el('button', className, label); b.type = 'button'; b.addEventListener('click', onClick); if (title) b.title = title; return b;
+    };
+    const row = el('div', 'machine-row');
+    const ins = el('div', 'machine-inputs');
+    ins.append(this.slot(0, 'Planks', BLOCK.PLANKS, `${DRAWBRIDGE.sectionPlanks} planks build each section once; retracted sections are stored inside`));
+    this.materials = el('div', 'drawbridge-materials');
+    row.append(ins, this.materials);
+    this.root.append(row);
+    // Settings: direction, side, length.
+    this.dirButtons = DIRECTIONS.map((name, i) => button(name[0], () => this.sendAction('direction', i), 'drawbridge-dir', `Face ${name.toLowerCase()}`));
+    this.sideButtons = [[-1, 'Left'], [1, 'Right']].map(([v, name]) => button(name, () => this.sendAction('side', v), 'drawbridge-dir',
+      `The bridge runs along the mechanism's ${name.toLowerCase()} side`));
     this.lengthValue = el('span', 'drawbridge-length', '');
     this.lengthDown = button('−', () => this.sendAction('length', Math.max(1, (this.view?.length ?? 1) - 1)));
     this.lengthUp = button('+', () => this.sendAction('length', Math.min(DRAWBRIDGE.maxLength, (this.view?.length ?? 1) + 1)));
-    const len = el('div', 'drawbridge-row'); len.append(el('span', 'drawbridge-label', 'Length'), this.lengthDown, this.lengthValue, this.lengthUp);
-    this.configNote = el('p', 'machine-needs drawbridge-note', '');
-    config.append(dirs, len, this.configNote);
-    const row = el('div', 'machine-row');
-    const ins = el('div', 'machine-inputs'); ins.append(this.slot(0, 'Planks', BLOCK.PLANKS, `Construction materials: ${DRAWBRIDGE.sectionPlanks} planks per section`));
-    this.materials = el('div', 'drawbridge-materials');
-    row.append(ins, this.materials);
+    const settings = el('div', 'drawbridge-row drawbridge-settings');
+    settings.title = 'Change these while the bridge is retracted. The outline in the world shows where it will go.';
+    settings.append(...this.dirButtons, el('span', 'drawbridge-gap'), ...this.sideButtons, el('span', 'drawbridge-gap'),
+      this.lengthDown, this.lengthValue, this.lengthUp);
+    this.root.append(settings);
     const controls = el('div', 'drawbridge-row');
     this.extendButton = button('Extend', () => this.sendAction('extend'), 'drawbridge-go');
     this.retractButton = button('Retract', () => this.sendAction('retract'), 'drawbridge-go');
     controls.append(this.extendButton, this.retractButton);
-    this.root.append(config, row, controls);
-    this.arrow = el('div', 'machine-progress drawbridge-progress'); this.arrow.title = 'Extension'; this.arrow.append(el('div', 'fill'));
-    this.extensionText = el('p', 'machine-extra', '');
-    this.root.append(el('h3', '', 'Extension'), this.arrow, this.extensionText);
-    this.gauges = el('div', 'machine-gauges'); this.root.append(this.gauges);
-    this.message = el('p', 'quest-message', ''); this.root.append(this.message);
-    this.status = el('p', 'machine-status'); this.root.append(this.status);
+    this.root.append(controls);
+    this.arrow = el('div', 'machine-progress drawbridge-progress'); this.arrow.append(el('div', 'fill'));
+    this.gauges = el('div', 'machine-gauges');
+    this.gauges.title = `Kept in its own store (up to ${DRAWBRIDGE.steamStorage}) and drawn from its pipes. A move costs ${DRAWBRIDGE.steamPerSection} per section of length, paid up front; then it finishes on its own.`;
+    this.message = el('p', 'quest-message', '');
+    this.root.append(this.arrow, this.gauges, this.message);
     this.extra = null; this.flame = null;
-    this.root.append(el('h3', '', 'Needs'), el('p', 'machine-needs',
-      `Steam from a boiler through bronze pipes. It keeps up to ${DRAWBRIDGE.steamStorage} steam in its own store, topped up from the pipes. Each extend or retract costs ${DRAWBRIDGE.steamPerSection} steam per block of length, taken all at once when you press the button (from its store first, then the pipes, boilers and tanks); without enough it won't start. Once moving it finishes on its own (a section every ${DRAWBRIDGE.sectionSeconds} s) even if the steam runs out, and takes no new orders until it stops. ${DRAWBRIDGE.sectionPlanks} planks build each section once; a broken section drops its planks and needs new ones. It slides straight out and in, a section at a time. If its first section is blocked it only jogs; if something is in the way further out it stops just short of it.`));
-    this.setView({ slots: [null], dir: 0, length: DRAWBRIDGE.defaultLength, extended: 0, stored: 0, progress: 0, moving: false,
+    this.setView({ slots: [null], dir: 0, side: 1, length: DRAWBRIDGE.defaultLength, extended: 0, stored: 0, progress: 0, moving: false,
       steamAvailable: 0, steamStored: 0, steamStorage: DRAWBRIDGE.steamStorage, steamCost: DRAWBRIDGE.steamPerSection * DRAWBRIDGE.defaultLength,
       planks: 0, required: 0, target: 'retracted', status: '' });
   }
@@ -261,33 +266,33 @@ export class MachineView {
   setDrawbridge(view) {
     this.view = view;
     const moving = !!view.moving, out = view.extended > 0 || moving;
+    const why = moving ? 'Moving: wait for it to stop' : out ? 'Retract the bridge fully first' : '';
     this.dirButtons.forEach((b, i) => { b.classList.toggle('selected', i === view.dir); b.disabled = out; });
-    this.lengthValue.textContent = `${view.length} block${view.length === 1 ? '' : 's'}`;
+    this.sideButtons.forEach((b, i) => { b.classList.toggle('selected', [-1, 1][i] === view.side); b.disabled = out; });
+    this.lengthValue.textContent = `${view.length}`;
+    this.lengthValue.title = `Length: ${view.length} section${view.length === 1 ? '' : 's'}`;
     this.lengthDown.disabled = out || view.length <= 1; this.lengthUp.disabled = out || view.length >= DRAWBRIDGE.maxLength;
-    this.configNote.textContent = moving ? 'Moving: wait for it to stop.' : out ? 'Retract the bridge fully to change its length or direction.' : 'The outline in the world shows where the bridge will go.';
-    const needed = view.length * DRAWBRIDGE.sectionPlanks;
-    this.materials.replaceChildren(
-      el('div', '', `Needs ${needed} planks for ${view.length} section${view.length === 1 ? '' : 's'} (${DRAWBRIDGE.sectionPlanks} each)`),
-      el('div', '', `Built: ${view.extended} out, ${view.stored} stored`),
-      el('div', view.required > view.planks ? 'drawbridge-short' : 'drawbridge-ok',
-        `Supplied: ${view.planks} planks${view.required > 0 ? ` · still to supply: ${Math.max(0, view.required - view.planks)}` : ' · enough'}`));
+    for (const b of [...this.dirButtons, ...this.sideButtons, this.lengthDown, this.lengthUp]) if (why) b.title = why;
+    const short = Math.max(0, view.required - view.planks);
+    this.materials.replaceChildren(el('div', short ? 'drawbridge-short' : 'drawbridge-ok',
+      short ? `Needs ${short} more planks` : `Planks: enough (${view.stored} stored)`));
+    const enough = view.steamAvailable + 1e-6 >= view.steamCost;
+    this.extendButton.textContent = `Extend · ${view.steamCost} steam`;
+    this.retractButton.textContent = `Retract · ${view.steamCost} steam`;
     this.extendButton.classList.toggle('selected', view.target === 'extended');
     this.retractButton.classList.toggle('selected', view.target === 'retracted');
-    const enough = view.steamAvailable + 1e-6 >= view.steamCost;
-    for (const b of [this.extendButton, this.retractButton]) { b.disabled = moving; b.title = moving ? 'Moving: wait for it to stop' : enough ? `Costs ${view.steamCost} steam` : `Needs ${view.steamCost} steam (${Math.floor(view.steamAvailable)} available)`; }
+    for (const b of [this.extendButton, this.retractButton]) {
+      b.disabled = moving;
+      b.title = moving ? 'Moving: wait for it to stop' : enough ? '' : `Not enough steam (${Math.floor(view.steamAvailable)} available)`;
+    }
     const fraction = Math.min(1, (view.extended + (moving ? (view.target === 'extended' ? 1 : -1) * view.progress : 0)) / Math.max(1, view.length));
     this.arrow.firstChild.style.width = `${fraction * 100}%`;
-    this.extensionText.textContent = `${view.extended} of ${view.length} sections out, facing ${DIRECTIONS[view.dir].toLowerCase()}`;
-    const gaugeOf = (label, value, max, color) => {
-      const g = el('div', 'machine-gauge'), bar = el('div', 'machine-gauge-bar'), fill = el('div', 'fill');
-      fill.style.width = `${Math.min(100, value / Math.max(1, max) * 100)}%`; fill.style.background = color;
-      bar.append(fill); g.append(el('span', '', label), bar);
-      return g;
-    };
-    this.gauges.replaceChildren(
-      gaugeOf(`Steam stored: ${Math.floor(view.steamStored ?? 0)} / ${view.steamStorage ?? DRAWBRIDGE.steamStorage}`, view.steamStored ?? 0, view.steamStorage ?? DRAWBRIDGE.steamStorage, '#b8c4cc'),
-      gaugeOf(`Steam available (store and pipes): ${Math.floor(view.steamAvailable)} · each move costs ${view.steamCost} (${DRAWBRIDGE.steamPerSection} × ${view.length})`,
-        view.steamAvailable, view.steamCost, enough ? '#d8dde2' : '#ffb37a'));
+    this.arrow.title = `${view.extended} of ${view.length} sections out`;
+    const g = el('div', 'machine-gauge'), bar = el('div', 'machine-gauge-bar'), fill = el('div', 'fill');
+    fill.style.width = `${Math.min(100, view.steamAvailable / Math.max(1, view.steamCost) * 100)}%`;
+    fill.style.background = enough ? '#d8dde2' : '#ffb37a';
+    bar.append(fill); g.append(el('span', '', `Steam ${Math.floor(view.steamAvailable)} / ${view.steamCost} per move`), bar);
+    this.gauges.replaceChildren(g);
     this.message.textContent = view.message ?? '';
   }
 
@@ -299,7 +304,7 @@ export class MachineView {
       });
       this.setDrawbridge(view);
       const status = view.status ?? '';
-      this.status.textContent = status ? `Status: ${status}` : '';
+      this.status.textContent = status;
       this.status.className = `machine-status ${/^(Extended|Extending|Retracting)$/.test(status) ? 'ok' : /^Retracted/.test(status) ? 'idle' : 'warn'}`;
       return;
     }

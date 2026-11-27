@@ -1420,7 +1420,11 @@ body.scoped #hotbar, body.scoped #health { opacity: 0.35; }
 .screen .panel .drawbridge-row button { padding: 4px 10px; min-width: 2.2em; }
 .screen .panel .drawbridge-row button.selected { background: #3d5a7a; outline: 2px solid #8fb8e8; }
 .screen .panel .drawbridge-row button:disabled { opacity: 0.45; }
-.drawbridge-length { min-width: 5em; text-align: center; font-weight: bold; }
+.drawbridge-length { min-width: 2em; text-align: center; font-weight: bold; }
+.drawbridge-gap { width: 6px; }
+.drawbridge-settings { flex-wrap: nowrap; gap: 4px; }
+.screen .panel .drawbridge-settings button { min-width: 1.8em; padding: 4px 7px; }
+.machine-head .machine-status { margin-left: auto; font-size: 0.9em; }
 .screen .panel .drawbridge-go { padding: 6px 18px; font-weight: bold; }
 .drawbridge-materials { display: flex; flex-direction: column; gap: 2px; font-size: 0.9em; color: #dfe5ea; margin-left: 12px; }
 .drawbridge-short { color: #ffb37a; }

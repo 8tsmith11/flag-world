@@ -1,8 +1,10 @@
 // Steam-powered drawbridge (block BLOCK.DRAWBRIDGE, tuning in DRAWBRIDGE in
 // shared/config.js). The mechanism is a container with one slot for planks
-// and a steam input on the pipe network (server/fluids.js). From its front
-// (dir, one of FACING_DIRS) it lays up to `length` BLOCK.BRIDGE_DECK
-// sections in a straight line at its own height.
+// and a steam input on the pipe network (server/fluids.js). Facing `dir`
+// (one of FACING_DIRS) it lays up to `length` BLOCK.BRIDGE_DECK sections in a
+// straight line at its own height, beside itself on `side` (1 right, -1
+// left; drawbridgeCell in shared/drawbridge.js), so the walkway never runs
+// over the mechanism.
 //
 // Materials: a section is built once from sectionPlanks planks taken from the
 // slot. Retracting a section stores it inside the mechanism (`stored`) and
@@ -43,6 +45,7 @@ import { playerBoxOf } from '../shared/physics.js';
 import { S2C } from '../shared/protocol.js';
 import { clickSlot } from './inventory.js';
 import { mergeInto } from './containers.js';
+import { drawbridgeCell } from '../shared/drawbridge.js';
 
 const PLANKS = BLOCK.PLANKS;
 
@@ -54,6 +57,7 @@ export class Drawbridge {
     this.dirty = true;
     this.team = null;
     this.dir = 0;
+    this.side = 1;
     this.length = C.defaultLength;
     this.target = 'retracted';
     this.stored = 0;
@@ -70,11 +74,12 @@ export class Drawbridge {
     this.state = 'Retracted';
   }
 
-  // The deck cell `i` sections out (1 = next to the mechanism).
-  cell(node, i) {
-    const [dx, dz] = FACING_DIRS[this.dir];
-    return { x: node.x + dx * i, y: node.y, z: node.z + dz * i };
-  }
+  // The deck cell `i` sections out (1 = the first section; 0 = the mechanism).
+  cell(node, i) { return drawbridgeCell(node, this.dir, this.side, i); }
+
+  // Saved before sides existed: keep the old straight-out layout, so its
+  // laid sections stay where they are.
+  migrate(data) { if (data && !('side' in data)) this.side = 0; }
 
   // Deck sections currently out within reach (any length up to maxLength).
   deckCount(world, node) {
@@ -141,7 +146,11 @@ export class Drawbridge {
   steamAvailable(game, node) { return this.steam + (game.fluids?.available(node, 'steam') ?? 0); }
 
   // The obstructed bridge shows it tried: everyone sees a section jog out and back.
-  jog(game, node) { game.broadcast?.({ type: S2C.DRAWBRIDGE_JOG, x: node.x, y: node.y, z: node.z, dir: this.dir }); }
+  // The first section pokes out toward its cell and back.
+  jog(game, node) {
+    const c = this.cell(node, 1);
+    game.broadcast?.({ type: S2C.DRAWBRIDGE_JOG, x: node.x, y: node.y, z: node.z, dx: c.x - node.x, dz: c.z - node.z });
+  }
 
   // The steam a state change costs at the configured length.
   cost() { return C.steamPerSection * this.length; }
@@ -162,8 +171,8 @@ export class Drawbridge {
     const c = move.cell;
     this.step = { place: !!move.place, cell: c, i: move.i };
     if (move.remove) { game.world.setBlock(c.x, c.y, c.z, BLOCK.AIR); this.stored++; }
-    game.broadcast?.({ type: S2C.DRAWBRIDGE_SLIDE, x: node.x, y: node.y, z: node.z, dir: this.dir,
-      from: move.place ? move.i - 1 : move.i, to: move.place ? move.i : move.i - 1, seconds: C.sectionSeconds });
+    const from = this.cell(node, move.place ? move.i - 1 : move.i), to = this.cell(node, move.place ? move.i : move.i - 1);
+    game.broadcast?.({ type: S2C.DRAWBRIDGE_SLIDE, from, to, laying: !!move.place, seconds: C.sectionSeconds });
     game.broadcast?.({ type: S2C.STEAM_PUFF, x: node.x, y: node.y, z: node.z });
     this.progress = 0;
     return true;
@@ -205,8 +214,8 @@ export class Drawbridge {
     return this.dirty;
   }
 
-  // Controls: 'extend', 'retract', 'toggle', 'length' (value 1..maxLength)
-  // and 'direction' (value 0..3). Nothing is taken while it is moving. A
+  // Controls: 'extend', 'retract', 'toggle', 'length' (value 1..maxLength),
+  // 'direction' (value 0..3) and 'side' (1 right, -1 left). Nothing is taken while it is moving. A
   // move starts only if there is something to do, its first section isn't
   // blocked (an obstruction makes it jog instead) and its whole steam cost
   // can be paid now. Length and direction only change while fully
@@ -238,11 +247,14 @@ export class Drawbridge {
       this.dirty = true;
       return null;
     }
-    if (action !== 'length' && action !== 'direction') return 'Unknown control';
+    if (action !== 'length' && action !== 'direction' && action !== 'side') return 'Unknown control';
     if (this.deckCount(game.world, node) > 0) return 'Retract the bridge fully first';
     if (action === 'length') {
       if (!Number.isInteger(value) || value < 1 || value > C.maxLength) return 'Invalid length';
       this.length = value;
+    } else if (action === 'side') {
+      if (value !== 1 && value !== -1) return 'Invalid side';
+      this.side = value;
     } else {
       if (!Number.isInteger(value) || value < 0 || value > 3) return 'Invalid direction';
       this.dir = value;
@@ -256,7 +268,7 @@ export class Drawbridge {
   insert(stack) { return this.rules[0].accepts(stack.item) && mergeInto(this.slots, 0, stack); }
 
   view() {
-    return { kind: this.kind, slots: this.slots, team: this.team, dir: this.dir, length: this.length, target: this.target, stored: this.stored,
+    return { kind: this.kind, slots: this.slots, team: this.team, dir: this.dir, side: this.side, length: this.length, target: this.target, stored: this.stored,
       extended: this.extended, progress: this.progress, moving: this.moving, steamAvailable: this.available, steamCost: this.cost(),
       steamStored: this.steam, steamStorage: C.steamStorage,
       planks: this.planks(), required: this.required(), status: this.state };

@@ -1,7 +1,7 @@
 // Drawbridge motion, drawn on clients:
 //   - slides (DRAWBRIDGE_SLIDE): the section the bridge is laying slides
-//     straight out from the end of the bridge to its cell, or the section it
-//     is lifting slides straight back toward the mechanism, at a steady
+//     from the end of the bridge (or out of the mechanism, for the first) to
+//     its cell, or the section it is lifting slides back, at a steady
 //     speed. The solid deck block appears when a laid section arrives (and
 //     goes when a lifted one starts), so the end of the bridge moves linearly.
 //   - jogs (DRAWBRIDGE_JOG): an obstructed drawbridge pushes a section a
@@ -10,7 +10,6 @@ import * as THREE from 'three';
 import { DRAWBRIDGE } from '/shared/config.js';
 import { BRIDGE_DECK_PARTS } from './defenseParts.js';
 
-const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 const materials = new Map();
 const material = (color) => {
   if (!materials.has(color)) materials.set(color, new THREE.MeshLambertMaterial({ color }));
@@ -34,17 +33,20 @@ export class DrawbridgeEffects {
     this.slides = [];
   }
 
-  // A section sliding from `from` to `to` cells out along dir over `seconds`.
-  slide(x, y, z, dir, from, to, seconds) {
-    const model = deckModel(), [dx, dz] = DIRS[dir] ?? DIRS[0];
-    model.position.set(x + dx * from, y, z + dz * from);
+  // A section sliding from block `from` to block `to` ({ x, y, z }) over
+  // `seconds`; `laying` when it is going out.
+  slide(from, to, seconds, laying = true) {
+    const model = deckModel();
+    model.position.set(from.x, from.y, from.z);
     this.scene.add(model);
     // A laid section lingers a moment at its cell until the solid block arrives.
-    this.slides.push({ model, x, y, z, dx, dz, from, to, t: 0, seconds, hold: to > from ? 0.25 : 0 });
+    this.slides.push({ model, from, to, t: 0, seconds, hold: laying ? 0.25 : 0 });
   }
 
-  jog(x, y, z, dir) {
-    const model = deckModel(), [dx, dz] = DIRS[dir] ?? DIRS[0];
+  // The first section poking out from the mechanism at x, y, z toward
+  // (dx, dz) and back.
+  jog(x, y, z, dx, dz) {
+    const model = deckModel();
     model.position.set(x, y, z);
     this.scene.add(model);
     this.jogs.push({ model, x, y, z, dx, dz, t: 0 });
@@ -64,8 +66,8 @@ export class DrawbridgeEffects {
         this.slides.splice(i, 1);
         continue;
       }
-      const k = s.from + (s.to - s.from) * Math.min(1, s.t / s.seconds);
-      s.model.position.set(s.x + s.dx * k, s.y, s.z + s.dz * k);
+      const k = Math.min(1, s.t / s.seconds);
+      s.model.position.set(s.from.x + (s.to.x - s.from.x) * k, s.from.y, s.from.z + (s.to.z - s.from.z) * k);
     }
     const T = DRAWBRIDGE.jogSeconds;
     for (let i = this.jogs.length - 1; i >= 0; i--) {

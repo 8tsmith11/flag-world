@@ -31,6 +31,7 @@ import { QuestScreen } from './questScreen.js';
 import { DepotRenderer } from './render/depotRenderer.js';
 import { checkDepotSite, DOCK, DOCK_DIRS } from '/shared/merchant.js';
 import { SPYGLASS, VIEW_DISTANCE_MAX as SPY_MAX, DRAWBRIDGE } from '/shared/config.js';
+import { drawbridgeCell } from '/shared/drawbridge.js';
 import { createScene, setViewDistance } from './render/scene.js';
 import { Clouds } from './render/clouds.js';
 import { Sky } from './render/sky.js';
@@ -723,8 +724,8 @@ conn.on(S2C.BOSS_VICTORY, msg => {
 conn.on(S2C.EMBER_BURST, (msg) => portals.burst(msg.x, msg.y, msg.z));
 conn.on(S2C.QUARRY_PUFF, (msg) => quarryEffects?.puff(msg.x, msg.y, msg.z));
 conn.on(S2C.EXPLOSION, (msg) => { if (world) explosionEffects.explode(msg.x, msg.y, msg.z, msg.radius, msg.kind, camera.position); });
-conn.on(S2C.DRAWBRIDGE_JOG, (msg) => { if (world) drawbridgeEffects.jog(msg.x, msg.y, msg.z, msg.dir); });
-conn.on(S2C.DRAWBRIDGE_SLIDE, (msg) => { if (world) drawbridgeEffects.slide(msg.x, msg.y, msg.z, msg.dir, msg.from, msg.to, msg.seconds); });
+conn.on(S2C.DRAWBRIDGE_JOG, (msg) => { if (world) drawbridgeEffects.jog(msg.x, msg.y, msg.z, msg.dx ?? 0, msg.dz ?? -1); });
+conn.on(S2C.DRAWBRIDGE_SLIDE, (msg) => { if (world && msg.from && msg.to) drawbridgeEffects.slide(msg.from, msg.to, msg.seconds, !!msg.laying); });
 conn.on(S2C.STEAM_PUFF, (msg) => quarryEffects?.steam(msg.x,msg.y,msg.z));
 conn.on(S2C.CREATIVE, (msg) => {
   setCreative(msg.enabled);
@@ -749,7 +750,7 @@ conn.on(S2C.SPEAK, (msg) => {
 });
 conn.on(S2C.CONTAINER, (msg) => {
   const at = inventoryScreen.at;
-  if (msg.kind === 'drawbridge') openBridge = { x: msg.x, y: msg.y, z: msg.z, dir: msg.dir, length: msg.length };
+  if (msg.kind === 'drawbridge') openBridge = { x: msg.x, y: msg.y, z: msg.z, dir: msg.dir, side: msg.side ?? 0, length: msg.length };
   if (inventoryScreen.open && inventoryScreen.mode === msg.kind && at.x === msg.x && at.y === msg.y && at.z === msg.z) {
     inventoryScreen.setContainer(msg);
   }
@@ -959,7 +960,6 @@ function updateSpyglass(scoped, now, dir) {
 // be placed along the way you face (default length); while its screen is
 // open, from the mechanism with its configured direction and length.
 let openBridge = null, bridgePreviewKey = null;
-const BRIDGE_DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 function updateDrawbridgePreview(playing) {
   let at = null;
   if (inventoryScreen.open && inventoryScreen.mode === 'drawbridge' && openBridge) at = openBridge;
@@ -967,14 +967,14 @@ function updateDrawbridgePreview(playing) {
     const place = placeTarget();
     if (place) {
       const look = lookDirection(player.state.yaw, 0);
-      at = { ...place, dir: Math.abs(look.x) > Math.abs(look.z) ? (look.x > 0 ? 1 : 3) : (look.z > 0 ? 2 : 0), length: DRAWBRIDGE.defaultLength };
+      at = { ...place, dir: Math.abs(look.x) > Math.abs(look.z) ? (look.x > 0 ? 1 : 3) : (look.z > 0 ? 2 : 0), side: 1, length: DRAWBRIDGE.defaultLength };
     }
   } else openBridge = null;
   if (!at) { if (bridgePreviewKey) { bridgePreviewKey = null; bridgePreview.update(null); } return; }
   bridgePreviewKey = true;
-  const [dx, dz] = BRIDGE_DIRS[at.dir], list = [];
+  const list = [];
   for (let i = 1; i <= at.length; i++) {
-    const pos = { x: at.x + dx * i, y: at.y, z: at.z + dz * i }, id = world.getBlock(pos.x, pos.y, pos.z);
+    const pos = drawbridgeCell(at, at.dir, at.side, i), id = world.getBlock(pos.x, pos.y, pos.z);
     list.push({ pos, color: id === BLOCK.AIR || id === BLOCK.BRIDGE_DECK ? 0x30d158 : 0xff453a });
   }
   bridgePreview.update(list);

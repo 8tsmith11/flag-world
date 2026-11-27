@@ -640,7 +640,7 @@ export class Game {
       const container = data.kind === 'chest' ? new Chest() : createContainer(data.kind);
       if (!container) continue;
       Object.assign(container, data);
-      container.migrate?.();
+      container.migrate?.(data);
       container.dirty = true;
       w.tileEntities.set(key, container);
     }
