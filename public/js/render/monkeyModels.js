@@ -121,8 +121,15 @@ function ape(kind, colors) {
   box(armor, [tw * 1.12, th * 0.84, front + back], [0, th * 0.58, (back - front) / 2], armorMaterial);
   for (const side of [-1, 1]) box(armor, [d.arm * 1.5, d.arm * 1.1, d.arm * 1.5], [side * d.shoulderWidth, th * 0.86, 0], armorMaterial);
   armor.visible = false;
+  // And a helmet like the players': a cap over the top and sides of the
+  // head and a guard down the back, leaving the face clear.
+  const helmet = pivot(head, 0, 0, 0);
+  box(helmet, [s * 1.12, s * 0.38, s * 1.02], [0, s * 0.92, 0.02 * s], armorMaterial);
+  for (const side of [-1, 1]) box(helmet, [s * 0.1, s * 0.5, s * 0.8], [side * s * 0.55, s * 0.6, s * 0.08], armorMaterial);
+  box(helmet, [s * 1.12, s * 0.55, s * 0.1], [0, s * 0.55, s * 0.49], armorMaterial);
+  helmet.visible = false;
   root.userData.monkey = {
-    armor, armorMaterial,
+    armor, helmet, armorMaterial,
     kind, d, body, pelvis, torso, neck, head, jaw, arms, legs, eyes, fur, skin, dark,
     pose: { ...POSES.sit }, look: 0, phase: 0, time: Math.random() * 100,
     scratch: 0, nextScratch: 4 + Math.random() * 8, beat: 0, lastPose: null, talkUntil: 0,
@@ -246,6 +253,7 @@ export function setMonkeyArmor(model, item, itemColor) {
   if (!m?.armor || m.armorItem === item) return;
   m.armorItem = item;
   m.armor.visible = item !== null && item !== undefined;
+  if (m.helmet) m.helmet.visible = m.armor.visible;
   if (m.armor.visible) m.armorMaterial.color.setHex(itemColor(item));
 }
 
