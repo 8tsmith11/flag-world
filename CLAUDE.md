@@ -41,6 +41,12 @@ including the host, plays by opening `http://<host-ip>:3000`.
   world is carved by the same code (as one square "island"), plus a tunnel
   near the first keep. Use
   `world.sizeX`/`sizeY`/`sizeZ`, not constants.
+- Structures claim space in order (keeps, the goblin village, monkey
+  shrines and NPC sites, then houses, towers, dungeons) and record a box in
+  `world.structures`. `prepareSurface` reshapes and clears the ground
+  `PREPARE_MARGIN` blocks around a footprint, so `surfaceSite` keeps that
+  margin clear of other boxes; anything new that reshapes ground must do the
+  same (`node scripts/structure-sites-check.js`).
 - Chunks are sparse: `World` only stores chunks that have held a non-air
   block, and `getBlock` returns air for missing ones. Clients mesh only chunks
   within the view distance (a client setting, `VIEW_DISTANCE`), nearest first,

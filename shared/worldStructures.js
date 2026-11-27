@@ -1,5 +1,5 @@
 import { BLOCK, facedBlock, ladderBlock, doorBlock, isSolid } from './blocks.js';
-import { KEEP_REACH, mulberry32, prepareSurface, surfaceStats } from './structures.js';
+import { KEEP_REACH, mulberry32, prepareSurface, surfaceStats, PREPARE_MARGIN } from './structures.js';
 import { BIOME_SETTINGS, STRUCTURE_GEN } from './config.js';
 import { structureAllowed } from './structures/place.js';
 
@@ -57,7 +57,12 @@ function surfaceSite(world, terrain, placed, random, halfX, halfZ, height, maxVa
     const floorY = stats.median;
     if (floorY + height >= world.sizeY) continue;
     const box = { x0, x1, z0, z1, y0: floorY, y1: floorY + height };
-    if (overlaps(world, placed, box)) continue;
+    // prepareSurface reshapes and clears the ground PREPARE_MARGIN blocks
+    // around the footprint (down to the lowest ground there): keep all of
+    // that clear of other structures (shrines, the village...).
+    const reach = { x0: x0 - PREPARE_MARGIN, x1: x1 + PREPARE_MARGIN, z0: z0 - PREPARE_MARGIN, z1: z1 + PREPARE_MARGIN,
+      y0: floorY - maxVariance - PREPARE_MARGIN, y1: floorY + height };
+    if (overlaps(world, placed, reach)) continue;
     if (world.getBlock(x, terrain.getTop(x, z), z) !== BLOCK.GRASS) continue;
     return { x, z, floorY, box };
   }

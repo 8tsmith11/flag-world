@@ -35,8 +35,12 @@ export function surfaceStats(surfaceAt, x0, z0, x1, z1) {
     variance: heights.at(-1) - heights[0] };
 }
 
+// How far around a footprint prepareSurface reshapes the ground (and clears
+// everything up to clearTo): structures placed with it must keep at least
+// this far from others (surfaceSite in worldStructures.js).
+export const PREPARE_MARGIN = 4;
 export function prepareSurface(world, x0, z0, x1, z1, floorY, surfaceAt,
-  { margin = 4, clearTo = floorY + 8, foundation = BLOCK.DIRT } = {}) {
+  { margin = PREPARE_MARGIN, clearTo = floorY + 8, foundation = BLOCK.DIRT } = {}) {
   for (let z = z0 - margin; z <= z1 + margin; z++) for (let x = x0 - margin; x <= x1 + margin; x++) {
     const natural = surfaceAt(x, z);
     if (natural === -32768 || natural < 0) continue;
