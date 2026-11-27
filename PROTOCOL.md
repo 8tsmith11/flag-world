@@ -1765,7 +1765,8 @@ Soldiers/Archers after 20 seconds, and Brutes after 45 seconds; the King and
 Totem never respawn. Goblins don't repair, construct or siege yet.
 
 Combat (slice 1b) uses existing messages only. Goblins fight players and
-hostile mobs (Crawlers, Void Eels, dragons), never each other or the monkeys.
+hostile mobs (Crawlers, Void Eels), never each other, the monkeys or dragons
+(not even a dragon that hurts them).
 Melee goblins (Soldiers, Brutes, the King) send `swing` when they strike and
 hit with the normal mob damage and knockback; Archers shoot ordinary arrows
 (`entitySpawn` of an `arrow`) that never hit goblins, cows or monkeys. A goblin

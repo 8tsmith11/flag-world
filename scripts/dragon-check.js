@@ -8,6 +8,7 @@
 //   - a player without fire immunity is still burned
 //   - leaves are no cover: fire burns them, and a pursuing dragon smashes
 //     soft blocks it touches (never while patrolling, never grass or stone)
+//   - goblins never fight dragons
 //   - team (starter) islands have no dragons on any island world size
 // Small world, seed 2, on a grass platform in the sky.
 //   node scripts/dragon-check.js
@@ -71,6 +72,18 @@ const watch = (dragon) => {
 };
 const run = (n, until = () => false) => { for (let i = 0; i < n; i++) { game.update(); if (until()) return true; } return false; };
 const heal = () => { host.hp = MAX_HP; host.invulnerableUntilTick = 0; };
+
+// ---- Goblins leave dragons alone ----
+{
+  const d = spawn(30, 30);
+  game.garrison.refreshEnemies();
+  assert.ok(!game.garrison.enemyList.includes(d), 'goblins count a dragon as an enemy');
+  assert.ok(game.garrison.enemyList.includes(host), 'goblins lost track of players');
+  let provoked = false;
+  game.garrison.damaged({ state: { ...host.state }, home: host.state, provoked: () => { provoked = true; } }, d);
+  assert.equal(provoked, false, 'a goblin hurt by a dragon fought back');
+  game.dragons.delete(d.id);
+}
 
 // ---- Swoop: telegraphed, hits through dragonscale, knocks along the dive ----
 {
@@ -209,4 +222,4 @@ const heal = () => { host.hp = MAX_HP; host.invulnerableUntilTick = 0; };
   game.dragons.delete(dragon.id);
 }
 
-console.log('OK: no dragons on starter islands; swoops (telegraphed, through dragonscale, knockback along the dive), landing after a low dive, bite and tail whip with wind-ups, no hiding under trees (soft blocks smashed only while pursuing), circling round stone cover, fire still burns the unprotected');
+console.log('OK: no dragons on starter islands; swoops (telegraphed, through dragonscale, knockback along the dive), landing after a low dive, bite and tail whip with wind-ups, no hiding under trees (soft blocks smashed only while pursuing), circling round stone cover, fire still burns the unprotected, goblins leave dragons alone');

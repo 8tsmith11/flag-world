@@ -237,7 +237,8 @@ export class Garrison {
     return positionRegion(this.plan, p)
       ?? this.plan.areas.find(a => a.state === 'planned' && this.nav.contains(a, p)) ?? null;
   }
-  // Players and hostile mobs (Crawlers, Void Eels, dragons) that goblins fight.
+  // Players and hostile mobs (Crawlers, Void Eels) that goblins fight. Goblins
+  // leave dragons alone.
   // huntable() is the one shared test, so the creative host's invisibility
   // hides them here like everywhere else.
   refreshEnemies() {
@@ -245,7 +246,6 @@ export class Garrison {
     for (const p of g.players.values()) if (huntable(p)) list.push(p);
     for (const m of g.mobs.activeValues?.() ?? g.mobs.values())
       if ((m instanceof Crawler || m instanceof VoidEel) && !isGoblin(m) && huntable(m)) list.push(m);
-    for (const d of g.dragons.activeValues?.() ?? g.dragons.values()) if (huntable(d)) list.push(d);
     this.enemies.rebuild(list);
   }
   // The nearest enemy within range that the unit can see, skipping one it
@@ -301,6 +301,8 @@ export class Garrison {
   // A goblin took damage: its area is under attack, the Castle reserve
   // deploys if it's near the Castle, and it fights (or flees from) the attacker.
   damaged(unit, attacker) {
+    // Goblins never fight dragons, even one that hurts them.
+    if (attacker?.type === 'dragon') return;
     const tick = this.game.tick, enemy = attacker?.state && !isGoblin(attacker) && huntable(attacker) ? attacker : null;
     const area = positionRegion(this.plan, unit.state) ?? this.nav.area(unit.home);
     if (area) this.alarm(area, enemy?.state ?? unit.state, tick);

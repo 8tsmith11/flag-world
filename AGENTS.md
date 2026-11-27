@@ -870,7 +870,7 @@ PROTOCOL.md                  WebSocket message reference
   range, cooldown, arrowSpeed, spread), `flee` (workers) and `floorOnly` (the
   King), plus shared `COMBAT` tuning. Roles have no special-case code.
 - `server/goblins/garrison.js` rebuilds one `SpatialHash` of enemies per tick
-  (players, Crawlers, Void Eels, dragons, all through `huntable()`, so the
+  (players, Crawlers, Void Eels; never dragons; all through `huntable()`, so the
   creative host's invisibility applies). `findTarget` returns the nearest
   visible one. Every `scanTicks` it marks occupied areas (enemy inside a
   volume, via `positionRegion`) and raises alarms; the first alarm of an
