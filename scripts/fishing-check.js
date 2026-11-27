@@ -349,9 +349,11 @@ const hookEel = (owner, monkey) => {
   hold(host, { item: ITEM.IRONBOUND_CRATE, count: 2 });
   const total = () => host.inventory.slots.reduce((n, s) => n + (s?.count ?? 0), 0);
   const t0 = total();
+  // (Earlier catches can include crates, so compare with before.)
+  const crates0 = count(host, ITEM.IRONBOUND_CRATE);
   const loot = game.stepCrate(host);
   assert.ok(loot?.length >= 3, 'the crate gave nothing');
-  assert.equal(count(host, ITEM.IRONBOUND_CRATE), 1, 'the crate was not used up');
+  assert.equal(count(host, ITEM.IRONBOUND_CRATE), crates0 - 1, 'the crate was not used up');
   assert.equal(total(), t0 - 1 + loot.reduce((n, s) => n + s.count, 0), 'the loot did not arrive');
   assert.equal(game.stepCrate(host), null, 'opened two crates in one go');
   assert.ok(game.teamProgress.of(0).events.get('crateOpened') === 1);
@@ -413,15 +415,31 @@ const hookEel = (owner, monkey) => {
   assert.ok(wait >= F.bite.min * F.monkeySlowdown * TICK_RATE - 2, `a monkey bite came in ${wait} ticks: not ten times slower`);
   run(12);
   assert.equal(m.status, 'Waiting for a bite');
-  // Its catches pile up, then go to the destination (bites fast-forwarded).
-  for (let i = 0; i < 8 && !dst.c.slots.some(Boolean); i++) {
+  // Each catch goes straight to the destination (bites fast-forwarded),
+  // before it casts again; it keeps its bait.
+  const inDst = () => dst.c.slots.reduce((n, x) => n + (x?.count ?? 0), 0);
+  const catchOne = () => {
     run(TICK_RATE * 20, () => game.fishing.bobberOf(m)?.attempt);
     const bb = game.fishing.bobberOf(m); if (bb?.attempt) bb.attempt.biteAt = game.tick;
-    run(TICK_RATE * 2);
+    run(2);
+  };
+  for (let n = 1; n <= 2; n++) {
+    const before = inDst();
+    catchOne();
+    assert.ok(game.monkeys.carried(m) >= 1 || inDst() > before, 'the catch went nowhere');
+    assert.ok(run(TICK_RATE * 20, () => inDst() > before), `catch ${n} was not delivered right away (${m.status})`);
+    assert.equal(game.monkeys.carried(m), 0, 'it kept part of its catch');
+    assert.ok(m.inventory.slots.some((x) => x?.item === ITEM.BREAD), 'it delivered its bait');
   }
-  run(TICK_RATE * 20, () => dst.c.slots.some(Boolean));
-  const delivered = dst.c.slots.reduce((n, x) => n + (x?.count ?? 0), 0);
-  assert.ok(delivered >= 4, `only ${delivered} catches delivered`);
+  // Collect drops off: the catch stays at its feet for a collector monkey.
+  game.monkeys.applyConfig(m, { ...m.config, collect: false });
+  { const before = inDst(), items0 = new Set(game.items.keys());
+    catchOne();
+    const dropped = [...game.items.values()].filter((e) => !items0.has(e.id) && Math.hypot(e.state.x - m.state.x, e.state.z - m.state.z) < 3);
+    assert.ok(dropped.length > 0, 'with Collect drops off the catch was not left at its feet');
+    run(TICK_RATE * 5);
+    assert.equal(inDst(), before, 'with Collect drops off it still delivered'); }
+  game.monkeys.applyConfig(m, { ...m.config, collect: true });
   assert.ok(!dst.c.slots.some((x) => x?.item === ITEM.BREAD) || true);
   assert.ok(game.teamProgress.of(0).events.get('monkeyFished') >= 2, 'monkey catches were not counted');
   // Out of bait everywhere: it stops and says so.
@@ -462,12 +480,16 @@ const hookEel = (owner, monkey) => {
   // Everyone back to their keeps (solid island under them), so nothing
   // tempts it to stay up.
   for (const p of [host, mate, enemy]) Object.assign(p.state, game.keepSpawn(game.world.keeps[game.occupiedTeams.indexOf(p.team)] ?? game.world.keeps[0]), { vx: 0, vy: 0, vz: 0 });
+  // One teammate stays near (invisible, so the eel ignores them) to keep
+  // this part of the world simulated: with nobody around it sleeps.
+  Object.assign(mate.state, { x: perch.x + 0.5, y: Y + 1, z: perch.z - 6.5, vx: 0, vy: 0, vz: 0 }); mate.invisible = true;
   eel.target = null; eel.provocation.target = null;
   run(TICK_RATE * 15);
   assert.ok(!eel.patrol, 'the eel never stopped hovering');
   // Homing down the line takes a while (it can be distracted on the way).
   run(TICK_RATE * 60, () => eel.state.y < landed.y - 30);
   assert.ok(eel.state.y < landed.y - 30, `the eel did not go back down to the void (${(landed.y - eel.state.y).toFixed(1)} blocks down)`);
+  mate.invisible = false;
   game.mobs.delete(eel.id);
   game.npcs.delete(m.id);
 }

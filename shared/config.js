@@ -533,7 +533,7 @@ export const MONKEY_WORK = {
   // connected wood up to treeRadius from the trunk (maxTreeBlocks at most).
   seedReserve: 16, treeRadius: 8, maxTreeBlocks: 600,
   // Fisherman: bait it fetches at a time, and catches it carries before delivering.
-  fishermanBait: 16, fishermanReturnAt: 4,
+  fishermanBait: 16, fishermanReturnAt: 1,
   box: { halfW: 0.4, height: 1.4 }, speed: 0.75, capacity: 16, inventorySize: 9,
   thinkTicks: 10, pathNodes: 2500, pathsPerTick: 4, stuckTicks: 40,
   chopTicks: 60, chopBlocksPerThink: 12, maxTreeHeight: 64, configureReach: 32,

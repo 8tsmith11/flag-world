@@ -5,7 +5,9 @@ import { MONKEY_WORK as C, MONKEY_DUTY as D } from './config.js';
 // mode walks through them.
 export const MONKEY_ROLES=['idle','courier','collector','lumberjack','quarry','farmer','craftsman','fisherman','guard','lookout'];
 // Gathering roles that can leave what they gather on the ground (Collect drops off).
-export const GATHERING_ROLES=['lumberjack','quarry','farmer'];
+// Roles with a Collect drops switch (off: what they gather is left on the
+// ground for collector monkeys and players).
+export const GATHERING_ROLES=['lumberjack','quarry','farmer','fisherman'];
 export const ROLE_INFO={
   idle:{name:'Idle',tip:'Does nothing. It waits at its home spot if one is set.'},
   courier:{name:'Courier',tip:'Takes items out of source containers and delivers them to destination containers, taking turns between destinations.'},
@@ -14,7 +16,7 @@ export const ROLE_INFO={
   quarry:{name:'Quarry',tip:'Digs out a box, a circle or single blocks with the tool you give it and brings the blocks back once it carries enough. It never digs a block that would open a hole into the void, and climbs walls to get out.'},
   farmer:{name:'Farmer',tip:'Harvests ripe crops on farmland inside its area and replants the same crop. It never tills new soil.'},
   craftsman:{name:'Craftsman',tip:'Takes the ingredients of one recipe from its sources, crafts it at its workbench and delivers what it makes. It only takes as many sets as it can finish and carry.'},
-  fisherman:{name:'Fisherman',tip:'Takes bait from its sources, stands on its fishing spot and casts a short way out in its direction, into water, lava or the void below. It reels in every bite, but fishes at a tenth of your speed (faster with a Swift rod), and brings the catch to its destinations. Give it a fishing rod.'},
+  fisherman:{name:'Fisherman',tip:'Takes bait from its sources, stands on its fishing spot and casts a short way out in its direction, into water, lava or the void below. It reels in every bite, but fishes at a tenth of your speed (faster with a Swift rod), and takes each catch to its destinations (or, with Collect drops off, leaves it at its feet for a collector monkey). Give it a fishing rod.'},
   guard:{name:'Guard',tip:'Walks its patrol points in order and back to the first (or stands at a single point). Attacks enemy players and monkeys, goblins and hostile creatures it sees, but never chases far from its route. Give it a sword, axe or bow and armor.'},
   lookout:{name:'Lookout',tip:`Stands at its post and watches. When it sees an enemy player or goblin (up to ${D.lookout.range} blocks, ${D.lookout.spyglassRange} with a spyglass in its tool slot) it warns your whole team. With a spyglass it also says who it saw.`},
 };

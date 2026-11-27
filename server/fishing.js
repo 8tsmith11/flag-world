@@ -243,7 +243,10 @@ export class Fishing {
       return result;
     }
     const stack = result.stack;
-    if (bobber.monkey) game.monkeys?.store(owner, stack);
+    // A fisherman monkey keeps it to deliver (right away), or with Collect
+    // drops off leaves it at its feet for a collector.
+    if (bobber.monkey) game.monkeys?.gathered(owner, stack,
+      { x: Math.floor(owner.state.x), y: Math.floor(owner.state.y), z: Math.floor(owner.state.z) });
     else {
       const left = owner.inventory.add(stack.item, stack.count, stack.mods ?? null);
       if (left > 0) game.spawnItem(stack.item, left, owner.state.x, owner.state.y + 1, owner.state.z, 0, 2, 0, 0, stack.mods ?? null);

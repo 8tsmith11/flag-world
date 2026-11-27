@@ -531,8 +531,9 @@ Roles: `idle`, `courier`, `collector`, `lumberjack`, `quarry`, `farmer`,
 `craftsman`, `guard`, `lookout`. `waypoints` is a BlockPos list (up to 8, a
 guard's patrol points); `post` (lookout) and `workbench` (craftsman) are
 BlockPos or null; `recipe` is a non-creative recipe id or null (craftsman);
-`collect` (default true) is whether a lumberjack, quarry or farmer keeps what
-it gathers; `destSlots` maps a destination's `"x,y,z"` to `"input"` or
+`collect` (default true) is whether a lumberjack, quarry, farmer or fisherman
+keeps what it gathers (a fisherman with it off leaves each catch at its feet
+for a collector); `destSlots` maps a destination's `"x,y,z"` to `"input"` or
 `"fuel"` for furnaces and alloy furnaces (anything else, or `"auto"`, is
 dropped). Baby monkeys accept `configure` only for the `idle` role (with its home).
 Lists are BlockPos arrays: `sources` and `dests` up to 8, `sites` up to 16
@@ -548,7 +549,8 @@ items and gear; any change drops the current task.
 Work (`server/monkeyWorkers.js`): every working role delivers to `dests` in
 turn (round robin), skipping full ones; a destination that isn't a container
 gets items dropped on top. A monkey delivers once it carries its threshold
-(courier and collector: anything; quarry: `returnAt`; others: 16), when its
+(courier, collector and fisherman: anything, so a fisherman delivers each
+catch before casting again; quarry: `returnAt`; others: 16), when its
 inventory is full, or when it has nothing else to do. With nothing to do it
 waits (at `home` if set) and only rechecks from afar, so it never walks back
 and forth. It paths with wall climbing (up to 16 blocks, straight up or down;
@@ -2015,7 +2017,8 @@ to the same successful world and record the resolved seed as `world.seed`.
   message carries `bait`). Bobbers are entities (type `"bobber"`, `{id,
   owner, x, y, z, where, bite}`), sent to everyone when they move or a bite
   starts or ends. Fisherman monkeys (role `fisherman`, config `fishSpot`,
-  `castDir` 0..3) use the same rules, ten times slower.
+  `castDir` 0..3) use the same rules, ten times slower; each catch goes to
+  its destinations right away (or stays at its feet with `collect` off).
 - Void fishing counts only just above the void's kill depth (`voidY + 4`),
   below where Void Eels swim. A hooked Void Eel (tier 2 void) is reeled up
   the line from the bobber to land beside whoever hooked it: it hunts a
