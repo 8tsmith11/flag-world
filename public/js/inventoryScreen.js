@@ -38,7 +38,7 @@ export class InventoryScreen {
     this.obtained = new Set();
     this.open = false;
     this.creative = false;
-    this.creativeState = { immortal: false, flying: false, invisible: false, breakAny: false, speed: 1 };
+    this.creativeState = { immortal: false, flying: false, invisible: false, breakAny: false, infiniteItems: false, speed: 1 };
     this.creativeControls = document.getElementById('inv-creative-controls');
     for (const button of this.creativeControls.querySelectorAll('[data-creative-action]')) {
       button.addEventListener('click', () => this.conn.send({ type: C2S.CREATIVE_ACTION,
@@ -224,6 +224,7 @@ export class InventoryScreen {
     document.getElementById('creative-flight').textContent = `Flight: ${this.creativeState.flying ? 'On' : 'Off'}`;
     document.getElementById('creative-invisible').textContent = `Invisibility: ${this.creativeState.invisible ? 'On' : 'Off'}`;
     document.getElementById('creative-break-any').textContent = `Break any block: ${this.creativeState.breakAny ? 'On' : 'Off'}`;
+    document.getElementById('creative-infinite').textContent = `Infinite items: ${this.creativeState.infiniteItems ? 'On' : 'Off'}`;
     this.speedInput.value = this.creativeState.speed;
     document.getElementById('creative-speed-value').textContent = `${this.creativeState.speed}×`;
   }

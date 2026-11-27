@@ -796,6 +796,10 @@ body.dead canvas {
 #inventory {
   --slot: clamp(24px, min((100vw - 190px) / 18, (100vh - 150px) / 7.5), 44px);
   overflow: auto;
+  /* Keep everything scrollable clear of the hotbar (and health bar) along
+     the bottom of the screen. */
+  box-sizing: border-box;
+  padding-bottom: 96px;
 }
 
 #inventory > .inv {
@@ -819,12 +823,15 @@ body.dead canvas {
 }
 
 .inv-creative-controls {
-  display: flex;
-  flex-direction: column;
+  /* Two columns of buttons, so the panel stays short. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 7px;
-  min-width: calc(var(--slot) * 4);
+  min-width: calc(var(--slot) * 6);
+  align-content: start;
 }
 .inv-creative-controls[hidden] { display: none; }
+.inv-creative-controls h2, .creative-speed, #creative-speed { grid-column: 1 / -1; }
 .inv-creative-controls button { padding: 7px 9px; cursor: pointer; }
 .creative-speed { display: flex; justify-content: space-between; gap: 12px; }
 #creative-speed { width: 100%; }

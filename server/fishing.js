@@ -205,7 +205,7 @@ export class Fishing {
     const kept = Math.random() < stats.conservation;
     if (!kept) {
       if (bobber.monkey) owner.inventory.remove(baitItem, 1);
-      else { owner.inventory.remove(baitItem, 1); owner.inventoryDirty = true; }
+      else if (!(owner.creative && owner.infiniteItems)) { owner.inventory.remove(baitItem, 1); owner.inventoryDirty = true; }
     }
     const wait = biteSeconds(Math.random, stats.speed, bobber.monkey);
     bobber.attempt = { luck: stats.multiplier * BAIT[baitItem].quality, tier: stats.tier, where, kept, bait: baitItem,

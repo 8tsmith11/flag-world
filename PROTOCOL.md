@@ -469,7 +469,7 @@ The server responds only to that connection with `creative`.
 
 `{action, value?}` from the local creative host during a match. Accepted actions are
 `"setDay"` (noon), `"setNight"` (midnight), `"toggleImmortal"`,
-`"toggleFlight"`, `"toggleInvisible"`, `"toggleBreakAny"`, `"setSpeed"` and `"captureLobby"`.
+`"toggleFlight"`, `"toggleInvisible"`, `"toggleBreakAny"`, `"toggleInfinite"` (infinite items), `"setSpeed"` and `"captureLobby"`.
 `setSpeed` requires a finite numeric `value`, rounded to 0.25 steps and clamped
 to 0.25–4× for walking and flight while creative is active. `toggleBreakAny`
 allows mining normally unbreakable non-water blocks without a tool. Invisibility is a server player
@@ -978,7 +978,7 @@ reclaim.
 | `tick`    | int           | Current server tick |
 | `dayTime` | number        | Time of day at `tick`, 0..1 (see **Day and night**). Clients advance it with the ticks in `state` |
 | `creative` | bool | Whether this connection's player has creative mode active |
-| `immortal`,`flying`,`invisible`,`breakAny` | bool | Creative control state |
+| `immortal`,`flying`,`invisible`,`breakAny`,`infiniteItems` | bool | Creative control state |
 | `speed` | number | Creative player speed multiplier, 0.25–4× |
 | `blocks`  | BlockChange[] | Every edit since generation; apply after world generation |
 | `doorTeams` | `{key,team}[]` | Reinforced door ownership by lower-half block coordinate key |
@@ -1059,9 +1059,12 @@ single-change form.
 ### `creative`
 
 Sent only to the localhost player after an accepted `creativeToggle` or
-`creativeAction`: `{enabled, immortal, flying, invisible, breakAny, speed}`. The flags update
-the private Creative Mode label, controls and crafting catalogue. Turning
-creative mode off disables flight, immortality, invisibility and breaking any block,
+`creativeAction`: `{enabled, immortal, flying, invisible, breakAny, infiniteItems, speed}`. The flags update
+the private Creative Mode label, controls and crafting catalogue. With
+`infiniteItems`, using an item (placing a block, eating, throwing a grenade,
+hatching an egg, opening a crate, feeding a cow, fishing bait...) keeps it;
+dropping an item still drops it. Turning
+creative mode off disables flight, immortality, invisibility, infinite items and breaking any block,
 resets speed to 1×, and keeps acquired items.
 
 ### `dayTime`

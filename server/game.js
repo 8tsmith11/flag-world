@@ -351,6 +351,7 @@ export class Game {
         player.immortal = false;
         player.invisible = false;
         player.breakAny = false;
+        player.infiniteItems = false;
         player.state.creativeSpeed = 1;
       }
     }
@@ -361,6 +362,7 @@ export class Game {
     sendTo(session.socket, { type: S2C.CREATIVE, enabled: !!session.creative,
       immortal: !!session.player?.immortal, flying: !!session.player?.state.flying,
       invisible: !!session.player?.invisible, breakAny: !!session.player?.breakAny,
+      infiniteItems: !!session.player?.infiniteItems,
       speed: session.player?.state.creativeSpeed ?? 1 });
   }
 
@@ -375,6 +377,7 @@ export class Game {
     else if (action === 'toggleInvisible') player.invisible = !player.invisible;
     else if (action === 'toggleFlight') player.state.flying = !player.state.flying;
     else if (action === 'toggleBreakAny') player.breakAny = !player.breakAny;
+    else if (action === 'toggleInfinite') player.infiniteItems = !player.infiniteItems;
     else if (action === 'maxGoblinFortress') { this.garrison?.construction?.completeAll(); return; }
     else if (action === 'setSpeed') {
       if (!Number.isFinite(value)) return;
@@ -785,7 +788,7 @@ export class Game {
     player.attach(session.socket);
     player.creative = session.localHost && player.creative;
     player.state.creative = player.creative;
-    if (!player.creative) {player.state.flying = false;player.invisible=false;player.breakAny=false;player.state.creativeSpeed=1;}
+    if (!player.creative) {player.state.flying = false;player.invisible=false;player.breakAny=false;player.infiniteItems=false;player.state.creativeSpeed=1;}
     session.creative = player.creative;
     console.log(`${player.name} reconnected`);
     this.sendWelcome(player);
@@ -828,6 +831,7 @@ export class Game {
       flying: player.state.flying,
       invisible: !!player.invisible,
       breakAny: !!player.breakAny,
+      infiniteItems: !!player.infiniteItems,
       speed: player.state.creativeSpeed,
       blocks: [...this.blockChanges.values()],
       doorTeams: [...this.world.doorTeams].map(([key, team]) => ({ key, team })),
@@ -926,7 +930,7 @@ export class Game {
       start.y = state.y + eyeHeight(state);
       start.z = state.z;
     }
-    player.inventory.takeOne(player.selected);
+    player.useOne(player.selected);
     player.inventoryDirty = true;
     const orb = new RiftOrbProjectile(this.nextId++, player, start.x, start.y, start.z, direction);
     this.riftOrbs.set(orb.id, orb);
@@ -1119,7 +1123,7 @@ export class Game {
     }
     if ((id === BLOCK.WATER || id === BLOCK.LAVA) && player.held() === ITEM.EMPTY_BUCKET && this.inReach(player, pos)) {
       this.world.setBlock(pos.x, pos.y, pos.z, BLOCK.AIR);
-      player.inventory.takeOne(player.selected);
+      player.useOne(player.selected);
       player.inventory.add(id === BLOCK.LAVA ? ITEM.LAVA_BUCKET : ITEM.WATER_BUCKET, 1);
       player.inventoryDirty = true;
       this.swing(player);
@@ -1269,7 +1273,7 @@ export class Game {
       cells = [[pos.x, pos.y, pos.z, facedBlock(def.block, toward)]];
     }
     this.teamProgress.placed(player.team, stack.item);
-    player.inventory.takeOne(slot);
+    player.useOne(slot);
     if (stack.item === ITEM.WATER_BUCKET || stack.item === ITEM.LAVA_BUCKET) player.inventory.add(ITEM.EMPTY_BUCKET, 1);
     if (lift) {
       player.state.y = pos.y + 1;
@@ -1347,7 +1351,7 @@ export class Game {
         if (!mob) return;
         this.mobs.set(mob.id, mob);
     }
-    player.inventory.takeOne(slot);
+    player.useOne(slot);
     player.inventoryDirty = true;
     this.broadcast({ type: S2C.ENTITY_SPAWN, entity: mob.describe() });
     this.swing(player);
@@ -1568,7 +1572,7 @@ export class Game {
     const def = getItemDef(player.held());
     if (!def.crate) return null;
     player.nextCrateTick = this.tick + Math.round(TICK_RATE * 0.25);
-    if (player.inventory.takeOne(player.selected) === null) return null;
+    if (player.useOne(player.selected) === null) return null;
     const loot = rollTable(def.crate, Math.random);
     for (const stack of loot) {
       const left = player.inventory.add(stack.item, stack.count, stack.mods ?? null);
@@ -1857,7 +1861,7 @@ export class Game {
     if (player.held() !== ITEM.WHEAT || this.tick < (cow.breedReadyTick ?? 0) || (cow.loveUntil ?? 0) > this.tick) return;
     const s = player.state, c = cow.state;
     if (Math.hypot(s.x - c.x, s.y - c.y, s.z - c.z) > NPC.talkReach + 1) return;
-    player.inventory.takeOne(player.selected);
+    player.useOne(player.selected);
     player.inventoryDirty = true;
     cow.loveUntil = this.tick + ticks(FARMING.loveTime);
     this.swing(player);
@@ -2429,7 +2433,7 @@ export class Game {
     player.eatingItem = held;
     if (item.instantHeal) {
       if (player.eatTicks === 0 && player.hp < player.maxHp()) {
-        player.inventory.takeOne(player.selected);
+        player.useOne(player.selected);
         player.inventoryDirty = true;
         player.hp = player.maxHp();
         player.foodHealing.length = 0;
@@ -2439,7 +2443,7 @@ export class Game {
     }
     if (++player.eatTicks < EAT_TICKS) return;
     player.eatTicks = 0;
-    player.inventory.takeOne(player.selected);
+    player.useOne(player.selected);
     player.inventoryDirty = true;
     const interval = Math.max(1, FOOD_HEAL_TIME * TICK_RATE / food);
     player.foodHealing.push({ remaining: food, nextTick: this.tick + interval, interval });

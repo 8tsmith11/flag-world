@@ -50,6 +50,8 @@ export class Player {
     this.inventory = new Inventory();
     this.creative = false;
     this.breakAny = false;
+    // Creative: using an item (placing, eating, throwing...) keeps it.
+    this.infiniteItems = false;
     this.immortal = false;
     // Bow: ticks the draw has been held, and the game tick it can next shoot.
     this.drawTicks = 0;
@@ -133,6 +135,15 @@ export class Player {
 
   thorns() {
     return modValue(this.inventory.armor, 'thorns');
+  }
+
+  // Uses up one of the item in a slot (placing, eating, throwing...); a
+  // creative player with infinite items keeps it. The item id, or null.
+  useOne(slot) {
+    const stack = this.inventory.get(slot);
+    if (!stack) return null;
+    if (this.creative && this.infiniteItems) return stack.item;
+    return this.inventory.takeOne(slot);
   }
 
   fireImmune() {

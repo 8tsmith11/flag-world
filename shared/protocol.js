@@ -60,7 +60,7 @@ export const S2C = {
   EMBER_BURST: 'emberBurst',
   QUARRY_PUFF: 'quarryPuff',
   STEAM_PUFF: 'steamPuff',
-  CREATIVE: 'creative', // {enabled,immortal,flying,invisible,breakAny,speed}
+  CREATIVE: 'creative', // {enabled,immortal,flying,invisible,breakAny,infiniteItems,speed}
   DAY_TIME: 'dayTime',
   SPEAK: 'speak', // {id,name,voice,text,sound}: private NPC line with a subtitle
   MONKEY: 'monkey', // Private taming/configuration/inventory view; Simon uses world movement

@@ -617,7 +617,7 @@ function startGame(msg, generated) {
   player = new LocalPlayer(msg.id, msg.color, self, world);
   inventoryScreen.setObtained(msg.teamObtained ?? []);
   setCreative(!!msg.creative);
-  inventoryScreen.setCreativeState({ immortal: !!msg.immortal, flying: !!msg.flying,
+  inventoryScreen.setCreativeState({ immortal: !!msg.immortal, flying: !!msg.flying, infiniteItems: !!msg.infiniteItems,
     invisible: !!msg.invisible, breakAny: !!msg.breakAny, speed: msg.speed ?? 1 });
   for (const p of msg.players) {
     names.set(p.id, p.name);

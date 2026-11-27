@@ -111,7 +111,7 @@ export class Explosives {
     let start = { x: s.x + dir.x * 0.4, y: s.y + eyeHeight(s) - 0.15, z: s.z + dir.z * 0.4 };
     if (isSolid(this.world.getBlock(Math.floor(start.x), Math.floor(start.y), Math.floor(start.z))))
       start = { x: s.x, y: s.y + eyeHeight(s), z: s.z };
-    player.inventory.takeOne(player.selected);
+    player.useOne(player.selected);
     player.inventoryDirty = true;
     player.nextThrowTick = game.tick + ticks(g.cooldownSeconds);
     const grenade = new Grenade(game.nextId++, player, start.x, start.y, start.z,
