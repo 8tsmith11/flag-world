@@ -415,8 +415,8 @@ const hookEel = (owner, monkey) => {
   assert.ok(wait >= F.bite.min * F.monkeySlowdown * TICK_RATE - 2, `a monkey bite came in ${wait} ticks: not ten times slower`);
   run(12);
   assert.equal(m.status, 'Waiting for a bite');
-  // Each catch goes straight to the destination (bites fast-forwarded),
-  // before it casts again; it keeps its bait.
+  // After each catch it walks the catch to its destination and puts it in
+  // before casting again (bites fast-forwarded); it keeps its bait.
   const inDst = () => dst.c.slots.reduce((n, x) => n + (x?.count ?? 0), 0);
   const catchOne = () => {
     run(TICK_RATE * 20, () => game.fishing.bobberOf(m)?.attempt);

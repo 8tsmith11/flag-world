@@ -549,8 +549,8 @@ items and gear; any change drops the current task.
 Work (`server/monkeyWorkers.js`): every working role delivers to `dests` in
 turn (round robin), skipping full ones; a destination that isn't a container
 gets items dropped on top. A monkey delivers once it carries its threshold
-(courier, collector and fisherman: anything, so a fisherman delivers each
-catch before casting again; quarry: `returnAt`; others: 16), when its
+(courier, collector and fisherman: anything, so a fisherman carries each
+catch to its destinations before casting again; quarry: `returnAt`; others: 16), when its
 inventory is full, or when it has nothing else to do. With nothing to do it
 waits (at `home` if set) and only rechecks from afar, so it never walks back
 and forth. It paths with wall climbing (up to 16 blocks, straight up or down;
@@ -2017,8 +2017,9 @@ to the same successful world and record the resolved seed as `world.seed`.
   message carries `bait`). Bobbers are entities (type `"bobber"`, `{id,
   owner, x, y, z, where, bite}`), sent to everyone when they move or a bite
   starts or ends. Fisherman monkeys (role `fisherman`, config `fishSpot`,
-  `castDir` 0..3) use the same rules, ten times slower; each catch goes to
-  its destinations right away (or stays at its feet with `collect` off).
+  `castDir` 0..3) use the same rules, ten times slower; after each catch it
+  walks to its destinations to put it in, then back to its spot to cast again
+  (with `collect` off it leaves the catch at its feet and keeps fishing).
 - Void fishing counts only just above the void's kill depth (`voidY + 4`),
   below where Void Eels swim. A hooked Void Eel (tier 2 void) is reeled up
   the line from the bobber to land beside whoever hooked it: it hunts a
