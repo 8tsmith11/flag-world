@@ -829,7 +829,10 @@ export const EXPLOSIVES = {
     fuseSeconds: 2.5, cooldownSeconds: 0.6, power: 1.2, blastRadius: 2.5, damage: 9, damageRadius: 4,
     knockback: 1.3, maxStack: 16, craftGunpowder: 2, craftCopper: 1, craftCount: 2 },
   barrel: { fuseSeconds: 3, chainFuseSeconds: [0.5, 0.9], power: 9, blastRadius: 4.5, damage: 14,
-    damageRadius: 5.5, knockback: 1.8, craftGunpowder: 6, craftPlanks: 4, craftCopper: 1 },
+    damageRadius: 5.5, knockback: 1.8, craftGunpowder: 6, craftPlanks: 4, craftCopper: 1,
+    // A lit barrel falls (block by block) while nothing solid is under it:
+    // blocks/s² and blocks/s.
+    fallGravity: 20, fallSpeed: 30 },
   gunpowder: { craftSulfur: 1, craftCharcoal: 1, craftCount: 2 },
   lighter: { craftGunpowder: 1, craftIron: 1 },
 };

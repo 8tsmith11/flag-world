@@ -1,7 +1,7 @@
 // Full-match checks for the explosives and defensive infrastructure update:
 // sulfur farming (renewable, farmer monkeys), sulfur seed sources (merchant
 // and loot), gunpowder and grenades from craftsman monkeys, grenade flight
-// and explosions, explosive barrels (fuse, chain reactions, structural damage,
+// and explosions, explosive barrels (fuse, falling when lit, chain reactions, structural damage,
 // reinforced walls), spike barricades (geometry, contact, breaking, arrows,
 // teams), steam-powered drawbridges (lengths, directions, steam, obstruction,
 // broken sections, no duplication, pathfinding) and what reaches clients.
@@ -248,17 +248,21 @@ const fuse = Math.round(X.barrel.fuseSeconds * TICK_RATE);
   // Chain reaction: each barrel caught in a blast gets a short fuse instead of
   // going off at once; the same setup always goes the same way.
   const chain = () => {
-    const ps = [0, 3, 6, 9].map((d) => barrelAt(44 + d, 26));
+    // On unbreakable blocks, so a lit barrel doesn't fall through the blasted floor.
+    const ps = [0, 3, 6, 9].map((d) => { const p = barrelAt(44 + d, 26); world.setBlock(p.x, p.y - 1, p.z, BLOCK.SHRINE_BRICKS); return p; });
     sent.clear();
     game.explosives.ignite(ps[0].x, ps[0].y, ps[0].z, { seconds: 0.05 });
     const times = [];
     run(TICK_RATE * 8, () => {
       const n = messages(1, S2C.EXPLOSION).length;
       while (times.length < n) times.push(game.tick);
-      if (times.length === 1) for (const q of ps.slice(1, 2)) assert.equal(world.getBlock(q.x, q.y, q.z), BLOCK.LIT_BARREL, 'the next barrel was not lit by the blast');
+      // (Lit, it may be falling: the blast can take the floor out from under it.)
+      if (times.length === 1) for (const q of ps.slice(1, 2))
+        assert.ok([...game.explosives.lit.values()].some((e) => e.x === q.x && e.z === q.z), 'the next barrel was not lit by the blast');
       return n >= 4;
     });
-    for (let x = ox + 40; x < ox + 64; x++) for (let z = oz + 20; z < oz + 32; z++) if (world.getBlock(x, Y, z) === BLOCK.AIR) world.setBlock(x, Y, z, BLOCK.STONE);
+    for (let x = ox + 40; x < ox + 64; x++) for (let z = oz + 20; z < oz + 32; z++)
+      if (world.getBlock(x, Y, z) === BLOCK.AIR || world.getBlock(x, Y, z) === BLOCK.SHRINE_BRICKS) world.setBlock(x, Y, z, BLOCK.STONE);
     clear(40, 20, 63, 31, 1, 5);
     return times;
   };
@@ -583,6 +587,26 @@ const spikeAt = (dx, dz, team = host.team, dy = 1) => { const p = at(dx, dz, dy)
   game.breakBlock(mx, Y, mz);
   const back = [...game.items.values()].filter((i) => (i.item ?? i.stack?.item) === BLOCK.PLANKS).reduce((n, i) => n + (i.count ?? i.stack?.count ?? 0), 0);
   assert.equal(back, owed, `breaking the mechanism gave back ${back} of ${owed} planks`);
+}
+
+// ---- A lit barrel falls like sand and goes off where it lands ----
+{
+  clear(50, 50, 52, 52, 1, 12);
+  const top = at(51, 51, 8); world.setBlock(top.x, top.y - 1, top.z, BLOCK.STONE); // a ledge to light it on
+  world.setBlock(top.x, top.y, top.z, BLOCK.EXPLOSIVE_BARREL);
+  world.setBlock(top.x, Y + 1, top.z, BLOCK.RED_FLOWER); // on the ground below
+  const booms = [], explode = game.explosives.explode.bind(game.explosives);
+  game.explosives.explode = (x, y, z, ...rest) => { booms.push({ x, y, z }); return explode(x, y, z, ...rest); };
+  assert.ok(game.explosives.ignite(top.x, top.y, top.z));
+  run(5);
+  assert.equal(world.getBlock(top.x, top.y, top.z), BLOCK.LIT_BARREL, 'a supported lit barrel moved');
+  world.setBlock(top.x, top.y - 1, top.z, BLOCK.AIR); // its support goes
+  assert.ok(run(TICK_RATE * 2, () => world.getBlock(top.x, Y + 1, top.z) === BLOCK.LIT_BARREL), 'the lit barrel did not fall to the ground');
+  for (let y = Y + 2; y <= top.y; y++) assert.equal(world.getBlock(top.x, y, top.z), BLOCK.AIR, 'the falling barrel left a block behind');
+  assert.equal([...game.items.values()].filter((e) => e.item === BLOCK.RED_FLOWER).length, 0, 'the crushed flower dropped (no hoe)');
+  assert.ok(run(fuse + 5, () => booms.length > 0), 'the fallen barrel never went off');
+  assert.ok(Math.abs(booms[0].y - (Y + 1.5)) < 0.01 && Math.abs(booms[0].x - (top.x + 0.5)) < 0.01, 'it went off somewhere other than where it landed');
+  game.explosives.explode = explode;
 }
 
 // ---- Saves: lit barrels, spike owners, drawbridges ----

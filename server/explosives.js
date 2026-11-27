@@ -5,7 +5,10 @@
 // when their fuse runs out. Barrels are blocks: lighting one swaps it for
 // BLOCK.LIT_BARREL (so every client sees the burning fuse through ordinary
 // block changes) and schedules its explosion; an explosion lights any barrel
-// in its blast with a short chain fuse instead of destroying it.
+// in its blast with a short chain fuse instead of destroying it. A lit barrel
+// falls like sand (block by block, speeding up) while nothing solid is under
+// it, breaking plants it lands on, and goes off wherever it ends up; lit
+// over the void it falls out of the world and is gone.
 //
 // Triggers: anything that should set a barrel off calls ignite(x, y, z,
 // { source, seconds }). A lighter (light(), through the block's `ignite`
@@ -142,6 +145,26 @@ export class Explosives {
     return !!kind && !!IGNITERS[kind]?.(this, x, y, z, source);
   }
 
+  // A lit barrel with nothing solid under it falls, one block at a time.
+  fall(entry) {
+    const w = this.world;
+    if (isSolid(w.getBlock(entry.x, entry.y - 1, entry.z))) { entry.vy = 0; entry.drop = 0; return; }
+    entry.vy = Math.min(X.barrel.fallSpeed, (entry.vy ?? 0) + X.barrel.fallGravity * TICK_DT);
+    entry.drop = (entry.drop ?? 0) + entry.vy * TICK_DT;
+    while (entry.drop >= 1) {
+      const { x, y, z } = entry, below = w.getBlock(x, y - 1, z);
+      if (isSolid(below)) { entry.vy = 0; entry.drop = 0; return; }
+      this.lit.delete(key(x, y, z));
+      if (y - 1 < w.minY) { w.setBlock(x, y, z, BLOCK.AIR); return; } // out of the world
+      // Plants, torches and the like under it break; liquids it just sinks into.
+      if (below !== BLOCK.AIR && !isLiquid(below)) this.game.breakBlock(x, y - 1, z);
+      entry.y--; entry.drop -= 1;
+      this.lit.set(key(x, entry.y, z), entry);
+      w.setBlock(x, entry.y, z, BLOCK.LIT_BARREL);
+      w.setBlock(x, y, z, BLOCK.AIR);
+    }
+  }
+
   // A block changed: forget damage and fuses that no longer apply.
   changed(x, y, z, id) {
     const k = key(x, y, z);
@@ -172,6 +195,7 @@ export class Explosives {
       this.game.broadcast({ type: S2C.ENTITY_DESPAWN, id: grenade.id });
       if (result === 'explode') this.explode(grenade.x, grenade.y, grenade.z, 'grenade', grenade.thrower);
     }
+    for (const entry of [...this.lit.values()]) this.fall(entry);
     for (const entry of [...this.lit.values()]) {
       if (tick < entry.at) continue;
       this.lit.delete(key(entry.x, entry.y, entry.z));
