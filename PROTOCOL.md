@@ -1554,8 +1554,9 @@ from the surface. Ruins have
 missing and weathered blocks. Generated chests use
 the tables in `shared/loot.js` (a `roost` table for roost nests; Rope Bundles are fairly common, crossbows
 and grappling hooks uncommon, and Wind Axes and Ice Swords rare, less so in
-central, dungeon and underside chests). Central island tables have more iron,
-accessories and rare gear; team island tables are weaker except cliffside
+central, dungeon and underside chests). Central island tables have more iron
+(iron gear, ingots including copper and tin, gold coins), accessories and rare
+gear, fewer bulk blocks and no wood or stone tools (`scripts/loot-check.js`); team island tables are weaker except cliffside
 ruins, which retain their good underside loot. The server rolls slots on first open from
 the world seed and chest position. Breaking one before opening it drops its
 seeded contents. Player-placed chests start empty.

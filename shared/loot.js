@@ -37,6 +37,18 @@ const ironGear = (weight = 1, modChance = IRON_MODS) => [
   { item: ITEM.IRON_HAMMER, weight: 2 * weight, min: 1, max: 1, modChance },
   { item: ITEM.IRON_ARMOR, weight: weight, min: 1, max: 1, modChance },
 ];
+// The central island is where the good stuff is: no wood or stone tools,
+// fewer bulk blocks, ingots and coins instead, and iron gear more often.
+const centralSupplies = [
+  ...supplies.map((entry) => [BLOCK.PLANKS, BLOCK.STONE, BLOCK.SAND].includes(entry.item) ? { ...entry, weight: entry.weight / 3 } : entry),
+  { item: ITEM.COPPER_INGOT, weight: 6, min: 2, max: 5 },
+  { item: ITEM.TIN_INGOT, weight: 5, min: 1, max: 3 },
+  { item: ITEM.GOLD_COIN, weight: 6, min: 2, max: 6 },
+];
+const centralGear = [
+  { item: ITEM.LEATHER_ARMOR, weight: 3, min: 1, max: 1, modChance: IRON_MODS },
+  { item: ITEM.IRON_INGOT, weight: 9, min: 2, max: 5 },
+];
 const goldenBeef = (weight) => ({ item: ITEM.GOLDEN_BEEF, weight, min: 1, max: 1 });
 const accessoryEntries = (weight) => [
   ITEM.WIND_BOOTS, ITEM.SPRING_BOOTS, ITEM.HEART_AMULET,
@@ -56,19 +68,19 @@ const lootGear = (rareWeight) => [ropeBundles, fishingRod, ...uncommonGear, ...r
 
 export const LOOT_TABLES = {
   looseChest: { rolls: [2, 3], entries: [...supplies, ...simpleGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
-  looseChestCentral: { rolls: [4, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
+  looseChestCentral: { rolls: [4, 6], entries: [...centralSupplies, ...centralGear, ...ironGear(2), goldenBeef(2), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
   // Out-of-the-way tiny islands pay for the trip: iron, iron gear, accessories.
   tinyIsland: { rolls: [4, 6], entries: [...supplies, ...usefulGear, ...ironGear(2, 0.4),
     { item: ITEM.IRON_INGOT, weight: 12, min: 2, max: 6 }, goldenBeef(3), ...accessoryEntries(5), riftOrb, ...lootGear(4)] },
   house: { rolls: [2, 4], entries: [...supplies, ...simpleGear, ...usefulGear, goldenBeef(1), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
-  houseCentral: { rolls: [4, 6], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
+  houseCentral: { rolls: [4, 6], entries: [...centralSupplies, ...centralGear, ...ironGear(2), goldenBeef(2), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
   tower: { rolls: [3, 5], entries: [...supplies, ...simpleGear, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
-  towerCentral: { rolls: [4, 7], entries: [...supplies, ...usefulGear, ...ironGear(2), goldenBeef(3), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
+  towerCentral: { rolls: [4, 7], entries: [...centralSupplies, ...centralGear, ...ironGear(3), goldenBeef(3), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
   cave: { rolls: [3, 5], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(2), ...accessoryEntries(1), riftOrb, ...lootGear(1)] },
-  caveCentral: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(2),
+  caveCentral: { rolls: [5, 7], entries: [...centralSupplies, ...centralGear, ...ironGear(3),
     { item: ITEM.IRON_INGOT, weight: 10, min: 2, max: 5 }, goldenBeef(3), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
   underside: { rolls: [5, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(4), ...accessoryEntries(4), riftOrb, ...lootGear(4)] },
-  undersideCentral: { rolls: [6, 8], entries: [...supplies, ...usefulGear, ...ironGear(2),
+  undersideCentral: { rolls: [6, 8], entries: [...centralSupplies, ...centralGear, ...ironGear(3),
     { item: ITEM.IRON_INGOT, weight: 12, min: 2, max: 6 }, goldenBeef(4), ...accessoryEntries(6), riftOrb, ...lootGear(6)] },
   dungeon: { rolls: [4, 7], entries: [...supplies, ...usefulGear, ...ironGear(), goldenBeef(3), ...accessoryEntries(3), riftOrb, ...lootGear(3)] },
   // The nest chest at a dragon roost: iron gear, accessories, Golden Beef and
@@ -77,7 +89,7 @@ export const LOOT_TABLES = {
     ...ironGear(4, 0.6), ...accessoryEntries(5).map((entry) => ({ ...entry, modChance: 0.7 })),
     goldenBeef(6), { ...riftOrb, weight: 6, max: 2 }, ...rareWeapons(3).map((entry) => ({ ...entry, modChance: 0.7 })),
     { ...uncommonGear[0], modChance: 0.6 }] },
-  dungeonCentral: { rolls: [6, 9], entries: [...supplies, ...usefulGear, ...ironGear(2),
+  dungeonCentral: { rolls: [6, 9], entries: [...centralSupplies, ...centralGear, ...ironGear(3),
     { item: ITEM.IRON_INGOT, weight: 12, min: 2, max: 6 }, goldenBeef(5), ...accessoryEntries(6), riftOrb, ...lootGear(6)] },
   // Fishing loot crates (opened from the inventory, Game.stepCrate): a
   // modest mix like a loose chest's; the iron-bound crate (tier 2 fishing)
