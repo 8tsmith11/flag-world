@@ -90,7 +90,16 @@ function createBobberModel() {
   const bottom = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xf2f2f2 }));
   const stick = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.02), new THREE.MeshLambertMaterial({ color: 0x2b2b2b }));
   stick.position.y = 0.15;
-  float.add(top, bottom, stick);
+  // Below it, a short leader of line and a steel hook (a J: shank, bend and
+  // barbed point), which shows under the water and dangles in the void.
+  const line = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.26, 0.008), new THREE.MeshBasicMaterial({ color: 0xe8e4da }));
+  line.position.y = -0.24;
+  const steel = new THREE.MeshLambertMaterial({ color: 0xb9c0c8 });
+  const hookPart = (w, h, x, y) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.016), steel); m.position.set(x, y, 0); return m; };
+  const hook = new THREE.Group();
+  hook.add(hookPart(0.016, 0.12, 0, -0.43), hookPart(0.07, 0.016, 0.027, -0.49), hookPart(0.016, 0.06, 0.055, -0.465),
+    hookPart(0.03, 0.012, 0.045, -0.44));
+  float.add(top, bottom, stick, line, hook);
   group.add(float);
   group.userData.bobber = { float };
   return group;

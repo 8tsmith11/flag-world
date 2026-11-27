@@ -198,6 +198,7 @@ const settle = (who) => run(TICK_RATE * 15, () => bobber(who) && !bobber(who).fl
   game.fishing.use(host);
   assert.ok(!bobber(host), 'the bobber was not reeled in');
   assert.equal(host.inventory.slots.reduce((n, s) => n + (s?.count ?? 0), 0) > before, true, 'reeling in on a bite caught nothing');
+  assert.ok(messages(1, S2C.NOTICE).some((m) => /^You caught /.test(m.text)), 'the player was not told what they caught');
   assert.ok(game.teamProgress.of(0).events.get('fishCaught:water') >= 1);
 }
 
@@ -464,8 +465,9 @@ const hookEel = (owner, monkey) => {
   eel.target = null; eel.provocation.target = null;
   run(TICK_RATE * 15);
   assert.ok(!eel.patrol, 'the eel never stopped hovering');
-  run(TICK_RATE * 20);
-  assert.ok(eel.state.y < landed.y - 30, 'the eel did not go back down to the void');
+  // Homing down the line takes a while (it can be distracted on the way).
+  run(TICK_RATE * 60, () => eel.state.y < landed.y - 30);
+  assert.ok(eel.state.y < landed.y - 30, `the eel did not go back down to the void (${(landed.y - eel.state.y).toFixed(1)} blocks down)`);
   game.mobs.delete(eel.id);
   game.npcs.delete(m.id);
 }

@@ -248,6 +248,8 @@ export class Fishing {
       const left = owner.inventory.add(stack.item, stack.count, stack.mods ?? null);
       if (left > 0) game.spawnItem(stack.item, left, owner.state.x, owner.state.y + 1, owner.state.z, 0, 2, 0, 0, stack.mods ?? null);
       owner.inventoryDirty = true;
+      const def = getItemDef(stack.item), name = def.name ? def.name.replace(/^./, (c) => c.toUpperCase()) : 'something';
+      this.notify(owner, `You caught ${stack.count > 1 ? `${stack.count} × ` : ''}${name}${stack.mods?.length ? ' (with a modifier!)' : ''}`);
     }
     return result;
   }
