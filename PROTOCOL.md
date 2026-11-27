@@ -1884,16 +1884,20 @@ to the same successful world and record the resolved seed as `world.seed`.
 - **Gold coins** (item 330), stack to 64; move like any item.
 - **Merchant Depot** (block 161, container `depot`): one placed per team.
   Placing it needs the team's own island, a dock direction facing away from
-  the center island (within ~70°), and the airship's dock (15 long, 7 wide,
-  4 below to 12 above the depot) plus a 48-block corridor straight out to be
-  free of solid blocks and liquids (`checkDepotSite` in `shared/merchant.js`;
-  clients outline it while you hold a depot). A refused placement sends a
-  `notice` with the reason and keeps the item.
+  the center island (within ~70°), the airship's dock (15 long, 7 wide, 4
+  below to 12 above the depot) plus an 8-block lead-in straight out to be
+  free of solid blocks and liquids, and a clear way in: a route
+  (`approachPath`) starting 140 blocks out at 0°, ±30°, ±60°, ±90° or ±120°
+  from straight out and curving in to arrive along the dock, with 4 blocks of
+  open space around it (`checkDepotSite`, `APPROACH` in `shared/merchant.js`;
+  clients outline the dock and dot the route while you hold a depot). A
+  refused placement sends a `notice` with the reason and keeps the item.
 - **Sky Merchant cycle** (`server/merchants.js`): during the day (time of day
-  0.02–0.46) with a depot and a clear dock, the team's airship flies 140
-  blocks in from the dock direction over 30 s, docks, and the merchant steps
-  off beside the depot. At 0.46 he walks back aboard and the ship leaves the
-  way it came. Killed (enemies only), he drops nothing; the ship leaves and a
+  0.02–0.46) with a depot, a clear dock and a clear route (chosen again
+  each morning, so building in the way of one route makes it take another),
+  the team's airship flies in along that route over 30 s, bow first, docks,
+  and the merchant steps off beside the depot. At 0.46 he walks back aboard
+  and the ship backs out the way it came. Killed (enemies only), he drops nothing; the ship leaves and a
   new merchant (new name and look) arrives the next morning. Stock refills
   each morning. Day numbers keep counting up (creative Set day/night moves
   forward to the next noon or midnight).

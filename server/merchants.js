@@ -20,7 +20,7 @@ import { BLOCK, isSolid } from '../shared/blocks.js';
 import { ITEM, getItemDef } from '../shared/items.js';
 import { S2C, ENTITY_TYPE, TEAMS } from '../shared/protocol.js';
 import { NPC_KIND } from '../shared/npcs.js';
-import { buyList, MERCHANT_SELLS, sellOffer, babyPrice, checkDepotSite, dockBlocked, dockPose, DOCK, DOCK_DIRS,
+import { buyList, MERCHANT_SELLS, sellOffer, babyPrice, checkDepotSite, dockBlocked, approachPath, pathPoint, dockPose, DOCK, DOCK_DIRS,
   merchantLook } from '../shared/merchant.js';
 import { createPlayerState, playerFitsAt } from '../shared/physics.js';
 import { canStand } from './pathfind.js';
@@ -148,11 +148,19 @@ export class MerchantSystem {
     const d = r.depot, [fx, fz] = DOCK_DIRS[d.facing];
     return { x: d.x + 0.5 + fx * (DOCK.gap + 0.6), y: d.y, z: d.z + 0.5 + fz * (DOCK.gap + 0.6) };
   }
-  launch(r) {
-    const d = r.depot, dock = dockPose(d, d.facing), [fx, fz] = DOCK_DIRS[d.facing];
-    r.dock = dock;
-    r.start = { x: dock.x + fx * MERCHANT.approachDistance, y: dock.y + MERCHANT.approachRise,
-      z: dock.z + fz * MERCHANT.approachDistance, yaw: dock.yaw };
+  // Along its approach path, `f` of the way in (0 far out, 1 docked), bow
+  // toward the dock (it backs out the same way).
+  flyTo(r, f) {
+    const p = pathPoint(r.path, f);
+    Object.assign(r.ship.state, { x: p.x, y: p.y, z: p.z, yaw: f >= 1 ? r.dock.yaw : p.yaw });
+    r.progress = f; r.ship.moved = true;
+  }
+  // points: the approach path (approachPath), curving in from whichever side is clear.
+  launch(r, points) {
+    const d = r.depot, dock = dockPose(d, d.facing);
+    r.dock = dock; r.path = points; r.progress = 0;
+    const first = pathPoint(points, 0);
+    r.start = { x: first.x, y: first.y, z: first.z, yaw: first.yaw };
     const ship = new Airship(this.game.nextId++, r.team, this.appearance(r), r.start);
     r.ship = ship; r.phase = 'arriving'; r.tick = this.game.tick;
     this.ships.set(ship.id, ship);
@@ -197,7 +205,7 @@ export class MerchantSystem {
     if (!r.ship) { r.phase = 'away'; return; }
     r.ship.thrust = 1;
     r.phase = 'departing'; r.tick = this.game.tick;
-    r.from = { ...r.ship.state };
+    r.from = r.path ? (r.progress ?? 1) : 0;
     this.dirty = true;
   }
   removeShip(r) {
@@ -227,18 +235,19 @@ export class MerchantSystem {
       if (r.phase === 'away') {
         if (!daytime || !r.depot || r.killedDay === day) continue;
         if (g.world.getBlock(r.depot.x, r.depot.y, r.depot.z) !== BLOCK.MERCHANT_DEPOT) { r.depot = null; this.dirty = true; continue; }
-        if (dockBlocked(g.world, r.depot, r.depot.facing)) {
+        const route = dockBlocked(g.world, r.depot, r.depot.facing) ? null : approachPath(g.world, r.depot, r.depot.facing);
+        if (!route?.points) {
           if (r.blockedDay !== day) {
             r.blockedDay = day;
             g.teamNotice(r.team, 'The Sky Merchant couldn\'t dock: something is in his airship\'s way in front of your depot.', 'danger');
           }
           continue;
         }
-        this.launch(r);
+        this.launch(r, route.points);
       } else if (r.phase === 'arriving') {
         const t = Math.min(1, (tick - r.tick) / FLIGHT_TICKS), e = easeOut(t);
-        Object.assign(r.ship.state, { x: lerp(r.start.x, r.dock.x, e), y: lerp(r.start.y, r.dock.y, e), z: lerp(r.start.z, r.dock.z, e) });
-        r.ship.thrust = 1 - e * 0.85; r.ship.moved = true;
+        this.flyTo(r, e);
+        r.ship.thrust = 1 - e * 0.85;
         if (!r.depot) { this.castOff(r); continue; }
         if (t >= 1) this.dockShip(r);
       } else if (r.phase === 'docked' || r.phase === 'boarding') {
@@ -248,11 +257,11 @@ export class MerchantSystem {
           else if (tick % MERCHANT.sellTicks === 0) this.sellFromDepot(r);
         }
       } else if (r.phase === 'departing') {
-        const t = Math.min(1, (tick - r.tick) / FLIGHT_TICKS), e = easeIn(t);
-        const to = { x: r.from.x + (r.start?.x - r.dock?.x || 0), y: r.from.y + MERCHANT.approachRise,
-          z: r.from.z + (r.start?.z - r.dock?.z || 0) };
-        Object.assign(r.ship.state, { x: lerp(r.from.x, to.x, e), y: lerp(r.from.y, to.y, e), z: lerp(r.from.z, to.z, e) });
-        r.ship.thrust = 0.2 + e * 0.8; r.ship.moved = true;
+        // Back out the way it came, from wherever it got to.
+        if (!r.path) { this.removeShip(r); continue; }
+        const t = Math.min(1, (tick - r.tick) / (FLIGHT_TICKS * Math.max(0.3, r.from))), e = easeIn(t);
+        this.flyTo(r, r.from * (1 - e));
+        r.ship.thrust = 0.2 + e * 0.8;
         if (t >= 1) this.removeShip(r);
       }
     }

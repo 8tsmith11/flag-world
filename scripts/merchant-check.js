@@ -8,7 +8,7 @@ import { TEAMS, S2C } from '../shared/protocol.js';
 import { BLOCK, isSolid } from '../shared/blocks.js';
 import { ITEM } from '../shared/items.js';
 import { MERCHANT, MONKEY_DUTY, TICK_RATE, DAY_LENGTH, DAY_START } from '../shared/config.js';
-import { checkDepotSite, babyPrice, DOCK_DIRS } from '../shared/merchant.js';
+import { checkDepotSite, babyPrice, DOCK_DIRS, DOCK, APPROACH, approachPath } from '../shared/merchant.js';
 import { SkyMerchant } from '../server/merchants.js';
 
 const game = new Game(); game.worldSize = 'small'; game.hostId = 1; game.nextId = 3;
@@ -76,8 +76,9 @@ const r = game.merchants.record(host.team);
 assert.ok(run(5, () => r.phase === 'arriving'), 'merchant did not set off in the morning');
 const ship = r.ship, start = { ...ship.state };
 assert.ok(Math.hypot(start.x - pos.x, start.z - pos.z) > MERCHANT.approachDistance * 0.9, 'airship starts too close');
-// It comes from the far side: the start lies out along the dock direction.
-assert.ok((start.x - pos.x) * fx + (start.z - pos.z) * fz > MERCHANT.approachDistance * 0.9, 'airship does not come from the far side');
+// It sets off from the start of its planned route (curving round anything
+// in the way further out).
+assert.ok(r.path?.length > 2 && Math.hypot(start.x - r.path[0].x, start.z - r.path[0].z) < 1e-6, 'airship did not start on its route');
 assert.ok(run(MERCHANT.flightSeconds * TICK_RATE + 10, () => r.phase === 'docked'), 'airship never docked');
 const merchant = r.merchant;
 assert.ok(merchant instanceof SkyMerchant && game.npcs.has(merchant.id));
@@ -206,6 +207,28 @@ const { serializeGame } = await import('../server/save.js');
 const save = JSON.parse(JSON.stringify(serializeGame(game)));
 assert.equal(save.merchants.find((m) => m.team === host.team).babies, 2);
 assert.ok(save.teamProgress.find((t) => t.team === host.team).events.some(([k]) => k === 'babyMonkey'));
-console.log('OK: depot placement and limits, arrival from the far side, docking, trading and stock, depot sales,',
+// ---- Curved approach: blocks further out don't stop placement ----
+{
+  const saved = new Map(), put = (x, y, z, id) => { const k = `${x},${y},${z}`; if (!saved.has(k)) saved.set(k, world.getBlock(x, y, z)); world.setBlock(x, y, z, id); };
+  world.setBlock(pos.x, pos.y, pos.z, BLOCK.AIR);
+  const px = -fz, pz = fx, out = (sx, w, y) => [pos.x + fx * sx + px * w, y, pos.z + fz * sx + pz * w];
+  // A pillar 40 blocks straight out (well past the dock and its lead-in).
+  for (let w = -3; w <= 3; w++) for (let y = pos.y - 3; y <= pos.y + 8; y++) for (let sx = 40; sx <= 42; sx++) put(...out(sx, w, y), BLOCK.STONE);
+  const check = checkDepotSite(world, pos, null);
+  assert.ok(check.ok, `a pillar 40 blocks out blocked the depot: ${check.reason}`);
+  const first = check.path[0];
+  assert.ok(Math.abs((first.x - pos.x) * px + (first.z - pos.z) * pz) > 20, 'the route did not curve round the pillar');
+  for (const p of check.path) for (const [k, id] of saved)
+    if (id !== BLOCK.STONE) { const [x, y, z] = k.split(',').map(Number); assert.ok(Math.hypot(x + 0.5 - p.x, z + 0.5 - p.z) > APPROACH.clearance - 1 || y < p.y - DOCK.below || y > p.y + DOCK.above, 'the route passes through the pillar'); }
+  // A wall across every way in: refused, with the reason.
+  for (let w = -170; w <= 170; w++) for (let y = pos.y - 20; y <= pos.y + 30; y++) put(...out(30, w, y), BLOCK.STONE);
+  const walled = checkDepotSite(world, pos, null);
+  assert.equal(walled.ok, false, 'a depot was allowed with every route walled off');
+  assert.match(walled.reason, /no way in/);
+  assert.equal(approachPath(world, pos, facing).points, null);
+  for (const [k, id] of saved) { const [x, y, z] = k.split(',').map(Number); world.setBlock(x, y, z, id); }
+}
+
+console.log('OK: depot placement and limits, curved approach routes, arrival from the far side, docking, trading and stock, depot sales,',
   'babies and prices, killing and replacement, night departure, replacement depots, saves');
 process.exit(0);

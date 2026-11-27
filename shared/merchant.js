@@ -173,11 +173,20 @@ export function babyPrice(bought) {
 
 // The airship docks beside the depot, its bow `gap` blocks out, lying along
 // the dock direction: `length` long, halfWidth to each side, from `below`
-// under the depot's floor to `above` over it. The approach corridor runs
-// another `corridor` blocks straight out the same way; all of it must be
-// open (no solid blocks or liquids) so the ship never passes through
-// anything. Facing: 0 north (-Z), 1 east (+X), 2 south (+Z), 3 west (-X).
-export const DOCK = { gap: 1, length: 15, halfWidth: 3, below: 4, above: 12, corridor: 48 };
+// under the depot's floor to `above` over it. That space and a `leadIn` run
+// straight out beyond it must be open (no solid blocks or liquids); further
+// out the ship comes in on a curve (approachPath) from whichever side is
+// clear, so it never passes through anything. Facing: 0 north (-Z), 1 east
+// (+X), 2 south (+Z), 3 west (-X).
+export const DOCK = { gap: 1, length: 15, halfWidth: 3, below: 4, above: 12, leadIn: 8 };
+// Approach routes tried, in order: starting `angles` degrees round from
+// straight out (MERCHANT.approachDistance away, approachRise up), curving in
+// to line up with the dock; gentle curves first (lining up `turns[0]` of the
+// approach distance out), then tight ones (lining up `turns[1]` blocks past
+// the lead-in, to get round things closer in). Each is sampled every `step`
+// blocks and needs `clearance` blocks of open space around it (below/above
+// as the dock).
+export const APPROACH = { angles: [0, 30, -30, 60, -60, 90, -90, 120, -120], turns: [0.5, 12], clearance: 4, step: 2 };
 export const DOCK_DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 
 // Directions facing away from the center island from a point, best first
@@ -189,11 +198,11 @@ export function dockFacings(world, x, z) {
     .filter((f) => f.dot > 0.34).sort((a, b) => b.dot - a.dot).map((f) => f.facing);
 }
 
-// The first blocked cell of the dock and corridor for a depot at pos facing
-// `facing`, or null when it is all clear.
+// The first blocked cell of the dock space and its straight lead-in for a
+// depot at pos facing `facing`, or null when it is all clear.
 export function dockBlocked(world, pos, facing) {
   const [dx, dz] = DOCK_DIRS[facing], px = -dz, pz = dx;
-  for (let s = DOCK.gap; s < DOCK.gap + DOCK.length + DOCK.corridor; s++) {
+  for (let s = DOCK.gap; s < DOCK.gap + DOCK.length + DOCK.leadIn; s++) {
     for (let w = -DOCK.halfWidth; w <= DOCK.halfWidth; w++) {
       const x = pos.x + dx * s + px * w, z = pos.z + dz * s + pz * w;
       for (let y = pos.y - DOCK.below; y <= pos.y + DOCK.above; y++) {
@@ -203,6 +212,63 @@ export function dockBlocked(world, pos, facing) {
     }
   }
   return null;
+}
+
+// The airship's way in for a depot: { points, blocked: null } where points
+// run from far out to the docked position (each { x, y, z }), or
+// { points: null, blocked } with the first blocked cell of the straightest
+// route when every route is blocked. The dock space itself is dockBlocked's.
+export function approachPath(world, pos, facing) {
+  const dock = dockPose(pos, facing), [dx, dz] = DOCK_DIRS[facing];
+  const lead = DOCK.length / 2 + DOCK.leadIn, D = MERCHANT.approachDistance, rise = MERCHANT.approachRise;
+  // P2: the end of the straight lead-in; Q pulls the curve round so it
+  // arrives along the dock direction.
+  const P2 = { x: dock.x + dx * lead, y: dock.y, z: dock.z + dz * lead };
+  const c2 = APPROACH.clearance ** 2;
+  let blocked = null;
+  const tries = [];
+  for (const turn of [D * APPROACH.turns[0], APPROACH.turns[1]])
+    for (const degrees of APPROACH.angles) if (turn !== APPROACH.turns[1] || degrees !== 0) tries.push([turn, degrees]);
+  for (const [turn, degrees] of tries) {
+    const Q = { x: P2.x + dx * turn, y: dock.y + rise * 0.25, z: P2.z + dz * turn };
+    const a = degrees * Math.PI / 180, ox = dx * Math.cos(a) - dz * Math.sin(a), oz = dx * Math.sin(a) + dz * Math.cos(a);
+    const P0 = { x: P2.x + ox * D, y: dock.y + rise, z: P2.z + oz * D };
+    const n = Math.ceil((Math.hypot(Q.x - P0.x, Q.z - P0.z) + Math.hypot(P2.x - Q.x, P2.z - Q.z)) / APPROACH.step);
+    const points = [];
+    let hit = null;
+    for (let i = 0; i <= n && !hit; i++) {
+      const t = i / n, u = 1 - t, at = (k) => u * u * P0[k] + 2 * u * t * Q[k] + t * t * P2[k];
+      const p = { x: at('x'), y: at('y'), z: at('z') };
+      points.push(p);
+      const bx = Math.floor(p.x), bz = Math.floor(p.z), by = Math.floor(p.y);
+      for (let x = bx - APPROACH.clearance; x <= bx + APPROACH.clearance && !hit; x++)
+        for (let z = bz - APPROACH.clearance; z <= bz + APPROACH.clearance && !hit; z++) {
+          if ((x - bx) ** 2 + (z - bz) ** 2 > c2) continue;
+          for (let y = by - DOCK.below; y <= by + DOCK.above; y++) {
+            const id = world.getBlock(x, y, z);
+            if (isSolid(id) || isLiquid(id)) { hit = { x, y, z }; break; }
+          }
+        }
+    }
+    if (!hit) { points.push({ x: dock.x, y: dock.y, z: dock.z }); return { points, blocked: null }; }
+    blocked ??= hit;
+  }
+  return { points: null, blocked };
+}
+
+// A point `f` of the way along an approach path (0 far out, 1 docked), with
+// the yaw of a ship flying along it bow first toward the dock.
+export function pathPoint(points, f) {
+  if (!points._lengths) {
+    let total = 0;
+    points._lengths = points.map((p, i) => (total += i ? Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y, p.z - points[i - 1].z) : 0));
+  }
+  const L = points._lengths, want = Math.max(0, Math.min(1, f)) * L.at(-1);
+  let i = 1;
+  while (i < points.length - 1 && L[i] < want) i++;
+  const a = points[i - 1], b = points[i], span = L[i] - L[i - 1] || 1, t = Math.max(0, Math.min(1, (want - L[i - 1]) / span));
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t,
+    yaw: Math.atan2(-(b.x - a.x), -(b.z - a.z)) };
 }
 
 // Whether a depot may go at pos for a team: { ok, facing, reason }. `island`
@@ -215,13 +281,16 @@ export function checkDepotSite(world, pos, island) {
   let blocked = null;
   for (const facing of facings) {
     const hit = dockBlocked(world, pos, facing);
-    if (!hit) return { ok: true, facing };
-    blocked ??= { facing, hit };
+    if (hit) { blocked ??= { facing, hit, dock: true }; continue; }
+    const route = approachPath(world, pos, facing);
+    if (route.points) return { ok: true, facing, path: route.points };
+    blocked ??= { facing, hit: route.blocked, dock: false };
   }
-  const below = blocked.hit.y < pos.y;
+  const below = blocked.dock && blocked.hit.y < pos.y;
   return { ok: false, facing: blocked.facing, blocked: blocked.hit,
-    reason: below ? 'The airship needs open sky in front of the depot: place it right at the island\'s edge, over the drop.'
-      : 'Something is in the airship\'s way. Clear the space in front of the depot (shown in red).' };
+    reason: below ? 'The airship needs open sky in front of the depot: place it right on the island\'s edge.'
+      : blocked.dock ? 'Something is in the airship\'s dock. Clear the space in front of the depot (shown in red).'
+        : 'The airship has no way in: every route out from here is blocked (the first block in the way is shown in red).' };
 }
 
 // The ship's docked position (center of the deck at the depot's floor

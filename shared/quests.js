@@ -235,7 +235,7 @@ export const QUESTS = [
   // ---- The Sky Merchant ----
   { id: 'depot', chapter: 'adventure', x: 6, y: 6, icon: BLOCK.MERCHANT_DEPOT, title: 'Merchant Depot', goal: event('depotPlaced'),
     text: ['Ask me for a Merchant Depot with the button at the top of this book. Your team can only have one placed at a time; you can ask for another whenever none is placed.',
-      'Place it on your island\'s far edge, facing away from the center island, with open sky in front: the Sky Merchant\'s airship flies in from the far side and docks right in front of it.',
+      'Place it right on the edge of your island, on the far side (facing away from the center island), with open sky in front: the Sky Merchant\'s airship docks right in front of it, curving in around anything further out.',
       'Holding the depot shows where the airship would dock (green: clear, red: something in the way).'] },
   { id: 'merchant', chapter: 'adventure', x: 7, y: 5, deps: ['depot'], icon: ITEM.GOLD_COIN, title: 'The Sky Merchant', goal: event('merchantTrade'),
     reward: coins(5),

@@ -949,9 +949,10 @@ function updateSpyglass(scoped, now, dir) {
 }
 
 // ---- Merchant Depot placement preview ----
-// Holding a depot and aiming at a block: the airship's dock (and its
-// approach corridor) is outlined where it would go, green when clear, red
-// with the blocking block marked when not, with the reason as a prompt.
+// Holding a depot and aiming at a block: the airship's dock (and its short
+// straight lead-in) is outlined where it would go, green when clear, red
+// with the blocking block marked when not, with the reason as a prompt; the
+// curved route the airship would fly in on is marked out with white dots.
 // Drawbridge preview: the cells its bridge will take, green where clear and
 // red where something is in the way. While holding one, from where it would
 // be placed along the way you face (default length); while its screen is
@@ -1000,7 +1001,11 @@ function updateDepotPreview(playing) {
       };
       const color = check.ok ? 0x30d158 : 0xff453a;
       depotPreviewList.push({ box: span(DOCK.gap, DOCK.gap + DOCK.length - 1), color, solid: true });
-      depotPreviewList.push({ box: span(DOCK.gap + DOCK.length, DOCK.gap + DOCK.length + DOCK.corridor - 1), color: 0xffffff });
+      depotPreviewList.push({ box: span(DOCK.gap + DOCK.length, DOCK.gap + DOCK.length + DOCK.leadIn - 1), color: 0xffffff });
+      if (check.path) for (let i = 0; i < check.path.length - 1; i += 3) {
+        const p = check.path[i];
+        depotPreviewList.push({ pos: { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, color: 0xffffff });
+      }
       if (check.blocked) depotPreviewList.push({ pos: check.blocked, color: 0xff453a });
     }
     depotPreviewList.push({ pos: place, color: check.ok ? 0x30d158 : 0xff453a });
